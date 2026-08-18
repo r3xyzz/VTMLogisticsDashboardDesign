@@ -126,3 +126,33 @@ Antes de comenzar, asegúrate de tener instalado:
 # Verificar versión
 node --version
 # Debe mostrar v18.x.x o superior
+
+# Instalar pnpm globalmente
+npm install -g pnpm
+
+# Verificar instalación
+pnpm --version
+
+# Verificar instalación
+git --version
+
+# Verificar instalación
+git --version
+
+# Usando pnpm (Recomendado)
+pnpm install
+
+# Usando npm
+npm install
+
+# Usando pnpm
+pnpm run dev
+
+# Usando npm
+npm run dev
+
+# Construir el proyecto
+pnpm run build
+
+# Previsualizar la versión construida
+pnpm run preview
