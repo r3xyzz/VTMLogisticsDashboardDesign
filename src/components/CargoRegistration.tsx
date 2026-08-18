@@ -1,4 +1,5 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react';
+import { supabase } from '../lib/supabase';
 
 /* ─── Config ─────────────────────────────────────────────────────────────────── */
 
@@ -85,16 +86,63 @@ function CostLine({ label, value, note, bold, highlight }: { label: string; valu
 
 /* ─── Main ─────────────────────────────────────────────────────────────────── */
 
+// Interface para los clientes
+interface Client {
+    id: string;
+    code: string;
+    name: string;
+    contact_name: string | null;
+}
+
 export default function CargoRegistration() {
+  const [clients, setClients] = useState<Client[]>([]);
+  const [loadingClients, setLoadingClients] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [success, setSuccess] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
   const [f, setF] = useState({
-    client: '', contact: '', origin: '', destination: '',
-    routeIdx: 0, truckIdx: 0,
-    pkg: 'Cajas', qty: '', kg: '',
-    l: '', a: '', h: '',
+    clientId: '', // ID del cliente seleccionado
+    clientCode: '', // Código del cliente (para mostrar)
+    contact: '', 
+    origin: '', 
+    destination: '',
+    routeIdx: 0, 
+    truckIdx: 0,
+    pkg: 'Cajas', 
+    qty: '', 
+    kg: '',
+    l: '', 
+    a: '', 
+    h: '',
     mode: 'propia' as 'propia' | 'sub',
-    subCost: '', notes: '', priority: 'normal' as 'normal' | 'urgente',
-    saved: false,
+    subCost: '', 
+    notes: '', 
+    priority: 'normal' as 'normal' | 'urgente',
   })
+
+  // Cargar clientes desde Supabase al montar el componente
+  useEffect(() => {
+    fetchClients();
+  }, []);
+
+  async function fetchClients() {
+    try {
+      setLoadingClients(true);
+      const { data, error } = await supabase
+        .from('clients')
+        .select('id, code, name, contact_name')
+        .order('code');
+
+      if (error) throw error;
+      setClients(data || []);
+    } catch (err) {
+      console.error('Error al cargar clientes:', err);
+      setError('Error al cargar la lista de clientes');
+    } finally {
+      setLoadingClients(false);
+    }
+  }
 
   const set = <K extends keyof typeof f>(k: K, v: typeof f[K]) => setF(p => ({ ...p, [k]: v }))
 
@@ -120,11 +168,97 @@ export default function CargoRegistration() {
   const margin20 = subBase * 0.2
   const subTotal = subBase + margin20
 
-  const handle = (e: React.FormEvent) => {
-    e.preventDefault()
-    set('saved', true)
-    setTimeout(() => set('saved', false), 4000)
-  }
+  // ─── GUARDAR EN SUPABASE ──────────────────────────────────────────────
+  const handle = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSaving(true);
+    setError(null);
+    setSuccess(false);
+
+    try {
+      // 1. Validar campos obligatorios
+      if (!f.clientId) {
+        throw new Error('Por favor selecciona un cliente');
+      }
+      if (!f.origin || !f.destination) {
+        throw new Error('Por favor selecciona origen y destino');
+      }
+      if (!f.qty || parseInt(f.qty) <= 0) {
+        throw new Error('Por favor ingresa la cantidad de bultos');
+      }
+      if (!f.kg || parseFloat(f.kg) <= 0) {
+        throw new Error('Por favor ingresa el peso total');
+      }
+
+      // 2. Construir el objeto de la orden
+      const orderData = {
+        order_number: `OT-${Date.now()}`,
+        client_id: f.clientId,
+        client_contact: f.contact || null,
+        service_type: `${f.origin}/${f.destination}`,
+        service_date: new Date().toISOString().split('T')[0],
+        quantity: parseInt(f.qty) || 0,
+        package_type: f.pkg,
+        weight_kg: parseFloat(f.kg) || 0,
+        volume_cbm: vol * qty || 0,
+        container_number: null,
+        description: f.notes || null,
+        origin: f.origin,
+        destination: f.destination,
+        is_inside_triangle: true,
+        sold_value: f.mode === 'propia' ? revenue : subTotal,
+        purchased_value: f.mode === 'sub' ? subBase : 0,
+        profit: f.mode === 'propia' ? grossMargin : margin20,
+        status: 'pending',
+        priority: f.priority,
+      };
+
+      console.log('📝 Datos a guardar:', orderData);
+
+      // 3. Guardar en Supabase
+      const { data, error } = await supabase
+        .from('orders')
+        .insert([orderData])
+        .select();
+
+      if (error) throw error;
+
+      console.log('✅ Orden creada:', data);
+      setSuccess(true);
+      
+      // Limpiar formulario después de guardar
+      setF({
+        clientId: '',
+        clientCode: '',
+        contact: '',
+        origin: '',
+        destination: '',
+        routeIdx: 0,
+        truckIdx: 0,
+        pkg: 'Cajas',
+        qty: '',
+        kg: '',
+        l: '',
+        a: '',
+        h: '',
+        mode: 'propia',
+        subCost: '',
+        notes: '',
+        priority: 'normal',
+      });
+
+      // Ocultar mensaje de éxito después de 5 segundos
+      setTimeout(() => setSuccess(false), 5000);
+
+    } catch (err) {
+      console.error('❌ Error al guardar:', err);
+      setError(err instanceof Error ? err.message : 'Error al guardar la orden');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  // ─── Render ────────────────────────────────────────────────────────────
 
   return (
     <div className="min-h-full">
@@ -152,12 +286,26 @@ export default function CargoRegistration() {
         </div>
       </header>
 
-      {f.saved && (
+      {/* Mensajes de feedback */}
+      {success && (
         <div className="mx-5 mt-4 flex items-center gap-2.5 px-4 py-3 rounded-xl bg-green-50 border border-green-200">
           <svg className="w-4 h-4 text-green-600 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
           </svg>
-          <span className="text-[12px] font-semibold text-green-700">OT-2451 registrada y cotización enviada al cliente.</span>
+          <span className="text-[12px] font-semibold text-green-700">
+            ✅ ¡Orden registrada exitosamente en la base de datos!
+          </span>
+        </div>
+      )}
+
+      {error && (
+        <div className="mx-5 mt-4 flex items-center gap-2.5 px-4 py-3 rounded-xl bg-red-50 border border-red-200">
+          <svg className="w-4 h-4 text-red-600 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+          </svg>
+          <span className="text-[12px] font-semibold text-red-700">
+            ❌ {error}
+          </span>
         </div>
       )}
 
@@ -168,25 +316,62 @@ export default function CargoRegistration() {
             {/* ── Left (2/3) ── */}
             <div className="xl:col-span-2 space-y-4">
 
-              {/* 1. Cliente */}
+              {/* 1. Cliente - AHORA CON LISTA DE SUPABASE */}
               <Card title="Datos del Cliente" icon="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z">
                 <div className="grid grid-cols-2 gap-3">
-                  <div className="col-span-2 sm:col-span-1">
-                    <Lbl req>Empresa / Cliente</Lbl>
-                    <input className={inp} placeholder="Ej: Walmart Chile S.A." value={f.client} onChange={e => set('client', e.target.value)} required />
+                  <div className="col-span-2">
+                    <Lbl req>Cliente</Lbl>
+                    <select 
+                      className={inp} 
+                      value={f.clientId} 
+                      onChange={e => {
+                        const clientId = e.target.value;
+                        const client = clients.find(c => c.id === clientId);
+                        set('clientId', clientId);
+                        set('clientCode', client?.code || '');
+                      }}
+                      required
+                    >
+                      <option value="">Seleccionar cliente...</option>
+                      {loadingClients ? (
+                        <option disabled>Cargando clientes...</option>
+                      ) : (
+                        clients.map(client => (
+                          <option key={client.id} value={client.id}>
+                            {client.code} - {client.name}
+                          </option>
+                        ))
+                      )}
+                    </select>
+                    {f.clientCode && (
+                      <p className="text-[10px] text-blue-600 mt-1 font-semibold">
+                        Cliente seleccionado: {f.clientCode}
+                      </p>
+                    )}
                   </div>
-                  <div className="col-span-2 sm:col-span-1">
+                  <div className="col-span-2">
                     <Lbl>Contacto / Email</Lbl>
-                    <input className={inp} placeholder="nombre@empresa.cl" value={f.contact} onChange={e => set('contact', e.target.value)} />
+                    <input 
+                      className={inp} 
+                      placeholder="nombre@empresa.cl" 
+                      value={f.contact} 
+                      onChange={e => set('contact', e.target.value)} 
+                    />
                   </div>
                   <div className="col-span-2">
                     <Lbl>Notas u observaciones</Lbl>
-                    <textarea className={inp + ' resize-none'} rows={2} placeholder="Instrucciones de acceso, horarios de recepción, contacto en destino..." value={f.notes} onChange={e => set('notes', e.target.value)} />
+                    <textarea 
+                      className={inp + ' resize-none'} 
+                      rows={2} 
+                      placeholder="Instrucciones de acceso, horarios de recepción, contacto en destino..." 
+                      value={f.notes} 
+                      onChange={e => set('notes', e.target.value)} 
+                    />
                   </div>
                 </div>
               </Card>
 
-              {/* 2. Ruta */}
+              {/* 2. Ruta - IGUAL */}
               <Card title="Origen · Destino · Ruta" icon="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0zM15 11a3 3 0 11-6 0 3 3 0 016 0z">
                 <div className="grid grid-cols-2 gap-3 mb-3">
                   <div>
@@ -226,7 +411,7 @@ export default function CargoRegistration() {
                 </div>
               </Card>
 
-              {/* 3. Carga */}
+              {/* 3. Carga - IGUAL */}
               <Card title="Detalle de Carga" icon="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4">
                 <div className="grid grid-cols-2 gap-3">
                   <div>
@@ -286,9 +471,8 @@ export default function CargoRegistration() {
                 )}
               </Card>
 
-              {/* 4. Asignación */}
+              {/* 4. Asignación - IGUAL */}
               <Card title="Modo de Asignación" icon="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4">
-                {/* Toggle */}
                 <div className="flex gap-3 mb-4">
                   {(['propia', 'sub'] as const).map(m => (
                     <button
@@ -342,12 +526,11 @@ export default function CargoRegistration() {
               </Card>
             </div>
 
-            {/* ── Right (1/3): Cost panel ── */}
+            {/* ── Right (1/3): Cost panel - IGUAL ── */}
             <div className="space-y-4">
               <div className="sticky top-16 space-y-4">
                 {/* Cost summary */}
                 <div className="bg-white rounded-xl border border-slate-200/80 overflow-hidden">
-                  {/* Dark header */}
                   <div className="px-5 py-4" style={{ background: 'linear-gradient(135deg,#060d1a,#102040)' }}>
                     <div className="flex items-center justify-between mb-1">
                       <h3 className="text-[13px] font-bold text-white">Resumen de Costos</h3>
@@ -410,10 +593,11 @@ export default function CargoRegistration() {
                   <div className="px-5 pb-5 space-y-2">
                     <button
                       type="submit"
-                      className="w-full py-2.5 rounded-xl text-[13px] font-bold text-white transition-all hover:opacity-90 active:scale-[0.98]"
+                      disabled={saving}
+                      className="w-full py-2.5 rounded-xl text-[13px] font-bold text-white transition-all hover:opacity-90 active:scale-[0.98] disabled:opacity-50"
                       style={{ background: 'linear-gradient(135deg,#163358,#2558a0)' }}
                     >
-                      Registrar OT y Cotizar
+                      {saving ? '⏳ Guardando...' : '💾 Registrar OT y Cotizar'}
                     </button>
                     <button
                       type="button"
