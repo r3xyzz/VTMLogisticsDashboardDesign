@@ -123,36 +123,29 @@ Antes de comenzar, asegúrate de tener instalado:
 ### 1. Node.js (v18 o superior)
 
 ```bash
-# Verificar versión
-node --version
-# Debe mostrar v18.x.x o superior
+# VTM Logistics Dashboard
 
-# Instalar pnpm globalmente
+## Levantar el proyecto
+
+```bash
+# Verificar Node.js (v18 o superior)
+node --version
+
+# Instalar pnpm (si no está)
 npm install -g pnpm
 
-# Verificar instalación
-pnpm --version
-
-# Verificar instalación
-git --version
-
-# Verificar instalación
-git --version
-
-# Usando pnpm (Recomendado)
+# Instalar dependencias
 pnpm install
-
-# Usando npm
+# o
 npm install
 
-# Usando pnpm
+# Levantar servidor de desarrollo
 pnpm run dev
-
-# Usando npm
+# o
 npm run dev
 
-# Construir el proyecto
+# Construir para producción
 pnpm run build
 
-# Previsualizar la versión construida
+# Previsualizar producción
 pnpm run preview
