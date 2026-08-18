@@ -1,3 +1,4 @@
+![VTM Logistics Logo](./public/logo_empresa_VTM.png)
 # 🚛 VTM Logistics Dashboard
 
 Sistema de gestión de transporte y logística para VTM Logistics. Permite administrar órdenes de servicio, flota de vehículos, tracking de cargas y cotizaciones en tiempo real.
