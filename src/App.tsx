@@ -23,13 +23,13 @@ export default function App() {
   const [collapsed, setCollapsed] = useState(false)
 
   const view: Record<ActiveView, React.ReactNode> = {
-    dashboard: <Dashboard onNavigate={setActiveView} />,
-    orders:    <OrdersModule onNavigate={setActiveView} />,
-    cargo:     <CargoRegistration />,
-    tracking:  <TrackingModule />,
-    documents: <DocumentsModule />,
-    fleet:     <FleetModule />,
-    providers: <ProvidersModule />,  // 👈 NUEVO
+    dashboard: <Dashboard onNavigate={setActiveView} />, // Add the Dashboard component here
+    orders:    <OrdersModule onNavigate={setActiveView} />, // Add the OrdersModule component here
+    cargo:     <CargoRegistration />, // Add the CargoRegistration component here
+    tracking:  <TrackingModule />, // Add the TrackingModule component here
+    documents: <DocumentsModule />, // Add the DocumentsModule component here
+    fleet:     <FleetModule />, // Add the FleetModule component here
+    providers: <ProvidersModule />, // Add the ProvidersModule component here
   }
 
   return (
