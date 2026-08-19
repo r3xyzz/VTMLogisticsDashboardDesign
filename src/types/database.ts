@@ -1,4 +1,5 @@
 // src/types/database.ts
+
 export interface Client {
     id: string;
     code: string;
@@ -37,10 +38,10 @@ export interface Order {
     priority: string;
     created_at: string;
     updated_at: string;
-    // Relaciones (opcional)
     client?: Client;
 }
 
+// ✅ FLEET ACTUALIZADO CON TODOS LOS CAMPOS DE LA BD
 export interface Fleet {
     id: string;
     plate: string;
@@ -50,10 +51,16 @@ export interface Fleet {
     vehicle_type: string;
     capacity_kg: number | null;
     capacity_cbm: number | null;
-    status: string;
+    status: string | null;
     driver_name: string | null;
     driver_phone: string | null;
     driver_license: string | null;
+    permit_circulation: string | null;
+    technical_review: string | null;
+    cargo_insurance: string | null;
+    vehicle_insurance: string | null;
+    has_gps: boolean | null;
+    gps_device_id: string | null;
     current_location: string | null;
     last_maintenance: string | null;
     next_maintenance: string | null;
@@ -61,6 +68,7 @@ export interface Fleet {
     updated_at: string;
 }
 
+// ✅ DRIVER CON TODOS LOS CAMPOS DE LA BD
 export interface Driver {
     id: string;
     rut: string;
@@ -71,7 +79,46 @@ export interface Driver {
     license_number: string;
     license_type: string | null;
     license_expiry: string | null;
-    is_active: boolean;
+    background_check: string | null;
+    cv: string | null;
+    hire_date: string | null;
+    current_fleet_id: string | null;
+    is_active: boolean | null;
+    created_at: string;
+    updated_at: string;
+}
+
+// ✅ DRIVER BASIC (para listados rápidos)
+export interface DriverBasic {
+    id: string;
+    rut: string;
+    full_name: string;
+    phone: string | null;
+}
+
+// ✅ PROVIDER CON TODOS LOS CAMPOS DE LA BD
+export interface Provider {
+    id: string;
+    name: string;
+    rut: string | null;
+    contact_name: string | null;
+    contact_phone: string | null;
+    contact_email: string | null;
+    address: string | null;
+    license_number: string | null;
+    background_check: string | null;
+    driver_cv: string | null;
+    vehicle_plate: string | null;
+    vehicle_brand: string | null;
+    vehicle_model: string | null;
+    vehicle_year: number | null;
+    permit_circulation: string | null;
+    technical_review: string | null;
+    cargo_insurance: string | null;
+    vehicle_insurance: string | null;
+    has_gps: boolean | null;
+    bank_account: string | null;
+    is_active: boolean | null;
     created_at: string;
     updated_at: string;
 }
@@ -93,7 +140,6 @@ export interface TripAssignment {
     notes: string | null;
     created_at: string;
     updated_at: string;
-    // Relaciones
     order?: Order;
     fleet?: Fleet;
     driver?: Driver;
