@@ -5,7 +5,7 @@ import { Modal } from './ui/Modal';
 import { Toast, addToast, useToasts } from './ui/Toast';
 import type { Driver } from '../types/database';
 
-//  TIPO PARA VEHÍCULOS (INCLUYE STATUS PARA MOSTRAR DISPONIBILIDAD)
+// TIPO PARA VEHÍCULOS (INCLUYE STATUS PARA MOSTRAR DISPONIBILIDAD)
 interface AvailableFleet {
     id: string;
     plate: string;
@@ -108,7 +108,7 @@ export default function DriversModule() {
         }
     }
 
-    //  FUNCIÓN ACTUALIZADA: MUESTRA TODOS LOS VEHÍCULOS, NO SOLO DISPONIBLES
+    // FUNCIÓN: MUESTRA TODOS LOS VEHÍCULOS, NO SOLO DISPONIBLES
     async function fetchFleets() {
         try {
             const { data, error } = await supabase
@@ -120,6 +120,82 @@ export default function DriversModule() {
             setFleets(data || []);
         } catch (error) {
             console.error('Error fetching fleets:', error);
+        }
+    }
+
+    // FUNCIÓN PARA SINCRONIZAR LA ASIGNACIÓN DEL VEHÍCULO
+    async function syncFleetAssignment(fleetId: string | null, driverId: string) {
+        try {
+            // Si hay un vehículo seleccionado, actualizar sus datos del conductor
+            if (fleetId) {
+                // Obtener el conductor actual
+                const { data: driverData } = await supabase
+                    .from('drivers')
+                    .select('full_name, phone')
+                    .eq('id', driverId)
+                    .single();
+
+                if (driverData) {
+                    const { error: fleetError } = await supabase
+                        .from('fleet')
+                        .update({
+                            driver_name: driverData.full_name,
+                            driver_phone: driverData.phone || null,
+                            status: 'in_route'
+                        })
+                        .eq('id', fleetId);
+
+                    if (fleetError) throw fleetError;
+                }
+
+                // Buscar si otro conductor tenía asignado este vehículo y desasignarlo
+                const { data: otherDriver } = await supabase
+                    .from('drivers')
+                    .select('id')
+                    .eq('current_fleet_id', fleetId)
+                    .neq('id', driverId)
+                    .maybeSingle();
+
+                if (otherDriver) {
+                    await supabase
+                        .from('drivers')
+                        .update({ current_fleet_id: null })
+                        .eq('id', otherDriver.id);
+                }
+            } else {
+                // Si se desasignó el vehículo, buscar el vehículo que tenía asignado este conductor
+                const { data: driverData } = await supabase
+                    .from('drivers')
+                    .select('full_name')
+                    .eq('id', driverId)
+                    .single();
+
+                if (driverData) {
+                    const { data: oldFleet } = await supabase
+                        .from('fleet')
+                        .select('id')
+                        .eq('driver_name', driverData.full_name)
+                        .maybeSingle();
+
+                    if (oldFleet) {
+                        // Limpiar los datos del conductor en el vehículo
+                        await supabase
+                            .from('fleet')
+                            .update({
+                                driver_name: null,
+                                driver_phone: null,
+                                status: 'available'
+                            })
+                            .eq('id', oldFleet.id);
+                    }
+                }
+            }
+
+            // Actualizar la lista de vehículos después de la sincronización
+            await fetchFleets();
+        } catch (error) {
+            console.error('Error syncing fleet assignment:', error);
+            addToast('Error al sincronizar la asignación del vehículo', 'error');
         }
     }
 
@@ -187,6 +263,11 @@ export default function DriversModule() {
                 }
             }
 
+            // Guardar el fleet_id anterior para la sincronización
+            const previousFleetId = editingId 
+                ? (drivers.find(d => d.id === editingId)?.current_fleet_id || null)
+                : null;
+
             const payload = {
                 rut: formData.rut,
                 full_name: formData.full_name,
@@ -204,18 +285,48 @@ export default function DriversModule() {
             };
 
             let result;
+            let driverId = editingId;
+
             if (editingId) {
                 result = await supabase
                     .from('drivers')
                     .update(payload)
                     .eq('id', editingId);
             } else {
-                result = await supabase
+                const insertResult = await supabase
                     .from('drivers')
-                    .insert([payload]);
+                    .insert([payload])
+                    .select();
+                
+                if (insertResult.error) throw insertResult.error;
+                driverId = insertResult.data?.[0]?.id;
+                result = insertResult;
             }
 
             if (result.error) throw result.error;
+
+            // Sincronizar la asignación del vehículo
+            const newFleetId = formData.current_fleet_id || null;
+
+            // Si hay un cambio en la asignación del vehículo
+            if (driverId && (previousFleetId !== newFleetId)) {
+                // Si se desasignó un vehículo anterior, limpiarlo
+                if (previousFleetId) {
+                    await supabase
+                        .from('fleet')
+                        .update({
+                            driver_name: null,
+                            driver_phone: null,
+                            status: 'available'
+                        })
+                        .eq('id', previousFleetId);
+                }
+
+                // Si se asignó un nuevo vehículo, actualizarlo
+                if (newFleetId) {
+                    await syncFleetAssignment(newFleetId, driverId);
+                }
+            }
 
             addToast(
                 editingId ? 'Conductor actualizado correctamente' : 'Conductor agregado correctamente',
@@ -225,7 +336,7 @@ export default function DriversModule() {
             setIsModalOpen(false);
             resetForm();
             fetchDrivers();
-            fetchFleets(); // ✅ Actualizar lista de vehículos después de guardar
+            fetchFleets();
         } catch (error) {
             console.error('Error saving driver:', error);
             addToast('Error al guardar el conductor', 'error');
@@ -238,6 +349,13 @@ export default function DriversModule() {
         if (!confirm('¿Estás seguro de eliminar este conductor?')) return;
 
         try {
+            // Obtener el vehículo asignado antes de eliminar
+            const { data: driverData } = await supabase
+                .from('drivers')
+                .select('current_fleet_id, full_name')
+                .eq('id', id)
+                .single();
+
             const { error } = await supabase
                 .from('drivers')
                 .delete()
@@ -245,8 +363,21 @@ export default function DriversModule() {
 
             if (error) throw error;
 
+            // Si tenía un vehículo asignado, limpiarlo
+            if (driverData?.current_fleet_id) {
+                await supabase
+                    .from('fleet')
+                    .update({
+                        driver_name: null,
+                        driver_phone: null,
+                        status: 'available'
+                    })
+                    .eq('id', driverData.current_fleet_id);
+            }
+
             addToast('Conductor eliminado correctamente', 'success');
             fetchDrivers();
+            fetchFleets();
         } catch (error) {
             console.error('Error deleting driver:', error);
             addToast('Error al eliminar el conductor', 'error');
@@ -525,7 +656,7 @@ export default function DriversModule() {
                 </div>
             )}
 
-            {/* ✅ MODAL ACTUALIZADO CON SELECTOR DE VEHÍCULOS MEJORADO */}
+            {/* Modal */}
             <Modal
                 isOpen={isModalOpen}
                 onClose={() => {
@@ -537,7 +668,6 @@ export default function DriversModule() {
             >
                 <form onSubmit={handleSubmit} className="space-y-4">
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        {/* RUT */}
                         <div>
                             <label className="block text-sm font-medium text-gray-700 mb-1">RUT *</label>
                             <input
@@ -551,7 +681,6 @@ export default function DriversModule() {
                             />
                         </div>
 
-                        {/* Nombre completo */}
                         <div>
                             <label className="block text-sm font-medium text-gray-700 mb-1">Nombre completo *</label>
                             <input
@@ -565,7 +694,6 @@ export default function DriversModule() {
                             />
                         </div>
 
-                        {/* Teléfono */}
                         <div>
                             <label className="block text-sm font-medium text-gray-700 mb-1">Teléfono</label>
                             <input
@@ -578,7 +706,6 @@ export default function DriversModule() {
                             />
                         </div>
 
-                        {/* Email */}
                         <div>
                             <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
                             <input
@@ -591,7 +718,6 @@ export default function DriversModule() {
                             />
                         </div>
 
-                        {/* Dirección */}
                         <div className="md:col-span-2">
                             <label className="block text-sm font-medium text-gray-700 mb-1">Dirección</label>
                             <input
@@ -604,7 +730,6 @@ export default function DriversModule() {
                             />
                         </div>
 
-                        {/* Número de licencia */}
                         <div>
                             <label className="block text-sm font-medium text-gray-700 mb-1">Número de licencia *</label>
                             <input
@@ -618,7 +743,6 @@ export default function DriversModule() {
                             />
                         </div>
 
-                        {/* Tipo de licencia */}
                         <div>
                             <label className="block text-sm font-medium text-gray-700 mb-1">Tipo de licencia</label>
                             <select
@@ -634,7 +758,6 @@ export default function DriversModule() {
                             </select>
                         </div>
 
-                        {/* Vencimiento licencia */}
                         <div>
                             <label className="block text-sm font-medium text-gray-700 mb-1">Vencimiento licencia</label>
                             <input
@@ -646,7 +769,6 @@ export default function DriversModule() {
                             />
                         </div>
 
-                        {/* Fecha de contratación */}
                         <div>
                             <label className="block text-sm font-medium text-gray-700 mb-1">Fecha de contratación</label>
                             <input
@@ -658,11 +780,8 @@ export default function DriversModule() {
                             />
                         </div>
 
-                        {/* ✅ SELECTOR DE VEHÍCULO MEJORADO - MUESTRA TODOS LOS VEHÍCULOS */}
                         <div>
-                            <label className="block text-sm font-medium text-gray-700 mb-1">
-                                Vehículo asignado
-                            </label>
+                            <label className="block text-sm font-medium text-gray-700 mb-1">Vehículo asignado</label>
                             <select
                                 name="current_fleet_id"
                                 value={formData.current_fleet_id}
@@ -673,9 +792,7 @@ export default function DriversModule() {
                                 {fleets.map(fleet => {
                                     const isAssignedToThisDriver = fleet.id === formData.current_fleet_id;
                                     
-                                    // Determinar estado del vehículo
                                     let statusText = '';
-                                    let statusEmoji = '';
                                     
                                     if (isAssignedToThisDriver) {
                                         statusText = '✅ Asignado actual';
@@ -707,7 +824,6 @@ export default function DriversModule() {
                                 })}
                             </select>
                             
-                            {/* ✅ Mensaje de ayuda sobre el vehículo seleccionado */}
                             {formData.current_fleet_id && (
                                 <div className="mt-2 text-xs">
                                     {(() => {
@@ -740,13 +856,11 @@ export default function DriversModule() {
                                 </div>
                             )}
                             
-                            {/* Mostrar cantidad de vehículos disponibles */}
                             <div className="mt-1 text-[10px] text-slate-400">
                                 {fleets.filter(f => f.status === 'available').length} vehículos disponibles de {fleets.length} totales
                             </div>
                         </div>
 
-                        {/* Antecedentes */}
                         <div>
                             <label className="block text-sm font-medium text-gray-700 mb-1">Antecedentes (URL)</label>
                             <input
@@ -759,7 +873,6 @@ export default function DriversModule() {
                             />
                         </div>
 
-                        {/* CV */}
                         <div>
                             <label className="block text-sm font-medium text-gray-700 mb-1">CV / Hoja de vida (URL)</label>
                             <input
@@ -772,7 +885,6 @@ export default function DriversModule() {
                             />
                         </div>
 
-                        {/* Activo */}
                         <div className="flex items-center gap-2">
                             <input
                                 type="checkbox"
@@ -785,7 +897,6 @@ export default function DriversModule() {
                         </div>
                     </div>
 
-                    {/* Botones */}
                     <div className="flex justify-end gap-3 pt-4 border-t border-gray-200">
                         <button
                             type="button"

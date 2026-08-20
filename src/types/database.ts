@@ -94,6 +94,7 @@ export interface DriverBasic {
     rut: string;
     full_name: string;
     phone: string | null;
+    current_fleet_id: string | null;
 }
 
 // ✅ PROVIDER CON TODOS LOS CAMPOS DE LA BD

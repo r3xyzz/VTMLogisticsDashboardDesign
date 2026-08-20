@@ -79,17 +79,55 @@ export default function FleetModule() {
     }
 
     async function fetchDrivers() {
-        try {
-            const { data, error } = await supabase
-                .from('drivers')
-                .select('id, rut, full_name, phone')
-                .eq('is_active', true)
-                .order('full_name');
+    try {
+        const { data, error } = await supabase
+            .from('drivers')
+            .select('id, rut, full_name, phone, current_fleet_id') // ✅ Incluir current_fleet_id
+            .eq('is_active', true)
+            .order('full_name');
 
-            if (error) throw error;
-            setDrivers((data || []) as DriverBasic[]);
+        if (error) throw error;
+        setDrivers((data || []) as DriverBasic[]);
+    } catch (error) {
+        console.error('Error fetching drivers:', error);
+    }
+}
+
+    // FUNCIÓN PARA SINCRONIZAR LA ASIGNACIÓN DEL CONDUCTOR
+    async function syncDriverAssignment(driverId: string | null, fleetId: string) {
+        try {
+            // Si hay un conductor seleccionado, actualizar su current_fleet_id
+            if (driverId) {
+                const { error: driverError } = await supabase
+                    .from('drivers')
+                    .update({ current_fleet_id: fleetId })
+                    .eq('id', driverId);
+
+                if (driverError) throw driverError;
+            }
+
+            // Buscar si había otro conductor asignado a este vehículo y desasignarlo
+            const { data: currentDriver } = await supabase
+                .from('drivers')
+                .select('id')
+                .eq('current_fleet_id', fleetId)
+                .neq('id', driverId || '')
+                .maybeSingle();
+
+            if (currentDriver) {
+                const { error: unassignError } = await supabase
+                    .from('drivers')
+                    .update({ current_fleet_id: null })
+                    .eq('id', currentDriver.id);
+
+                if (unassignError) throw unassignError;
+            }
+
+            // Actualizar la lista de conductores después de la sincronización
+            await fetchDrivers();
         } catch (error) {
-            console.error('Error fetching drivers:', error);
+            console.error('Error syncing driver assignment:', error);
+            addToast('Error al sincronizar la asignación del conductor', 'error');
         }
     }
 
@@ -149,6 +187,12 @@ export default function FleetModule() {
                 }
             }
 
+            // Guardar el driver_id anterior para la sincronización
+            const previousDriverId = editingId 
+                ? (fleet.find(f => f.id === editingId)?.driver_name ? 
+                    drivers.find(d => d.full_name === fleet.find(f => f.id === editingId)?.driver_name)?.id || null : null)
+                : null;
+
             const selectedDriver = drivers.find(d => d.id === formData.driver_id);
 
             const payload = {
@@ -159,7 +203,7 @@ export default function FleetModule() {
                 vehicle_type: formData.vehicle_type,
                 capacity_kg: formData.capacity_kg || null,
                 capacity_cbm: formData.capacity_cbm || null,
-                status: formData.status,
+                status: formData.driver_id ? 'in_route' : formData.status,
                 driver_name: selectedDriver?.full_name || null,
                 driver_phone: selectedDriver?.phone || null,
                 driver_license: null,
@@ -172,18 +216,44 @@ export default function FleetModule() {
             };
 
             let result;
+            let fleetId = editingId;
+
             if (editingId) {
                 result = await supabase
                     .from('fleet')
                     .update(payload)
                     .eq('id', editingId);
             } else {
-                result = await supabase
+                const insertResult = await supabase
                     .from('fleet')
-                    .insert([payload]);
+                    .insert([payload])
+                    .select();
+                
+                if (insertResult.error) throw insertResult.error;
+                fleetId = insertResult.data?.[0]?.id;
+                result = insertResult;
             }
 
             if (result.error) throw result.error;
+
+            // Sincronizar la asignación del conductor si se seleccionó uno
+            if (fleetId && formData.driver_id) {
+                // Si había un conductor anterior y es diferente, desasignarlo
+                if (previousDriverId && previousDriverId !== formData.driver_id) {
+                    await supabase
+                        .from('drivers')
+                        .update({ current_fleet_id: null })
+                        .eq('id', previousDriverId);
+                }
+                
+                await syncDriverAssignment(formData.driver_id, fleetId);
+            } else if (fleetId && !formData.driver_id && previousDriverId) {
+                // Si se desasignó el conductor, limpiar su current_fleet_id
+                await supabase
+                    .from('drivers')
+                    .update({ current_fleet_id: null })
+                    .eq('id', previousDriverId);
+            }
 
             addToast(
                 editingId ? 'Vehículo actualizado correctamente' : 'Vehículo agregado correctamente',
@@ -193,6 +263,7 @@ export default function FleetModule() {
             setIsModalOpen(false);
             resetForm();
             fetchFleet();
+            fetchDrivers();
         } catch (error) {
             console.error('Error saving fleet:', error);
             addToast('Error al guardar el vehículo', 'error');
@@ -205,6 +276,29 @@ export default function FleetModule() {
         if (!confirm('¿Estás seguro de eliminar este vehículo?')) return;
 
         try {
+            // Obtener el conductor asignado antes de eliminar
+            const { data: fleetData } = await supabase
+                .from('fleet')
+                .select('driver_name')
+                .eq('id', id)
+                .single();
+
+            // Si tenía un conductor asignado, desasignarlo
+            if (fleetData?.driver_name) {
+                const { data: driverData } = await supabase
+                    .from('drivers')
+                    .select('id')
+                    .eq('full_name', fleetData.driver_name)
+                    .maybeSingle();
+
+                if (driverData) {
+                    await supabase
+                        .from('drivers')
+                        .update({ current_fleet_id: null })
+                        .eq('id', driverData.id);
+                }
+            }
+
             const { error } = await supabase
                 .from('fleet')
                 .delete()
@@ -214,6 +308,7 @@ export default function FleetModule() {
 
             addToast('Vehículo eliminado correctamente', 'success');
             fetchFleet();
+            fetchDrivers();
         } catch (error) {
             console.error('Error deleting fleet:', error);
             addToast('Error al eliminar el vehículo', 'error');
@@ -222,15 +317,48 @@ export default function FleetModule() {
 
     async function handleStatusChange(id: string, newStatus: string) {
         try {
+            // Si el vehículo pasa a available o inactive, desasignar el conductor
+            const shouldUnassignDriver = newStatus === 'available' || newStatus === 'inactive';
+            
+            // Primero obtener el vehículo actual
+            const { data: fleetData } = await supabase
+                .from('fleet')
+                .select('driver_name')
+                .eq('id', id)
+                .single();
+
+            let updateData: any = { status: newStatus };
+
+            if (shouldUnassignDriver && fleetData?.driver_name) {
+                // Desasignar el conductor del vehículo
+                updateData.driver_name = null;
+                updateData.driver_phone = null;
+                
+                // Buscar el conductor por nombre y actualizar su current_fleet_id
+                const { data: driverData } = await supabase
+                    .from('drivers')
+                    .select('id')
+                    .eq('full_name', fleetData.driver_name)
+                    .maybeSingle();
+
+                if (driverData) {
+                    await supabase
+                        .from('drivers')
+                        .update({ current_fleet_id: null })
+                        .eq('id', driverData.id);
+                }
+            }
+
             const { error } = await supabase
                 .from('fleet')
-                .update({ status: newStatus })
+                .update(updateData)
                 .eq('id', id);
 
             if (error) throw error;
 
             addToast('Estado actualizado correctamente', 'success');
             fetchFleet();
+            fetchDrivers();
         } catch (error) {
             console.error('Error updating status:', error);
             addToast('Error al actualizar el estado', 'error');
@@ -239,6 +367,8 @@ export default function FleetModule() {
 
     function openEditModal(vehicle: Fleet) {
         setEditingId(vehicle.id);
+        const selectedDriver = drivers.find(d => d.full_name === vehicle.driver_name);
+        
         setFormData({
             plate: vehicle.plate,
             brand: vehicle.brand || '',
@@ -248,7 +378,7 @@ export default function FleetModule() {
             capacity_kg: vehicle.capacity_kg || 0,
             capacity_cbm: vehicle.capacity_cbm || 0,
             status: vehicle.status || 'available',
-            driver_id: drivers.find(d => d.full_name === vehicle.driver_name)?.id || '',
+            driver_id: selectedDriver?.id || '',
             current_location: vehicle.current_location || '',
             permit_circulation: vehicle.permit_circulation || '',
             technical_review: vehicle.technical_review || '',
@@ -548,9 +678,15 @@ export default function FleetModule() {
                                 {drivers.map(driver => (
                                     <option key={driver.id} value={driver.id}>
                                         {driver.full_name} ({driver.rut})
+                                        {driver.current_fleet_id ? ' ⚠️ Asignado a otro vehículo' : ''}
                                     </option>
                                 ))}
                             </select>
+                            {formData.driver_id && drivers.find(d => d.id === formData.driver_id)?.current_fleet_id && (
+                                <div className="mt-1 text-xs text-yellow-600">
+                                    ⚠️ Este conductor ya está asignado a otro vehículo
+                                </div>
+                            )}
                         </div>
 
                         <div>
