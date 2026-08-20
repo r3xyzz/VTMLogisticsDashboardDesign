@@ -88,7 +88,7 @@ export interface Driver {
     updated_at: string;
 }
 
-// ✅ DRIVER BASIC (para listados rápidos)
+//  DRIVER BASIC (para listados rápidos)
 export interface DriverBasic {
     id: string;
     rut: string;
@@ -97,7 +97,7 @@ export interface DriverBasic {
     current_fleet_id: string | null;
 }
 
-// ✅ PROVIDER CON TODOS LOS CAMPOS DE LA BD
+//  PROVIDER CON TODOS LOS CAMPOS DE LA BD
 export interface Provider {
     id: string;
     name: string;
