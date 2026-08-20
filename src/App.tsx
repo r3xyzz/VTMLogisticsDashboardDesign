@@ -8,6 +8,7 @@ import TrackingModule from './components/TrackingModule'
 import DocumentsModule from './components/DocumentsModule'
 import FleetModule from './components/FleetModule'
 import ProvidersModule from './components/ProvidersModule'  
+import DriversModule from './components/DriversModule'
 
 export type ActiveView = 
     | 'dashboard' 
@@ -17,6 +18,7 @@ export type ActiveView =
     | 'documents' 
     | 'fleet' 
     | 'providers'   
+    | 'drivers'
 
 export default function App() {
   const [activeView, setActiveView] = useState<ActiveView>('dashboard')
@@ -30,6 +32,7 @@ export default function App() {
     documents: <DocumentsModule />, // Add the DocumentsModule component here
     fleet:     <FleetModule />, // Add the FleetModule component here
     providers: <ProvidersModule />, // Add the ProvidersModule component here
+    drivers:   <DriversModule />, // Add the DriversModule component here
   }
 
   return (

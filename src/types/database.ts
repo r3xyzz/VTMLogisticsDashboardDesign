@@ -171,3 +171,14 @@ export interface AdditionalCost {
     approved_at: string | null;
     created_at: string;
 }
+
+export interface DriverDocument {
+    license:{
+        isValid: boolean;
+        daysUntilExpiration: number | null;
+        status: 'vigentee' | 'por_vencer' | 'vencido' | 'no_registrado';
+    };
+    background_check: boolean;
+        cv: boolean;
+        allValid: boolean
+}
