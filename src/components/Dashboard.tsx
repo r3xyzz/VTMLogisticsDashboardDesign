@@ -8,13 +8,13 @@ import type { ActiveView } from '../App'
 
 interface Props { onNavigate: (v: ActiveView) => void }
 
-// ✅ CONFIGURACIÓN DE LA API
+//  CONFIGURACIÓN DE LA API
 const OILPRICEAPI_KEY = import.meta.env.VITE_OILPRICEAPI_KEY;
 
-// ✅ FUNCIÓN PARA OBTENER EL PRECIO DEL DIÉSEL
+//  FUNCIÓN PARA OBTENER EL PRECIO DEL DIÉSEL
 // src/components/Dashboard.tsx
 
-// ✅ FUNCIÓN PARA OBTENER EL PRECIO DEL DIÉSEL
+//  FUNCIÓN PARA OBTENER EL PRECIO DEL DIÉSEL
 async function fetchDieselPrice(): Promise<number | null> {
     try {
         console.log('🔄 Obteniendo precio del diésel desde OilPriceAPI...');
@@ -41,7 +41,7 @@ async function fetchDieselPrice(): Promise<number | null> {
             // Precio en USD por galón
             const priceInUSD = data.data.price; // 4.53 USD/galón
             
-            // 🔥 CONVERSIÓN: USD/galón → CLP/litro
+            //  CONVERSIÓN: USD/galón → CLP/litro
             const USD_TO_CLP = 950;      // Tipo de cambio (puedes ajustarlo)
             const LITERS_PER_GALLON = 3.78541;
             
