@@ -3,28 +3,82 @@ import { supabase } from '../lib/supabase';
 
 /* ─── Config ─────────────────────────────────────────────────────────────────── */
 
+// ✅ CONFIGURACIÓN DE LA API PARA EL PRECIO DEL DIÉSEL
+const OILPRICEAPI_KEY = import.meta.env.VITE_OILPRICEAPI_KEY;
+
+// ✅ FUNCIÓN PARA OBTENER EL PRECIO DEL DIÉSEL
+async function fetchDieselPrice(): Promise<number | null> {
+    try {
+        console.log('🔄 Obteniendo precio del diésel para cotización...');
+        
+        const response = await fetch(
+            'https://api.oilpriceapi.com/v1/prices/latest?by_code=DIESEL_USD',
+            {
+                headers: {
+                    'Authorization': `Token ${OILPRICEAPI_KEY}`
+                }
+            }
+        );
+        
+        if (!response.ok) {
+            throw new Error(`Error HTTP: ${response.status}`);
+        }
+        
+        const data = await response.json();
+        
+        if (data && data.data && data.data.price) {
+            const priceInUSD = data.data.price;
+            const USD_TO_CLP = 950;
+            const LITERS_PER_GALLON = 3.78541;
+            
+            const priceInCLPPerGallon = priceInUSD * USD_TO_CLP;
+            const priceInCLPPerLiter = priceInCLPPerGallon / LITERS_PER_GALLON;
+            const roundedPrice = Math.round(priceInCLPPerLiter);
+            
+            console.log(`⛽ Precio del diésel para cotización: $${roundedPrice}/L`);
+            return roundedPrice;
+        } else {
+            throw new Error('No se recibió el precio');
+        }
+    } catch (error) {
+        console.error('❌ Error fetching diesel price:', error);
+        return null;
+    }
+}
+
+// ✅ RUTAS ACTUALIZADAS CON DISTANCIAS REALES
 const ROUTES = [
-  { label: 'Valparaíso → Santiago',  dist: 120, toll: 4200, litres: 28 },
-  { label: 'Santiago → San Antonio', dist: 100, toll: 2800, litres: 22 },
-  { label: 'Valparaíso → San Antonio',dist: 65, toll: 1800, litres: 16 },
-  { label: 'San Antonio → Santiago', dist: 100, toll: 2800, litres: 22 },
-  { label: 'Santiago → Valparaíso',  dist: 120, toll: 4200, litres: 28 },
-]
+  // Rutas simples (2 ciudades)
+  { label: 'Valparaíso → Santiago', origin: 'Valparaíso', destination: 'Santiago', dist: 117, toll: 4200, litres: 28, tiempo: '1h 30min' },
+  { label: 'Valparaíso → San Antonio', origin: 'Valparaíso', destination: 'San Antonio', dist: 90, toll: 1800, litres: 16, tiempo: '1h 10min' },
+  { label: 'Santiago → Valparaíso', origin: 'Santiago', destination: 'Valparaíso', dist: 117, toll: 4200, litres: 28, tiempo: '1h 30min' },
+  { label: 'Santiago → San Antonio', origin: 'Santiago', destination: 'San Antonio', dist: 100, toll: 2800, litres: 22, tiempo: '1h 15min' },
+  { label: 'San Antonio → Valparaíso', origin: 'San Antonio', destination: 'Valparaíso', dist: 90, toll: 1800, litres: 16, tiempo: '1h 10min' },
+  { label: 'San Antonio → Santiago', origin: 'San Antonio', destination: 'Santiago', dist: 100, toll: 2800, litres: 22, tiempo: '1h 15min' },
+  // Rutas combinadas (3 ciudades)
+  { label: 'Valparaíso → Santiago → San Antonio', origin: 'Valparaíso', destination: 'San Antonio', dist: 217, toll: 7000, litres: 50, tiempo: '2h 45min', combinada: true, parada: 'Santiago' },
+  { label: 'Valparaíso → San Antonio → Santiago', origin: 'Valparaíso', destination: 'Santiago', dist: 190, toll: 6000, litres: 44, tiempo: '2h 25min', combinada: true, parada: 'San Antonio' },
+  { label: 'Santiago → Valparaíso → San Antonio', origin: 'Santiago', destination: 'San Antonio', dist: 207, toll: 6000, litres: 44, tiempo: '2h 40min', combinada: true, parada: 'Valparaíso' },
+  { label: 'Santiago → San Antonio → Valparaíso', origin: 'Santiago', destination: 'Valparaíso', dist: 190, toll: 4600, litres: 38, tiempo: '2h 25min', combinada: true, parada: 'San Antonio' },
+  { label: 'San Antonio → Valparaíso → Santiago', origin: 'San Antonio', destination: 'Santiago', dist: 207, toll: 6000, litres: 44, tiempo: '2h 40min', combinada: true, parada: 'Valparaíso' },
+  { label: 'San Antonio → Santiago → Valparaíso', origin: 'San Antonio', destination: 'Valparaíso', dist: 217, toll: 7000, litres: 50, tiempo: '2h 45min', combinada: true, parada: 'Santiago' },
+];
 
 const TRUCKS = [
   { label: 'Camión 3/4 — 3.5 t',  cap: 3500,  fuelRate: 10, rate: 45000 },
   { label: 'Camión Mediano — 7 t', cap: 7000,  fuelRate: 14, rate: 72000 },
   { label: 'Camión Semi — 15 t',   cap: 15000, fuelRate: 20, rate: 120000 },
   { label: 'Camión Full — 28 t',   cap: 28000, fuelRate: 28, rate: 190000 },
-]
+];
 
-const PKGS = ['Cajas', 'Cajón', 'Pallets', 'Bultos', 'Carga General', 'Carga Refrigerada', 'Maquinaria', 'Contenedor 20"', 'Contenedor 40"']
-const CITIES = ['Valparaíso', 'Santiago', 'San Antonio', 'Viña del Mar', 'Quilpué', 'Pudahuel', 'Lo Espejo', 'Rancagua']
+const PKGS = ['Cajas', 'Cajón', 'Pallets', 'Bultos', 'Carga General', 'Carga Refrigerada', 'Maquinaria', 'Contenedor 20"', 'Contenedor 40"'];
+const CITIES = ['Valparaíso', 'Santiago', 'San Antonio', 'Viña del Mar', 'Quilpué', 'Pudahuel', 'Lo Espejo', 'Rancagua'];
 
-const DIESEL_CLP = 1090 // CLP per litre
+// ✅ PRECIO POR DEFECTO (se usará si la API falla)
+const DIESEL_CLP_DEFAULT = 1090;
 
 const clp = (n: number) =>
-  new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP', maximumFractionDigits: 0 }).format(n)
+  new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP', maximumFractionDigits: 0 }).format(n);
 
 /* ─── Sub-components ─────────────────────────────────────────────────────────── */
 
@@ -33,10 +87,10 @@ function Lbl({ children, req }: { children: React.ReactNode; req?: boolean }) {
     <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">
       {children}{req && <span className="text-red-500 ml-0.5">*</span>}
     </label>
-  )
+  );
 }
 
-const inp = 'w-full border border-slate-200 rounded-lg px-3 py-2.5 text-[13px] text-slate-800 bg-white placeholder-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-400/30 focus:border-blue-400 transition-colors'
+const inp = 'w-full border border-slate-200 rounded-lg px-3 py-2.5 text-[13px] text-slate-800 bg-white placeholder-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-400/30 focus:border-blue-400 transition-colors';
 
 function Card({ title, icon, children, accent }: { title: string; icon: string; children: React.ReactNode; accent?: boolean }) {
   return (
@@ -59,12 +113,12 @@ function Card({ title, icon, children, accent }: { title: string; icon: string; 
       </div>
       <div className="p-5">{children}</div>
     </div>
-  )
+  );
 }
 
 function CostLine({ label, value, note, bold, highlight }: { label: string; value: string; note?: string; bold?: boolean; highlight?: 'green' | 'orange' | 'blue' }) {
-  const bgMap = { green: '#f0fdf4', orange: '#fff7ed', blue: '#eff6ff' }
-  const cMap  = { green: '#15803d', orange: '#c2410c', blue: '#1e4278' }
+  const bgMap = { green: '#f0fdf4', orange: '#fff7ed', blue: '#eff6ff' };
+  const cMap  = { green: '#15803d', orange: '#c2410c', blue: '#1e4278' };
   return (
     <div
       className="flex items-start justify-between py-2"
@@ -81,7 +135,7 @@ function CostLine({ label, value, note, bold, highlight }: { label: string; valu
         {value}
       </span>
     </div>
-  )
+  );
 }
 
 /* ─── Main ─────────────────────────────────────────────────────────────────── */
@@ -101,29 +155,34 @@ export default function CargoRegistration() {
   const [success, setSuccess] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // ✅ ESTADO PARA EL PRECIO DEL DIÉSEL
+  const [dieselPrice, setDieselPrice] = useState<number>(DIESEL_CLP_DEFAULT);
+  const [loadingDiesel, setLoadingDiesel] = useState(true);
+
   const [f, setF] = useState({
-    clientId: '', // ID del cliente seleccionado
-    clientCode: '', // Código del cliente (para mostrar)
-    contact: '', 
-    origin: '', 
+    clientId: '',
+    clientCode: '',
+    contact: '',
+    origin: '',
     destination: '',
-    routeIdx: 0, 
+    routeIdx: 0,
     truckIdx: 0,
-    pkg: 'Cajas', 
-    qty: '', 
+    pkg: 'Cajas',
+    qty: '',
     kg: '',
-    l: '', 
-    a: '', 
+    l: '',
+    a: '',
     h: '',
     mode: 'propia' as 'propia' | 'sub',
-    subCost: '', 
-    notes: '', 
+    subCost: '',
+    notes: '',
     priority: 'normal' as 'normal' | 'urgente',
-  })
+  });
 
-  // Cargar clientes desde Supabase al montar el componente
+  // ✅ Cargar clientes y precio del diésel al montar el componente
   useEffect(() => {
     fetchClients();
+    loadDieselPrice();
   }, []);
 
   async function fetchClients() {
@@ -144,29 +203,49 @@ export default function CargoRegistration() {
     }
   }
 
-  const set = <K extends keyof typeof f>(k: K, v: typeof f[K]) => setF(p => ({ ...p, [k]: v }))
+  // ✅ FUNCIÓN PARA CARGAR EL PRECIO DEL DIÉSEL
+  async function loadDieselPrice() {
+    try {
+      setLoadingDiesel(true);
+      const price = await fetchDieselPrice();
+      if (price !== null && price > 0) {
+        setDieselPrice(price);
+        console.log(`⛽ Precio del diésel actualizado en cotizador: $${price}/L`);
+      } else {
+        setDieselPrice(DIESEL_CLP_DEFAULT);
+      }
+    } catch (error) {
+      console.error('Error loading diesel price:', error);
+      setDieselPrice(DIESEL_CLP_DEFAULT);
+    } finally {
+      setLoadingDiesel(false);
+    }
+  }
 
-  const route = ROUTES[f.routeIdx]
-  const truck = TRUCKS[f.truckIdx]
+  const set = <K extends keyof typeof f>(k: K, v: typeof f[K]) => setF(p => ({ ...p, [k]: v }));
+
+  const route = ROUTES[f.routeIdx];
+  const truck = TRUCKS[f.truckIdx];
 
   const vol = f.l && f.a && f.h
     ? parseFloat(f.l) * parseFloat(f.a) * parseFloat(f.h) / 1_000_000
-    : 0
-  const qty = parseInt(f.qty) || 1
-  const kg = parseFloat(f.kg) || 0
-  const overweight = kg > truck.cap
+    : 0;
+  const qty = parseInt(f.qty) || 1;
+  const kg = parseFloat(f.kg) || 0;
+  const overweight = kg > truck.cap;
 
-  const litres    = route.litres * truck.fuelRate
-  const dieselCst = litres * DIESEL_CLP
-  const tollCst   = route.toll
-  const laborCst  = 18000
-  const opCost    = dieselCst + tollCst + laborCst
-  const revenue   = truck.rate
-  const grossMargin = revenue - opCost
+  // ✅ CÁLCULOS USANDO EL PRECIO DEL DIÉSEL OBTENIDO DE LA API
+  const litres    = route.litres * truck.fuelRate;
+  const dieselCst = litres * dieselPrice;  // ✅ Usa el precio dinámico
+  const tollCst   = route.toll;
+  const laborCst  = 18000;
+  const opCost    = dieselCst + tollCst + laborCst;
+  const revenue   = truck.rate;
+  const grossMargin = revenue - opCost;
 
-  const subBase  = parseFloat(f.subCost) || 0
-  const margin20 = subBase * 0.2
-  const subTotal = subBase + margin20
+  const subBase  = parseFloat(f.subCost) || 0;
+  const margin20 = subBase * 0.2;
+  const subTotal = subBase + margin20;
 
   // ─── GUARDAR EN SUPABASE ──────────────────────────────────────────────
   const handle = async (e: React.FormEvent) => {
@@ -176,7 +255,7 @@ export default function CargoRegistration() {
     setSuccess(false);
 
     try {
-      // 1. Validar campos obligatorios
+      // ... validaciones existentes ...
       if (!f.clientId) {
         throw new Error('Por favor selecciona un cliente');
       }
@@ -215,7 +294,6 @@ export default function CargoRegistration() {
 
       console.log('📝 Datos a guardar:', orderData);
 
-      // 3. Guardar en Supabase
       const { data, error } = await supabase
         .from('orders')
         .insert([orderData])
@@ -226,7 +304,6 @@ export default function CargoRegistration() {
       console.log('✅ Orden creada:', data);
       setSuccess(true);
       
-      // Limpiar formulario después de guardar
       setF({
         clientId: '',
         clientCode: '',
@@ -247,7 +324,6 @@ export default function CargoRegistration() {
         priority: 'normal',
       });
 
-      // Ocultar mensaje de éxito después de 5 segundos
       setTimeout(() => setSuccess(false), 5000);
 
     } catch (err) {
@@ -316,7 +392,7 @@ export default function CargoRegistration() {
             {/* ── Left (2/3) ── */}
             <div className="xl:col-span-2 space-y-4">
 
-              {/* 1. Cliente - AHORA CON LISTA DE SUPABASE */}
+              {/* 1. Cliente */}
               <Card title="Datos del Cliente" icon="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z">
                 <div className="grid grid-cols-2 gap-3">
                   <div className="col-span-2">
@@ -371,47 +447,89 @@ export default function CargoRegistration() {
                 </div>
               </Card>
 
-              {/* 2. Ruta - IGUAL */}
+              {/* 2. Ruta */}
               <Card title="Origen · Destino · Ruta" icon="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0zM15 11a3 3 0 11-6 0 3 3 0 016 0z">
                 <div className="grid grid-cols-2 gap-3 mb-3">
                   <div>
                     <Lbl req>Origen</Lbl>
-                    <select className={inp} value={f.origin} onChange={e => set('origin', e.target.value)} required>
+                    <select 
+                      className={inp} 
+                      value={f.origin} 
+                      onChange={e => {
+                        const newOrigin = e.target.value;
+                        set('origin', newOrigin);
+                        if (f.destination === newOrigin) {
+                          set('destination', '');
+                        }
+                      }} 
+                      required
+                    >
                       <option value="">Seleccionar ciudad...</option>
-                      {CITIES.map(c => <option key={c}>{c}</option>)}
+                      {CITIES.map(c => <option key={c} value={c}>{c}</option>)}
                     </select>
                   </div>
                   <div>
                     <Lbl req>Destino</Lbl>
-                    <select className={inp} value={f.destination} onChange={e => set('destination', e.target.value)} required>
+                    <select 
+                      className={inp} 
+                      value={f.destination} 
+                      onChange={e => set('destination', e.target.value)} 
+                      required
+                    >
                       <option value="">Seleccionar ciudad...</option>
-                      {CITIES.map(c => <option key={c}>{c}</option>)}
+                      {CITIES
+                        .filter(c => c !== f.origin || !f.origin)
+                        .map(c => <option key={c} value={c}>{c}</option>)}
                     </select>
                   </div>
                   <div className="col-span-2">
                     <Lbl>Ruta estimada</Lbl>
-                    <select className={inp} value={f.routeIdx} onChange={e => set('routeIdx', +e.target.value)}>
-                      {ROUTES.map((r, i) => <option key={i} value={i}>{r.label} — {r.dist} km</option>)}
+                    <select 
+                      className={inp} 
+                      value={f.routeIdx} 
+                      onChange={e => {
+                        const idx = +e.target.value;
+                        const ruta = ROUTES[idx];
+                        set('routeIdx', idx);
+                        if (ruta) {
+                          set('origin', ruta.origin);
+                          set('destination', ruta.destination);
+                        }
+                      }}
+                    >
+                      {ROUTES.map((r, i) => (
+                        <option key={i} value={i}>
+                          {r.label} — {r.dist} km {r.combinada ? '🔄 (3 ciudades)' : ''}
+                        </option>
+                      ))}
                     </select>
                   </div>
                 </div>
 
-                {/* Route stats strip */}
                 <div className="grid grid-cols-3 gap-2">
-                  {[
-                    { label: 'Distancia', value: `${route.dist} km` },
-                    { label: `Diésel est. (${truck.label.split('—')[0].trim()})`, value: `${litres} L` },
-                    { label: 'Peajes aprox.', value: clp(route.toll) },
-                  ].map(s => (
-                    <div key={s.label} className="bg-slate-50 border border-slate-100 rounded-lg px-3 py-2">
-                      <div className="text-[9px] font-bold text-slate-400 uppercase tracking-wider mb-0.5">{s.label}</div>
-                      <div className="font-mono text-[13px] font-bold text-slate-800">{s.value}</div>
-                    </div>
-                  ))}
+                  <div className="bg-blue-50 border border-blue-100 rounded-lg px-3 py-2">
+                    <div className="text-[9px] font-bold text-blue-600 uppercase tracking-wider mb-0.5">Distancia</div>
+                    <div className="font-mono text-[13px] font-bold text-blue-800">{route.dist} km</div>
+                  </div>
+                  <div className="bg-green-50 border border-green-100 rounded-lg px-3 py-2">
+                    <div className="text-[9px] font-bold text-green-600 uppercase tracking-wider mb-0.5">Tiempo</div>
+                    <div className="font-mono text-[13px] font-bold text-green-800">{route.tiempo || 'N/A'}</div>
+                  </div>
+                  <div className="bg-amber-50 border border-amber-100 rounded-lg px-3 py-2">
+                    <div className="text-[9px] font-bold text-amber-600 uppercase tracking-wider mb-0.5">Peajes aprox.</div>
+                    <div className="font-mono text-[13px] font-bold text-amber-800">{clp(route.toll)}</div>
+                  </div>
                 </div>
+
+                {route.combinada && (
+                  <div className="mt-2 text-[10px] text-blue-600 bg-blue-50 border border-blue-200 rounded-lg px-3 py-1.5 flex items-center gap-2">
+                    <span>🔄</span>
+                    <span>Ruta combinada: {route.label} (Total: {route.dist} km) - Parada en {route.parada}</span>
+                  </div>
+                )}
               </Card>
 
-              {/* 3. Carga - IGUAL */}
+              {/* 3. Carga */}
               <Card title="Detalle de Carga" icon="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4">
                 <div className="grid grid-cols-2 gap-3">
                   <div>
@@ -446,7 +564,6 @@ export default function CargoRegistration() {
                   </div>
                 </div>
 
-                {/* Volume badge */}
                 {vol > 0 && (
                   <div className="mt-3 grid grid-cols-2 gap-2">
                     <div className="flex items-center gap-2.5 bg-blue-50 border border-blue-100 rounded-lg px-3 py-2.5">
@@ -471,7 +588,7 @@ export default function CargoRegistration() {
                 )}
               </Card>
 
-              {/* 4. Asignación - IGUAL */}
+              {/* 4. Asignación */}
               <Card title="Modo de Asignación" icon="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4">
                 <div className="flex gap-3 mb-4">
                   {(['propia', 'sub'] as const).map(m => (
@@ -526,10 +643,9 @@ export default function CargoRegistration() {
               </Card>
             </div>
 
-            {/* ── Right (1/3): Cost panel - IGUAL ── */}
+            {/* ── Right (1/3): Cost panel ── */}
             <div className="space-y-4">
               <div className="sticky top-16 space-y-4">
-                {/* Cost summary */}
                 <div className="bg-white rounded-xl border border-slate-200/80 overflow-hidden">
                   <div className="px-5 py-4" style={{ background: 'linear-gradient(135deg,#060d1a,#102040)' }}>
                     <div className="flex items-center justify-between mb-1">
@@ -537,12 +653,25 @@ export default function CargoRegistration() {
                       <span className="text-[10px] font-mono text-blue-400 bg-blue-900/40 px-2 py-0.5 rounded">OT-2451</span>
                     </div>
                     <p className="text-[10px] text-blue-300/70">Estimación operativa · Modo: {f.mode === 'propia' ? 'Flota Propia' : 'Subcontrato'}</p>
+                    {/* ✅ INDICADOR DEL PRECIO DEL DIÉSEL */}
+                    <div className="mt-1 flex items-center gap-2">
+                      {loadingDiesel ? (
+                        <span className="text-[9px] text-blue-400 animate-pulse">⏳ Actualizando precio diésel...</span>
+                      ) : (
+                        <span className="text-[9px] text-green-400">✅ Precio diésel: ${dieselPrice}/L (actualizado)</span>
+                      )}
+                    </div>
                   </div>
 
                   <div className="px-5 py-4 space-y-0 divide-y divide-slate-50">
                     {f.mode === 'propia' ? (
                       <>
-                        <CostLine label="Consumo diésel" value={clp(dieselCst)} note={`${litres} L × $${DIESEL_CLP}/L`} />
+                        {/* ✅ CostLine actualizado con precio dinámico */}
+                        <CostLine 
+                          label="Consumo diésel" 
+                          value={clp(dieselCst)} 
+                          note={`${litres} L × $${dieselPrice}/L`} 
+                        />
                         <CostLine label="Peajes" value={clp(tollCst)} note={route.label.split(' → ')[0]} />
                         <CostLine label="Mano de obra / viático" value={clp(laborCst)} />
                         <CostLine label="Costo operativo total" value={clp(opCost)} bold />
@@ -575,11 +704,11 @@ export default function CargoRegistration() {
                     )}
                   </div>
 
-                  {/* Info strip */}
                   <div className="mx-5 mb-4 grid grid-cols-2 gap-2">
                     <div className="bg-slate-50 border border-slate-100 rounded-lg px-3 py-2">
                       <div className="text-[9px] text-slate-400 font-bold uppercase tracking-wide">Ruta</div>
                       <div className="text-[10px] font-semibold text-slate-700 mt-0.5">{route.label}</div>
+                      <div className="text-[9px] text-slate-400 mt-0.5">{route.dist} km · {route.tiempo || 'N/A'}</div>
                     </div>
                     {f.mode === 'propia' && (
                       <div className="bg-slate-50 border border-slate-100 rounded-lg px-3 py-2">
@@ -589,7 +718,6 @@ export default function CargoRegistration() {
                     )}
                   </div>
 
-                  {/* Actions */}
                   <div className="px-5 pb-5 space-y-2">
                     <button
                       type="submit"
@@ -614,7 +742,6 @@ export default function CargoRegistration() {
                   </div>
                 </div>
 
-                {/* Pre-dispatch checklist */}
                 <div className="bg-white rounded-xl border border-slate-200/80 p-4">
                   <h4 className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-3">Checklist pre-despacho</h4>
                   {[
@@ -649,5 +776,5 @@ export default function CargoRegistration() {
         </div>
       </form>
     </div>
-  )
+  );
 }
