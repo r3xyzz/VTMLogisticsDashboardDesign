@@ -215,22 +215,20 @@ function OrderDetailModal({ order, isOpen, onClose, onRefresh }: OrderDetailProp
         }
     };
 
-    // ✅ FUNCIÓN PARA GENERAR PDF CON IMÁGENES
+    // ✅ FUNCIÓN PARA GENERAR PDF CON IMÁGENES EN PÁGINAS SEPARADAS
     const generatePDF = async () => {
         try {
             addToast('⏳ Generando PDF...', 'info');
 
             const pdf = new jsPDF('p', 'mm', 'a4');
             const pageWidth = pdf.internal.pageSize.getWidth();
+            const pageHeight = pdf.internal.pageSize.getHeight();
             let yPos = 15;
 
             // ============================================
-            // 1. CARGAR IMÁGENES (logo y PODs)
+            // 1. CARGAR IMÁGENES
             // ============================================
-            // Logo de la empresa (desde public)
             const logoBase64 = await imageToBase64('/logo_empresa_VTM.png');
-            
-            // Imágenes del POD
             const podEmptyBase64 = documents?.pod_empty_url 
                 ? await imageToBase64(documents.pod_empty_url) 
                 : null;
@@ -239,41 +237,35 @@ function OrderDetailModal({ order, isOpen, onClose, onRefresh }: OrderDetailProp
                 : null;
 
             // ============================================
-            // 2. HEADER CON LOGO
+            // 2. PÁGINA 1 - INFORMACIÓN DE LA ORDEN
             // ============================================
-            // Fondo azul para el header
+            
+            // Header con logo
             pdf.setFillColor(25, 50, 80);
             pdf.rect(0, 0, pageWidth, 35, 'F');
 
-            // Logo (si se pudo cargar)
             if (logoBase64) {
                 try {
-                    pdf.addImage(logoBase64, 'PNG', 12, 3, 25, 25);
+                    pdf.addImage(logoBase64, 'PNG', 12, 3, 30, 25);
                 } catch (e) {
                     console.warn('⚠️ No se pudo insertar el logo:', e);
                 }
             }
 
-            // Título
             pdf.setFontSize(18);
             pdf.setTextColor(255, 255, 255);
-            pdf.text('VTM Logistics', 45, 12);
-            
+            pdf.text('VTM Logistics', 48, 12);
             pdf.setFontSize(11);
-            pdf.text(`Detalle de Orden - ${order.order_number}`, 45, 22);
-            
+            pdf.text(`Detalle de Orden - ${order.order_number}`, 48, 22);
             yPos = 45;
 
-            // ============================================
-            // 3. DATOS DEL CLIENTE
-            // ============================================
+            // Cliente
             pdf.setFontSize(13);
             pdf.setTextColor(25, 50, 80);
-            pdf.text('📋 DATOS DEL CLIENTE', 15, yPos);
+            pdf.text(' DATOS DEL CLIENTE', 15, yPos);
             yPos += 7;
             pdf.setDrawColor(200, 200, 200);
             pdf.line(15, yPos - 2, pageWidth - 15, yPos - 2);
-            
             pdf.setFontSize(10);
             pdf.setTextColor(0, 0, 0);
             pdf.text(`Nombre: ${order.client?.name || 'Sin cliente'}`, 20, yPos);
@@ -287,16 +279,13 @@ function OrderDetailModal({ order, isOpen, onClose, onRefresh }: OrderDetailProp
             pdf.text(`Teléfono: ${order.client?.contact_phone || 'N/A'}`, 20, yPos);
             yPos += 10;
 
-            // ============================================
-            // 4. RUTA
-            // ============================================
+            // Ruta
             pdf.setFontSize(13);
             pdf.setTextColor(25, 50, 80);
-            pdf.text('🗺️ RUTA', 15, yPos);
+            pdf.text(' RUTA', 15, yPos);
             yPos += 7;
             pdf.setDrawColor(200, 200, 200);
             pdf.line(15, yPos - 2, pageWidth - 15, yPos - 2);
-            
             pdf.setFontSize(10);
             pdf.setTextColor(0, 0, 0);
             pdf.text(`Origen: ${order.origin}`, 20, yPos);
@@ -310,16 +299,13 @@ function OrderDetailModal({ order, isOpen, onClose, onRefresh }: OrderDetailProp
             pdf.text(`Triángulo logístico: ${order.is_inside_triangle ? '✅ Sí' : '❌ No'}`, 20, yPos);
             yPos += 10;
 
-            // ============================================
-            // 5. DETALLE DE CARGA
-            // ============================================
+            // Carga
             pdf.setFontSize(13);
             pdf.setTextColor(25, 50, 80);
-            pdf.text('📦 DETALLE DE CARGA', 15, yPos);
+            pdf.text(' DETALLE DE CARGA', 15, yPos);
             yPos += 7;
             pdf.setDrawColor(200, 200, 200);
             pdf.line(15, yPos - 2, pageWidth - 15, yPos - 2);
-            
             pdf.setFontSize(10);
             pdf.setTextColor(0, 0, 0);
             pdf.text(`Tipo de bulto: ${order.package_type || 'N/A'}`, 20, yPos);
@@ -340,16 +326,13 @@ function OrderDetailModal({ order, isOpen, onClose, onRefresh }: OrderDetailProp
             }
             yPos += 10;
 
-            // ============================================
-            // 6. RESUMEN FINANCIERO
-            // ============================================
+            // Financiero
             pdf.setFontSize(13);
             pdf.setTextColor(25, 50, 80);
-            pdf.text('💰 RESUMEN FINANCIERO', 15, yPos);
+            pdf.text(' RESUMEN FINANCIERO', 15, yPos);
             yPos += 7;
             pdf.setDrawColor(200, 200, 200);
             pdf.line(15, yPos - 2, pageWidth - 15, yPos - 2);
-            
             pdf.setFontSize(10);
             pdf.setTextColor(0, 0, 0);
             pdf.text(`Valor Venta: ${clp(order.sold_value || 0)}`, 20, yPos);
@@ -366,85 +349,125 @@ function OrderDetailModal({ order, isOpen, onClose, onRefresh }: OrderDetailProp
             }
             yPos += 10;
 
-            // ============================================
-            // 7. DOCUMENTOS DE ENTREGA (POD) CON IMÁGENES
-            // ============================================
+            // Estado de documentos (sin imágenes)
             pdf.setFontSize(13);
             pdf.setTextColor(25, 50, 80);
-            pdf.text('📋 DOCUMENTOS DE ENTREGA (POD)', 15, yPos);
+            pdf.text(' ESTADO DE DOCUMENTOS', 15, yPos);
             yPos += 7;
             pdf.setDrawColor(200, 200, 200);
             pdf.line(15, yPos - 2, pageWidth - 15, yPos - 2);
-            
             pdf.setFontSize(10);
             pdf.setTextColor(0, 0, 0);
-            pdf.text(`POD Vacío: ${documents?.pod_empty_url ? '✅ Cargado' : '⏳ Pendiente'}`, 20, yPos);
+            pdf.text(`POD Vacío: ${documents?.pod_empty_url ? ' Cargado' : ' Pendiente'}`, 20, yPos);
             yPos += 6;
-            
-            // ✅ Insertar imagen del POD Vacío si existe
-            if (podEmptyBase64) {
-                try {
-                    const imgWidth = 80;
-                    const imgHeight = 60;
-                    const imgX = (pageWidth - imgWidth) / 2;
-                    pdf.addImage(podEmptyBase64, 'JPEG', imgX, yPos, imgWidth, imgHeight);
-                    yPos += imgHeight + 5;
-                } catch (e) {
-                    console.warn('⚠️ No se pudo insertar imagen POD Vacío:', e);
-                    pdf.text('(No se pudo cargar la imagen)', 20, yPos);
-                    yPos += 6;
-                }
-            } else {
-                pdf.text('(Sin imagen disponible)', 20, yPos);
-                yPos += 6;
-            }
-
-            // POD Final
-            pdf.setFontSize(10);
-            pdf.setTextColor(0, 0, 0);
-            pdf.text(`POD Final: ${documents?.pod_final_url ? '✅ Cargado' : '⏳ Pendiente'}`, 20, yPos);
+            pdf.text(`POD Final: ${documents?.pod_final_url ? ' Cargado' : ' Pendiente'}`, 20, yPos);
             yPos += 6;
-            
-            // ✅ Insertar imagen del POD Final si existe
-            if (podFinalBase64) {
-                try {
-                    const imgWidth = 80;
-                    const imgHeight = 60;
-                    const imgX = (pageWidth - imgWidth) / 2;
-                    pdf.addImage(podFinalBase64, 'JPEG', imgX, yPos, imgWidth, imgHeight);
-                    yPos += imgHeight + 5;
-                } catch (e) {
-                    console.warn('⚠️ No se pudo insertar imagen POD Final:', e);
-                    pdf.text('(No se pudo cargar la imagen)', 20, yPos);
-                    yPos += 6;
-                }
-            } else {
-                pdf.text('(Sin imagen disponible)', 20, yPos);
-                yPos += 6;
-            }
+            pdf.text(`Guía de Despacho: ${documents?.guide_url ? ' Cargado' : ' Pendiente'}`, 20, yPos);
+            yPos += 6;
+            pdf.text(`Factura: ${documents?.invoice_url ? ' Cargado' : ' Pendiente'}`, 20, yPos);
+            yPos += 10;
 
-            yPos += 5;
-
-            // ============================================
-            // 8. FOOTER
-            // ============================================
-            const footerY = pdf.internal.pageSize.getHeight() - 12;
+            // Footer página 1
+            const footerY = pageHeight - 12;
             pdf.setFontSize(8);
             pdf.setTextColor(150, 150, 150);
             pdf.text(`Generado: ${new Date().toLocaleString('es-CL')}`, 15, footerY);
             pdf.text(`OT: ${order.order_number}`, pageWidth - 40, footerY);
+            pdf.text('Página 1/3', pageWidth / 2 - 10, footerY);
             pdf.setDrawColor(220, 220, 220);
             pdf.line(15, footerY - 4, pageWidth - 15, footerY - 4);
 
             // ============================================
-            // 9. DESCARGAR
+            // 3. PÁGINA 2 - POD VACÍO (si existe)
+            // ============================================
+            if (podEmptyBase64) {
+                pdf.addPage();
+                
+                // Título de la página
+                pdf.setFillColor(25, 50, 80);
+                pdf.rect(0, 0, pageWidth, 20, 'F');
+                pdf.setFontSize(14);
+                pdf.setTextColor(255, 255, 255);
+                pdf.text(' POD Vacío', 15, 13);
+                
+                pdf.setFontSize(9);
+                pdf.setTextColor(200, 200, 200);
+                pdf.text(`OT: ${order.order_number}`, pageWidth - 50, 13);
+                
+                try {
+                    const margin = 15;
+                    const maxWidth = pageWidth - (margin * 2);
+                    const maxHeight = pageHeight - 60;
+                    
+                    pdf.addImage(podEmptyBase64, 'JPEG', margin, 28, maxWidth, maxHeight);
+                } catch (e) {
+                    console.warn('⚠️ No se pudo insertar imagen POD Vacío:', e);
+                    pdf.setFontSize(12);
+                    pdf.setTextColor(200, 0, 0);
+                    pdf.text('❌ Error al cargar la imagen', pageWidth / 2 - 30, pageHeight / 2);
+                }
+                
+                // Footer página 2
+                const footerY2 = pageHeight - 12;
+                pdf.setFontSize(8);
+                pdf.setTextColor(150, 150, 150);
+                pdf.text(`Generado: ${new Date().toLocaleString('es-CL')}`, 15, footerY2);
+                pdf.text(`OT: ${order.order_number}`, pageWidth - 40, footerY2);
+                pdf.text('Página 2/3', pageWidth / 2 - 10, footerY2);
+                pdf.setDrawColor(220, 220, 220);
+                pdf.line(15, footerY2 - 4, pageWidth - 15, footerY2 - 4);
+            }
+
+            // ============================================
+            // 4. PÁGINA 3 - POD FINAL (si existe)
+            // ============================================
+            if (podFinalBase64) {
+                pdf.addPage();
+                
+                // Título de la página
+                pdf.setFillColor(25, 50, 80);
+                pdf.rect(0, 0, pageWidth, 20, 'F');
+                pdf.setFontSize(14);
+                pdf.setTextColor(255, 255, 255);
+                pdf.text(' POD Final', 15, 13);
+                
+                pdf.setFontSize(9);
+                pdf.setTextColor(200, 200, 200);
+                pdf.text(`OT: ${order.order_number}`, pageWidth - 50, 13);
+                
+                try {
+                    const margin = 15;
+                    const maxWidth = pageWidth - (margin * 2);
+                    const maxHeight = pageHeight - 60;
+                    
+                    pdf.addImage(podFinalBase64, 'JPEG', margin, 28, maxWidth, maxHeight);
+                } catch (e) {
+                    console.warn(' No se pudo insertar imagen POD Final:', e);
+                    pdf.setFontSize(12);
+                    pdf.setTextColor(200, 0, 0);
+                    pdf.text(' Error al cargar la imagen', pageWidth / 2 - 30, pageHeight / 2);
+                }
+                
+                // Footer página 3
+                const footerY3 = pageHeight - 12;
+                pdf.setFontSize(8);
+                pdf.setTextColor(150, 150, 150);
+                pdf.text(`Generado: ${new Date().toLocaleString('es-CL')}`, 15, footerY3);
+                pdf.text(`OT: ${order.order_number}`, pageWidth - 40, footerY3);
+                pdf.text('Página 3/3', pageWidth / 2 - 10, footerY3);
+                pdf.setDrawColor(220, 220, 220);
+                pdf.line(15, footerY3 - 4, pageWidth - 15, footerY3 - 4);
+            }
+
+            // ============================================
+            // 5. DESCARGAR
             // ============================================
             pdf.save(`OT-${order.order_number}_detalle_completo.pdf`);
-            addToast('✅ PDF descargado correctamente', 'success');
+            addToast(' PDF descargado correctamente', 'success');
 
         } catch (error) {
             console.error('Error generando PDF:', error);
-            addToast('❌ Error al generar el PDF', 'error');
+            addToast(' Error al generar el PDF', 'error');
         }
     };
 
