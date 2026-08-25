@@ -3,6 +3,9 @@ import { useEffect, useState } from 'react';
 import { supabase } from '../lib/supabase';
 import { Modal } from './ui/Modal';
 import { Toast, addToast, useToasts } from './ui/Toast';
+// ✅ jspdf
+import jsPDF from 'jspdf';
+import 'jspdf-autotable';
 
 // Interfaces
 interface OrderWithClient {
@@ -143,6 +146,7 @@ function ImageUploader({
                         src={currentImage} 
                         alt={label}
                         className="max-h-32 rounded-lg border border-slate-200 object-contain"
+                        crossOrigin="anonymous"
                     />
                 </div>
             )}
@@ -160,6 +164,7 @@ function OrderDetailModal({ order, isOpen, onClose, onRefresh }: OrderDetailProp
     const clp = (n: number) =>
         new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP', maximumFractionDigits: 0 }).format(n);
 
+    // Cargar documentos de la orden
     useEffect(() => {
         if (isOpen && order) {
             fetchDocuments();
@@ -183,6 +188,265 @@ function OrderDetailModal({ order, isOpen, onClose, onRefresh }: OrderDetailProp
             setLoadingDocs(false);
         }
     }
+
+    // ✅ FUNCIÓN PARA CONVERTIR IMAGEN A BASE64
+    const imageToBase64 = async (url: string): Promise<string | null> => {
+        try {
+            const response = await fetch(url, {
+                mode: 'cors',
+                headers: {
+                    'Cache-Control': 'no-cache'
+                }
+            });
+            if (!response.ok) {
+                console.warn('⚠️ No se pudo cargar la imagen:', url);
+                return null;
+            }
+            const blob = await response.blob();
+            return new Promise((resolve) => {
+                const reader = new FileReader();
+                reader.onload = () => resolve(reader.result as string);
+                reader.onerror = () => resolve(null);
+                reader.readAsDataURL(blob);
+            });
+        } catch (error) {
+            console.error('❌ Error cargando imagen:', error);
+            return null;
+        }
+    };
+
+    // ✅ FUNCIÓN PARA GENERAR PDF CON IMÁGENES
+    const generatePDF = async () => {
+        try {
+            addToast('⏳ Generando PDF...', 'info');
+
+            const pdf = new jsPDF('p', 'mm', 'a4');
+            const pageWidth = pdf.internal.pageSize.getWidth();
+            let yPos = 15;
+
+            // ============================================
+            // 1. CARGAR IMÁGENES (logo y PODs)
+            // ============================================
+            // Logo de la empresa (desde public)
+            const logoBase64 = await imageToBase64('/logo_empresa_VTM.png');
+            
+            // Imágenes del POD
+            const podEmptyBase64 = documents?.pod_empty_url 
+                ? await imageToBase64(documents.pod_empty_url) 
+                : null;
+            const podFinalBase64 = documents?.pod_final_url 
+                ? await imageToBase64(documents.pod_final_url) 
+                : null;
+
+            // ============================================
+            // 2. HEADER CON LOGO
+            // ============================================
+            // Fondo azul para el header
+            pdf.setFillColor(25, 50, 80);
+            pdf.rect(0, 0, pageWidth, 35, 'F');
+
+            // Logo (si se pudo cargar)
+            if (logoBase64) {
+                try {
+                    pdf.addImage(logoBase64, 'PNG', 12, 3, 25, 25);
+                } catch (e) {
+                    console.warn('⚠️ No se pudo insertar el logo:', e);
+                }
+            }
+
+            // Título
+            pdf.setFontSize(18);
+            pdf.setTextColor(255, 255, 255);
+            pdf.text('VTM Logistics', 45, 12);
+            
+            pdf.setFontSize(11);
+            pdf.text(`Detalle de Orden - ${order.order_number}`, 45, 22);
+            
+            yPos = 45;
+
+            // ============================================
+            // 3. DATOS DEL CLIENTE
+            // ============================================
+            pdf.setFontSize(13);
+            pdf.setTextColor(25, 50, 80);
+            pdf.text('📋 DATOS DEL CLIENTE', 15, yPos);
+            yPos += 7;
+            pdf.setDrawColor(200, 200, 200);
+            pdf.line(15, yPos - 2, pageWidth - 15, yPos - 2);
+            
+            pdf.setFontSize(10);
+            pdf.setTextColor(0, 0, 0);
+            pdf.text(`Nombre: ${order.client?.name || 'Sin cliente'}`, 20, yPos);
+            yPos += 6;
+            pdf.text(`Código: ${order.client?.code || 'N/A'}`, 20, yPos);
+            yPos += 6;
+            pdf.text(`Contacto: ${order.client?.contact_name || order.client_contact || 'N/A'}`, 20, yPos);
+            yPos += 6;
+            pdf.text(`Email: ${order.client?.contact_email || 'N/A'}`, 20, yPos);
+            yPos += 6;
+            pdf.text(`Teléfono: ${order.client?.contact_phone || 'N/A'}`, 20, yPos);
+            yPos += 10;
+
+            // ============================================
+            // 4. RUTA
+            // ============================================
+            pdf.setFontSize(13);
+            pdf.setTextColor(25, 50, 80);
+            pdf.text('🗺️ RUTA', 15, yPos);
+            yPos += 7;
+            pdf.setDrawColor(200, 200, 200);
+            pdf.line(15, yPos - 2, pageWidth - 15, yPos - 2);
+            
+            pdf.setFontSize(10);
+            pdf.setTextColor(0, 0, 0);
+            pdf.text(`Origen: ${order.origin}`, 20, yPos);
+            yPos += 6;
+            pdf.text(`Destino: ${order.destination}`, 20, yPos);
+            yPos += 6;
+            pdf.text(`Fecha servicio: ${new Date(order.service_date).toLocaleDateString('es-CL')}`, 20, yPos);
+            yPos += 6;
+            pdf.text(`Tipo: ${order.service_type || 'N/A'}`, 20, yPos);
+            yPos += 6;
+            pdf.text(`Triángulo logístico: ${order.is_inside_triangle ? '✅ Sí' : '❌ No'}`, 20, yPos);
+            yPos += 10;
+
+            // ============================================
+            // 5. DETALLE DE CARGA
+            // ============================================
+            pdf.setFontSize(13);
+            pdf.setTextColor(25, 50, 80);
+            pdf.text('📦 DETALLE DE CARGA', 15, yPos);
+            yPos += 7;
+            pdf.setDrawColor(200, 200, 200);
+            pdf.line(15, yPos - 2, pageWidth - 15, yPos - 2);
+            
+            pdf.setFontSize(10);
+            pdf.setTextColor(0, 0, 0);
+            pdf.text(`Tipo de bulto: ${order.package_type || 'N/A'}`, 20, yPos);
+            yPos += 6;
+            pdf.text(`Cantidad: ${order.quantity || 0} uds.`, 20, yPos);
+            yPos += 6;
+            pdf.text(`Peso: ${order.weight_kg || 0} kg`, 20, yPos);
+            yPos += 6;
+            pdf.text(`Volumen: ${order.volume_cbm || 0} m³`, 20, yPos);
+            yPos += 6;
+            if (order.container_number) {
+                pdf.text(`Contenedor: ${order.container_number}`, 20, yPos);
+                yPos += 6;
+            }
+            if (order.description) {
+                pdf.text(`Observaciones: ${order.description}`, 20, yPos);
+                yPos += 6;
+            }
+            yPos += 10;
+
+            // ============================================
+            // 6. RESUMEN FINANCIERO
+            // ============================================
+            pdf.setFontSize(13);
+            pdf.setTextColor(25, 50, 80);
+            pdf.text('💰 RESUMEN FINANCIERO', 15, yPos);
+            yPos += 7;
+            pdf.setDrawColor(200, 200, 200);
+            pdf.line(15, yPos - 2, pageWidth - 15, yPos - 2);
+            
+            pdf.setFontSize(10);
+            pdf.setTextColor(0, 0, 0);
+            pdf.text(`Valor Venta: ${clp(order.sold_value || 0)}`, 20, yPos);
+            yPos += 6;
+            pdf.text(`Costo Compra: ${clp(order.purchased_value || 0)}`, 20, yPos);
+            yPos += 6;
+            const margin = order.profit || 0;
+            if (margin >= 0) {
+                pdf.setTextColor(0, 128, 0);
+                pdf.text(`Margen / Utilidad: ${clp(margin)}`, 20, yPos);
+            } else {
+                pdf.setTextColor(200, 0, 0);
+                pdf.text(`Déficit: ${clp(Math.abs(margin))}`, 20, yPos);
+            }
+            yPos += 10;
+
+            // ============================================
+            // 7. DOCUMENTOS DE ENTREGA (POD) CON IMÁGENES
+            // ============================================
+            pdf.setFontSize(13);
+            pdf.setTextColor(25, 50, 80);
+            pdf.text('📋 DOCUMENTOS DE ENTREGA (POD)', 15, yPos);
+            yPos += 7;
+            pdf.setDrawColor(200, 200, 200);
+            pdf.line(15, yPos - 2, pageWidth - 15, yPos - 2);
+            
+            pdf.setFontSize(10);
+            pdf.setTextColor(0, 0, 0);
+            pdf.text(`POD Vacío: ${documents?.pod_empty_url ? '✅ Cargado' : '⏳ Pendiente'}`, 20, yPos);
+            yPos += 6;
+            
+            // ✅ Insertar imagen del POD Vacío si existe
+            if (podEmptyBase64) {
+                try {
+                    const imgWidth = 80;
+                    const imgHeight = 60;
+                    const imgX = (pageWidth - imgWidth) / 2;
+                    pdf.addImage(podEmptyBase64, 'JPEG', imgX, yPos, imgWidth, imgHeight);
+                    yPos += imgHeight + 5;
+                } catch (e) {
+                    console.warn('⚠️ No se pudo insertar imagen POD Vacío:', e);
+                    pdf.text('(No se pudo cargar la imagen)', 20, yPos);
+                    yPos += 6;
+                }
+            } else {
+                pdf.text('(Sin imagen disponible)', 20, yPos);
+                yPos += 6;
+            }
+
+            // POD Final
+            pdf.setFontSize(10);
+            pdf.setTextColor(0, 0, 0);
+            pdf.text(`POD Final: ${documents?.pod_final_url ? '✅ Cargado' : '⏳ Pendiente'}`, 20, yPos);
+            yPos += 6;
+            
+            // ✅ Insertar imagen del POD Final si existe
+            if (podFinalBase64) {
+                try {
+                    const imgWidth = 80;
+                    const imgHeight = 60;
+                    const imgX = (pageWidth - imgWidth) / 2;
+                    pdf.addImage(podFinalBase64, 'JPEG', imgX, yPos, imgWidth, imgHeight);
+                    yPos += imgHeight + 5;
+                } catch (e) {
+                    console.warn('⚠️ No se pudo insertar imagen POD Final:', e);
+                    pdf.text('(No se pudo cargar la imagen)', 20, yPos);
+                    yPos += 6;
+                }
+            } else {
+                pdf.text('(Sin imagen disponible)', 20, yPos);
+                yPos += 6;
+            }
+
+            yPos += 5;
+
+            // ============================================
+            // 8. FOOTER
+            // ============================================
+            const footerY = pdf.internal.pageSize.getHeight() - 12;
+            pdf.setFontSize(8);
+            pdf.setTextColor(150, 150, 150);
+            pdf.text(`Generado: ${new Date().toLocaleString('es-CL')}`, 15, footerY);
+            pdf.text(`OT: ${order.order_number}`, pageWidth - 40, footerY);
+            pdf.setDrawColor(220, 220, 220);
+            pdf.line(15, footerY - 4, pageWidth - 15, footerY - 4);
+
+            // ============================================
+            // 9. DESCARGAR
+            // ============================================
+            pdf.save(`OT-${order.order_number}_detalle_completo.pdf`);
+            addToast('✅ PDF descargado correctamente', 'success');
+
+        } catch (error) {
+            console.error('Error generando PDF:', error);
+            addToast('❌ Error al generar el PDF', 'error');
+        }
+    };
 
     // Subir imagen a Supabase Storage
     async function uploadImage(file: File, type: 'pod_empty' | 'pod_final' | 'guide' | 'invoice'): Promise<string | null> {
@@ -450,8 +714,17 @@ function OrderDetailModal({ order, isOpen, onClose, onRefresh }: OrderDetailProp
                     </div>
                 </div>
 
-                {/* Botón Cerrar */}
-                <div className="flex justify-end pt-4 border-t border-slate-200">
+                {/* ✅ Botones */}
+                <div className="flex justify-between items-center pt-4 border-t border-slate-200">
+                    <button
+                        onClick={generatePDF}
+                        className="px-4 py-2 bg-green-600 text-white text-sm font-semibold rounded-lg hover:bg-green-700 transition-colors flex items-center gap-2"
+                    >
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                        </svg>
+                        📥 Descargar PDF
+                    </button>
                     <button
                         onClick={onClose}
                         className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
