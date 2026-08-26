@@ -62,7 +62,6 @@ export default function Sidebar({ collapsed, onToggle, activeView, onNavigate }:
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
 
-  // Obtener la sesión del usuario
   useEffect(() => {
     const getSession = async () => {
       const { data } = await supabase.auth.getSession();
@@ -72,20 +71,19 @@ export default function Sidebar({ collapsed, onToggle, activeView, onNavigate }:
 
     getSession();
 
-    const { data: subscription } = supabase.auth.onAuthStateChange((_event, session) => {
+    // ✅ CORRECCIÓN: Desestructurar correctamente
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       setSession(session);
     });
 
     return () => subscription?.unsubscribe();
   }, []);
 
-  // Obtener iniciales del usuario
   const getUserInitials = () => {
     if (!session?.user?.email) return 'U';
     return session.user.email[0].toUpperCase();
   };
 
-  // Obtener nombre del usuario
   const getUserName = () => {
     if (session?.user?.user_metadata?.full_name) {
       return session.user.user_metadata.full_name;
@@ -96,7 +94,6 @@ export default function Sidebar({ collapsed, onToggle, activeView, onNavigate }:
     return 'Usuario';
   };
 
-  // Cerrar sesión
   const handleLogout = async () => {
     await supabase.auth.signOut();
     window.location.reload();
