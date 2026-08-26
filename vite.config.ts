@@ -43,6 +43,8 @@ export default defineConfig(({ mode }) => {
   }
 })
 
+
+
 type FigmaSiteConfiguration = {
   title?: string
   description?: string
