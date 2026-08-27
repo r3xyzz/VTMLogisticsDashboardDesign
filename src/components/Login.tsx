@@ -27,7 +27,7 @@ export default function Login() {
         console.error('❌ Error en signInWithOAuth:', error);
         console.error('📄 Código de error:', error.code);
         console.error('📄 Mensaje:', error.message);
-        console.error('📄 Detalles:', error.details);
+        // ✅ 'details' no existe en AuthError, lo quitamos
         throw error;
       }
       
@@ -39,7 +39,6 @@ export default function Login() {
       console.error('❌ ====== ERROR EN LOGIN ======');
       console.error('📄 Mensaje:', err.message);
       console.error('📄 Código:', err.code);
-      console.error('📄 Detalles:', err.details);
       console.error('📄 Stack:', err.stack);
       
       setError(err.message || 'Error al iniciar sesión');
@@ -114,7 +113,6 @@ export default function Login() {
             <p className="mt-1">Contacta al administrador si necesitas acceso</p>
           </div>
 
-          {/* Contador de intentos de login */}
           {loginAttempts > 0 && (
             <div className="text-center text-xs text-slate-400">
               Intentos de login: {loginAttempts}
