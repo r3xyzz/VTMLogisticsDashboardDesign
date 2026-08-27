@@ -28,65 +28,77 @@ export default function App() {
   const [loading, setLoading] = useState(true);
   const [isAuthorized, setIsAuthorized] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
+  const [debugInfo, setDebugInfo] = useState<any>(null);
   const [activeView, setActiveView] = useState<ActiveView>('dashboard');
   const [collapsed, setCollapsed] = useState(false);
 
-  // ✅ Función para verificar autorización (con logs)
+  // ✅ Función para verificar autorización con logs
   const checkAuthorization = async (email: string): Promise<boolean> => {
     try {
-      console.log('🔍 Verificando autorización para:', email);
+      console.log('🔍 ====== INICIO VERIFICACIÓN ======');
+      console.log('📧 Email a verificar:', email);
       
       const { data, error } = await supabase
         .from('authorized_users')
-        .select('email, is_active')
+        .select('email, is_active, role')
         .eq('email', email)
         .eq('is_active', true)
         .maybeSingle();
 
       if (error) {
-        console.error('❌ Error checking authorization:', error);
+        console.error('❌ Error en consulta SQL:', error);
+        setDebugInfo({ error, email, step: 'sql_query_error' });
         return false;
       }
 
-      console.log('📊 Resultado de verificación:', data);
+      console.log('📊 Resultado de la consulta:', data);
       
       if (!data) {
-        setAuthError('❌ Usuario no autorizado. Contacta al administrador.');
+        console.warn('⚠️ Email NO encontrado en authorized_users');
+        setDebugInfo({ email, result: 'not_found', step: 'authorization_check' });
         return false;
       }
 
+      console.log('✅ Email ENCONTRADO y autorizado:', data);
+      setDebugInfo({ email, data, result: 'authorized', step: 'authorization_check' });
       return true;
     } catch (err) {
       console.error('❌ Error en verificación:', err);
+      setDebugInfo({ error: err, step: 'authorization_catch' });
       return false;
     }
   };
 
   useEffect(() => {
-    // 1. Obtener sesión inicial
     const initializeAuth = async () => {
       try {
-        console.log('🔄 Inicializando autenticación...');
+        console.log('🔄 ====== INICIALIZANDO AUTENTICACIÓN ======');
         
+        // Obtener la sesión actual
         const { data: { session: initialSession }, error } = await supabase.auth.getSession();
         
         if (error) {
           console.error('❌ Error al obtener sesión:', error);
+          setDebugInfo({ error, step: 'get_session_error' });
           setLoading(false);
           return;
         }
         
-        console.log('📋 Sesión inicial:', initialSession?.user?.email || 'No hay sesión');
+        console.log('📋 Sesión obtenida:', initialSession ? 'SI hay sesión' : 'NO hay sesión');
+        console.log('👤 Email de la sesión:', initialSession?.user?.email || 'No hay email');
         
         if (initialSession?.user?.email) {
           const authorized = await checkAuthorization(initialSession.user.email);
           setIsAuthorized(authorized);
-          console.log('✅ Usuario autorizado:', authorized);
+          console.log('✅ Autorización final:', authorized);
+        } else {
+          console.log('ℹ️ No hay sesión activa, mostrando login');
         }
         
         setSession(initialSession);
       } catch (error) {
         console.error('❌ Error en initializeAuth:', error);
+        setDebugInfo({ error, step: 'initialize_auth_catch' });
       } finally {
         setLoading(false);
       }
@@ -94,29 +106,35 @@ export default function App() {
 
     initializeAuth();
 
-    // 2. Escuchar cambios en la autenticación
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, newSession) => {
-      console.log('🔄 Cambio en autenticación:', _event, newSession?.user?.email || 'No hay sesión');
+    // Escuchar cambios en la autenticación
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, newSession) => {
+      console.log('🔄 ====== CAMBIO EN AUTENTICACIÓN ======');
+      console.log('📌 Evento:', event);
+      console.log('👤 Nuevo email:', newSession?.user?.email || 'No hay email');
       
       setSession(newSession);
       
       if (newSession?.user?.email) {
         const authorized = await checkAuthorization(newSession.user.email);
         setIsAuthorized(authorized);
-        console.log('✅ Usuario autorizado después de cambio:', authorized);
+        console.log('✅ Autorización después del cambio:', authorized);
       } else {
         setIsAuthorized(false);
         setAuthError(null);
       }
     });
 
-    // 3. Limpiar suscripción al desmontar
     return () => {
       subscription?.unsubscribe();
     };
   }, []);
 
-  // Si está cargando, mostrar pantalla de carga
+  // 👇 Panel de depuración (visible en la consola)
+  console.log('🐛 ====== ESTADO ACTUAL ======');
+  console.log('🔐 Sesión:', session ? `Sesión activa: ${session.user.email}` : 'No hay sesión');
+  console.log('✅ Autorizado:', isAuthorized);
+  console.log('📝 Debug Info:', debugInfo);
+
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-slate-50">
@@ -128,12 +146,10 @@ export default function App() {
     );
   }
 
-  // Si no hay sesión o no está autorizado, mostrar Login
   if (!session || !isAuthorized) {
     return <Login />;
   }
 
-  // Si hay sesión y está autorizado, mostrar la aplicación
   const view: Record<ActiveView, React.ReactNode> = {
     dashboard: <Dashboard onNavigate={setActiveView} />,
     orders: <OrdersModule onNavigate={setActiveView} />,

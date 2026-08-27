@@ -5,13 +5,16 @@ import { supabase } from '../lib/supabase';
 export default function Login() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [loginAttempts, setLoginAttempts] = useState(0);
 
   const handleGoogleLogin = async () => {
     try {
       setLoading(true);
       setError(null);
+      setLoginAttempts(prev => prev + 1);
       
-      console.log('🔄 Iniciando login con Google...');
+      console.log(`🔄 ====== INTENTO DE LOGIN #${loginAttempts + 1} ======`);
+      console.log('📍 URL actual:', window.location.href);
       
       const { data, error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
@@ -21,14 +24,25 @@ export default function Login() {
       });
 
       if (error) {
-        console.error('❌ Error en login:', error);
+        console.error('❌ Error en signInWithOAuth:', error);
+        console.error('📄 Código de error:', error.code);
+        console.error('📄 Mensaje:', error.message);
+        console.error('📄 Detalles:', error.details);
         throw error;
       }
       
       console.log('✅ Login iniciado correctamente');
-    } catch (err) {
-      console.error('❌ Error al iniciar sesión:', err);
-      setError(err instanceof Error ? err.message : 'Error al iniciar sesión');
+      console.log('📊 Data:', data);
+      console.log('🔄 Redirigiendo a Google...');
+      
+    } catch (err: any) {
+      console.error('❌ ====== ERROR EN LOGIN ======');
+      console.error('📄 Mensaje:', err.message);
+      console.error('📄 Código:', err.code);
+      console.error('📄 Detalles:', err.details);
+      console.error('📄 Stack:', err.stack);
+      
+      setError(err.message || 'Error al iniciar sesión');
       setLoading(false);
     }
   };
@@ -89,7 +103,9 @@ export default function Login() {
 
           {error && (
             <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">
-              ❌ {error}
+              <p className="font-semibold">❌ Error:</p>
+              <p>{error}</p>
+              <p className="mt-1 text-xs text-red-500">Revisa la consola (F12) para más detalles</p>
             </div>
           )}
 
@@ -97,6 +113,13 @@ export default function Login() {
             <p>⚠️ Solo usuarios autorizados pueden acceder</p>
             <p className="mt-1">Contacta al administrador si necesitas acceso</p>
           </div>
+
+          {/* Contador de intentos de login */}
+          {loginAttempts > 0 && (
+            <div className="text-center text-xs text-slate-400">
+              Intentos de login: {loginAttempts}
+            </div>
+          )}
         </div>
 
         {/* Footer */}
