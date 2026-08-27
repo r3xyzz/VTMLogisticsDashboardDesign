@@ -26,25 +26,72 @@ export type ActiveView =
 export default function App() {
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
+  const [isAuthorized, setIsAuthorized] = useState(false);
   const [activeView, setActiveView] = useState<ActiveView>('dashboard');
   const [collapsed, setCollapsed] = useState(false);
 
+  // ✅ Función para verificar si el usuario está autorizado
+  const checkAuthorization = async (email: string): Promise<boolean> => {
+    try {
+      const { data, error } = await supabase
+        .from('authorized_users')
+        .select('email, is_active')
+        .eq('email', email)
+        .eq('is_active', true)
+        .maybeSingle();
+
+      if (error) {
+        console.error('Error checking authorization:', error);
+        return false;
+      }
+
+      return !!data; // Si existe el registro, está autorizado
+    } catch (err) {
+      console.error('Error en verificación de autorización:', err);
+      return false;
+    }
+  };
+
   useEffect(() => {
-    // Obtener sesión inicial
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setSession(session);
-      setLoading(false);
+    // 1. Obtener sesión inicial
+    const initializeAuth = async () => {
+      try {
+        const { data: { session: initialSession } } = await supabase.auth.getSession();
+        
+        if (initialSession?.user?.email) {
+          const authorized = await checkAuthorization(initialSession.user.email);
+          setIsAuthorized(authorized);
+        }
+        
+        setSession(initialSession);
+      } catch (error) {
+        console.error('Error al obtener sesión inicial:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    initializeAuth();
+
+    // 2. Escuchar cambios en la autenticación
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, newSession) => {
+      setSession(newSession);
+      
+      if (newSession?.user?.email) {
+        const authorized = await checkAuthorization(newSession.user.email);
+        setIsAuthorized(authorized);
+      } else {
+        setIsAuthorized(false);
+      }
     });
 
-    // Escuchar cambios en la autenticación
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      setSession(session);
-    });
-
-    return () => subscription.unsubscribe();
+    // 3. Limpiar suscripción al desmontar
+    return () => {
+      subscription?.unsubscribe();
+    };
   }, []);
 
-  // Si está cargando, mostrar pantalla de carga
+  // 🔄 Mostrar pantalla de carga mientras se verifica la sesión
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-slate-50">
@@ -56,12 +103,12 @@ export default function App() {
     );
   }
 
-  // Si no hay sesión, mostrar Login
-  if (!session) {
+  // 🔒 Si no hay sesión o no está autorizado, mostrar Login
+  if (!session || !isAuthorized) {
     return <Login />;
   }
 
-  // Si hay sesión, mostrar la aplicación
+  // ✅ Si hay sesión y está autorizado, mostrar la aplicación
   const view: Record<ActiveView, React.ReactNode> = {
     dashboard: <Dashboard onNavigate={setActiveView} />,
     orders: <OrdersModule onNavigate={setActiveView} />,

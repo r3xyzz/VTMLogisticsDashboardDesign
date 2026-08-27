@@ -20,7 +20,6 @@ export default function Login() {
 
       if (error) throw error;
       
-      // Supabase redirige automáticamente a Google
       console.log('✅ Iniciando sesión con Google...');
     } catch (err) {
       console.error('❌ Error al iniciar sesión:', err);
@@ -43,6 +42,7 @@ export default function Login() {
           </div>
           <h2 className="mt-4 text-3xl font-bold text-slate-900">VTM Logistics</h2>
           <p className="mt-2 text-sm text-slate-500">Sistema de Gestión de Transporte</p>
+          <p className="mt-1 text-xs text-slate-400">🔒 Acceso restringido a usuarios autorizados</p>
         </div>
 
         {/* Formulario de login */}
@@ -84,14 +84,19 @@ export default function Login() {
 
           {error && (
             <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">
-              {error}
+              ❌ {error}
             </div>
           )}
+
+          <div className="text-center text-xs text-slate-400 bg-slate-50 p-3 rounded-lg border border-slate-200">
+            <p>⚠️ Solo usuarios autorizados pueden acceder</p>
+            <p className="mt-1">Contacta al administrador si necesitas acceso</p>
+          </div>
         </div>
 
         {/* Footer */}
         <div className="mt-6 text-center text-xs text-slate-400">
-          <p>Solo usuarios autorizados de la organización</p>
+          <p>© 2026 VTM Logistics · Todos los derechos reservados</p>
         </div>
       </div>
     </div>
