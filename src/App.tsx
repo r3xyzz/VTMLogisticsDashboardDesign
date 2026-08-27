@@ -27,12 +27,15 @@ export default function App() {
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
   const [isAuthorized, setIsAuthorized] = useState(false);
+  const [authError, setAuthError] = useState<string | null>(null);
   const [activeView, setActiveView] = useState<ActiveView>('dashboard');
   const [collapsed, setCollapsed] = useState(false);
 
-  // ✅ Función para verificar si el usuario está autorizado
+  // ✅ Función para verificar autorización (con logs)
   const checkAuthorization = async (email: string): Promise<boolean> => {
     try {
+      console.log('🔍 Verificando autorización para:', email);
+      
       const { data, error } = await supabase
         .from('authorized_users')
         .select('email, is_active')
@@ -41,13 +44,20 @@ export default function App() {
         .maybeSingle();
 
       if (error) {
-        console.error('Error checking authorization:', error);
+        console.error('❌ Error checking authorization:', error);
         return false;
       }
 
-      return !!data; // Si existe el registro, está autorizado
+      console.log('📊 Resultado de verificación:', data);
+      
+      if (!data) {
+        setAuthError('❌ Usuario no autorizado. Contacta al administrador.');
+        return false;
+      }
+
+      return true;
     } catch (err) {
-      console.error('Error en verificación de autorización:', err);
+      console.error('❌ Error en verificación:', err);
       return false;
     }
   };
@@ -56,16 +66,27 @@ export default function App() {
     // 1. Obtener sesión inicial
     const initializeAuth = async () => {
       try {
-        const { data: { session: initialSession } } = await supabase.auth.getSession();
+        console.log('🔄 Inicializando autenticación...');
+        
+        const { data: { session: initialSession }, error } = await supabase.auth.getSession();
+        
+        if (error) {
+          console.error('❌ Error al obtener sesión:', error);
+          setLoading(false);
+          return;
+        }
+        
+        console.log('📋 Sesión inicial:', initialSession?.user?.email || 'No hay sesión');
         
         if (initialSession?.user?.email) {
           const authorized = await checkAuthorization(initialSession.user.email);
           setIsAuthorized(authorized);
+          console.log('✅ Usuario autorizado:', authorized);
         }
         
         setSession(initialSession);
       } catch (error) {
-        console.error('Error al obtener sesión inicial:', error);
+        console.error('❌ Error en initializeAuth:', error);
       } finally {
         setLoading(false);
       }
@@ -75,13 +96,17 @@ export default function App() {
 
     // 2. Escuchar cambios en la autenticación
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, newSession) => {
+      console.log('🔄 Cambio en autenticación:', _event, newSession?.user?.email || 'No hay sesión');
+      
       setSession(newSession);
       
       if (newSession?.user?.email) {
         const authorized = await checkAuthorization(newSession.user.email);
         setIsAuthorized(authorized);
+        console.log('✅ Usuario autorizado después de cambio:', authorized);
       } else {
         setIsAuthorized(false);
+        setAuthError(null);
       }
     });
 
@@ -91,7 +116,7 @@ export default function App() {
     };
   }, []);
 
-  // 🔄 Mostrar pantalla de carga mientras se verifica la sesión
+  // Si está cargando, mostrar pantalla de carga
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-slate-50">
@@ -103,12 +128,12 @@ export default function App() {
     );
   }
 
-  // 🔒 Si no hay sesión o no está autorizado, mostrar Login
+  // Si no hay sesión o no está autorizado, mostrar Login
   if (!session || !isAuthorized) {
     return <Login />;
   }
 
-  // ✅ Si hay sesión y está autorizado, mostrar la aplicación
+  // Si hay sesión y está autorizado, mostrar la aplicación
   const view: Record<ActiveView, React.ReactNode> = {
     dashboard: <Dashboard onNavigate={setActiveView} />,
     orders: <OrdersModule onNavigate={setActiveView} />,

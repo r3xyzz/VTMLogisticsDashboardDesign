@@ -11,6 +11,8 @@ export default function Login() {
       setLoading(true);
       setError(null);
       
+      console.log('🔄 Iniciando login con Google...');
+      
       const { data, error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
         options: {
@@ -18,9 +20,12 @@ export default function Login() {
         },
       });
 
-      if (error) throw error;
+      if (error) {
+        console.error('❌ Error en login:', error);
+        throw error;
+      }
       
-      console.log('✅ Iniciando sesión con Google...');
+      console.log('✅ Login iniciado correctamente');
     } catch (err) {
       console.error('❌ Error al iniciar sesión:', err);
       setError(err instanceof Error ? err.message : 'Error al iniciar sesión');
