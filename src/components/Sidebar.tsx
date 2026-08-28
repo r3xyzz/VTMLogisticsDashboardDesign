@@ -4,28 +4,44 @@ import { supabase } from '../lib/supabase';
 import type { ActiveView } from '../App';
 import type { Session } from '@supabase/supabase-js';
 
+// ✅ Interface para permisos
+interface UserPermissions {
+  can_view_dashboard: boolean;
+  can_view_orders: boolean;
+  can_view_cargo: boolean;
+  can_view_tracking: boolean;
+  can_view_documents: boolean;
+  can_view_fleet: boolean;
+  can_view_drivers: boolean;
+  can_view_providers: boolean;
+}
+
 interface Props {
   collapsed: boolean;
   onToggle: () => void;
   activeView: ActiveView;
   onNavigate: (v: ActiveView) => void;
+  permissions: UserPermissions;
+  userRole: string;
 }
 
 interface NavItem {
   id: ActiveView;
   label: string;
   badge?: number;
+  requiredPermission: keyof UserPermissions;
 }
 
+// ✅ Items de navegación con permisos requeridos
 const navItems: NavItem[] = [
-  { id: 'dashboard', label: 'Dashboard' },
-  { id: 'orders', label: 'Pedidos / Correo', badge: 2 },
-  { id: 'cargo', label: 'Nueva OT / Cotizar' },
-  { id: 'tracking', label: 'Monitoreo · Tracking' },
-  { id: 'documents', label: 'POD · Documentos' },
-  { id: 'fleet', label: 'Flota · Vehículos' },
-  { id: 'drivers', label: 'Conductores' },
-  { id: 'providers', label: 'Proveedores', badge: 3 },
+  { id: 'dashboard', label: 'Dashboard', requiredPermission: 'can_view_dashboard' },
+  { id: 'orders', label: 'Pedidos / Correo', badge: 2, requiredPermission: 'can_view_orders' },
+  { id: 'cargo', label: 'Nueva OT / Cotizar', requiredPermission: 'can_view_cargo' },
+  { id: 'tracking', label: 'Monitoreo · Tracking', requiredPermission: 'can_view_tracking' },
+  { id: 'documents', label: 'POD · Documentos', requiredPermission: 'can_view_documents' },
+  { id: 'fleet', label: 'Flota · Vehículos', requiredPermission: 'can_view_fleet' },
+  { id: 'drivers', label: 'Conductores', requiredPermission: 'can_view_drivers' },
+  { id: 'providers', label: 'Proveedores', badge: 3, requiredPermission: 'can_view_providers' },
 ];
 
 function NavIcon({ id }: { id: ActiveView }) {
@@ -58,7 +74,14 @@ function NavIcon({ id }: { id: ActiveView }) {
   );
 }
 
-export default function Sidebar({ collapsed, onToggle, activeView, onNavigate }: Props) {
+export default function Sidebar({ 
+  collapsed, 
+  onToggle, 
+  activeView, 
+  onNavigate, 
+  permissions,
+  userRole 
+}: Props) {
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -71,7 +94,6 @@ export default function Sidebar({ collapsed, onToggle, activeView, onNavigate }:
 
     getSession();
 
-    // ✅ CORRECCIÓN: Desestructurar correctamente
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       setSession(session);
     });
@@ -98,6 +120,11 @@ export default function Sidebar({ collapsed, onToggle, activeView, onNavigate }:
     await supabase.auth.signOut();
     window.location.reload();
   };
+
+  // ✅ Filtrar items según permisos
+  const visibleNavItems = navItems.filter(item => {
+    return permissions[item.requiredPermission] === true;
+  });
 
   return (
     <aside
@@ -139,7 +166,7 @@ export default function Sidebar({ collapsed, onToggle, activeView, onNavigate }:
           </div>
         )}
 
-        {navItems.map((item) => {
+        {visibleNavItems.map((item) => {
           const active = activeView === item.id;
           return (
             <button
@@ -199,8 +226,11 @@ export default function Sidebar({ collapsed, onToggle, activeView, onNavigate }:
               <div className="text-white text-[13px] font-semibold truncate">
                 {loading ? 'Cargando...' : getUserName()}
               </div>
-              <div className="text-blue-400/50 text-[10px] truncate">
-                {session?.user?.email || 'Usuario'}
+              <div className="text-blue-400/50 text-[10px] truncate flex items-center gap-1">
+                <span>{session?.user?.email || 'Usuario'}</span>
+                <span className="text-[8px] bg-blue-900/50 px-1.5 py-0.5 rounded-full text-blue-300">
+                  {userRole === 'admin' ? 'Admin' : 'Usuario'}
+                </span>
               </div>
             </div>
             <button
