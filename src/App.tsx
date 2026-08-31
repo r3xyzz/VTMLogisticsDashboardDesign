@@ -12,6 +12,7 @@ import FleetModule from './components/FleetModule';
 import ProvidersModule from './components/ProvidersModule';
 import DriversModule from './components/DriversModule';
 import Login from './components/Login';
+import { addToast } from './components/ui/Toast';
 
 export type ActiveView = 
   | 'dashboard' 
@@ -35,7 +36,6 @@ interface UserPermissions {
   can_view_providers: boolean;
 }
 
-// ✅ Permisos por defecto (sin acceso)
 const defaultPermissions: UserPermissions = {
   can_view_dashboard: false,
   can_view_orders: false,
@@ -58,7 +58,6 @@ export default function App() {
 
   const checkAuthorization = async (email: string): Promise<{ authorized: boolean; role: string; permissions: UserPermissions }> => {
     try {
-      // 1. Verificar si el usuario está en authorized_users
       const { data: userData, error: userError } = await supabase
         .from('authorized_users')
         .select('email, role, is_active')
@@ -70,7 +69,6 @@ export default function App() {
         return { authorized: false, role: 'none', permissions: defaultPermissions };
       }
 
-      // 2. Obtener permisos según el rol
       const { data: permissionsData, error: permError } = await supabase
         .from('role_permissions')
         .select('*')
@@ -78,7 +76,6 @@ export default function App() {
         .maybeSingle();
 
       if (permError || !permissionsData) {
-        // Si no hay permisos configurados, usar valores por defecto según el rol
         if (userData.role === 'admin') {
           return { 
             authorized: true, 
@@ -98,7 +95,6 @@ export default function App() {
         return { authorized: true, role: userData.role, permissions: defaultPermissions };
       }
 
-      // 3. Construir objeto de permisos
       const permissions: UserPermissions = {
         can_view_dashboard: permissionsData.can_view_dashboard || false,
         can_view_orders: permissionsData.can_view_orders || false,
@@ -117,6 +113,41 @@ export default function App() {
     }
   };
 
+  const getFirstAvailableView = (permissions: UserPermissions): ActiveView => {
+    if (permissions.can_view_dashboard) return 'dashboard';
+    if (permissions.can_view_orders) return 'orders';
+    if (permissions.can_view_cargo) return 'cargo';
+    if (permissions.can_view_documents) return 'documents';
+    if (permissions.can_view_tracking) return 'tracking';
+    if (permissions.can_view_fleet) return 'fleet';
+    if (permissions.can_view_drivers) return 'drivers';
+    if (permissions.can_view_providers) return 'providers';
+    return 'dashboard';
+  };
+
+  const canAccessView = (view: ActiveView): boolean => {
+    switch (view) {
+      case 'dashboard': return userPermissions.can_view_dashboard;
+      case 'orders': return userPermissions.can_view_orders;
+      case 'cargo': return userPermissions.can_view_cargo;
+      case 'tracking': return userPermissions.can_view_tracking;
+      case 'documents': return userPermissions.can_view_documents;
+      case 'fleet': return userPermissions.can_view_fleet;
+      case 'drivers': return userPermissions.can_view_drivers;
+      case 'providers': return userPermissions.can_view_providers;
+      default: return false;
+    }
+  };
+
+  const handleNavigate = (view: ActiveView) => {
+    if (canAccessView(view)) {
+      setActiveView(view);
+    } else {
+      const firstAvailable = getFirstAvailableView(userPermissions);
+      setActiveView(firstAvailable);
+    }
+  };
+
   useEffect(() => {
     const initializeAuth = async () => {
       try {
@@ -128,7 +159,6 @@ export default function App() {
           setUserRole(result.role);
           setUserPermissions(result.permissions);
           
-          // ✅ Redirigir a la primera vista permitida
           if (result.authorized) {
             const firstAvailableView = getFirstAvailableView(result.permissions);
             setActiveView(firstAvailableView);
@@ -144,7 +174,12 @@ export default function App() {
 
     initializeAuth();
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, newSession) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, newSession) => {
+      // ✅ Mostrar mensaje cuando se cierra la sesión
+      if (event === 'SIGNED_OUT') {
+        console.log('🔒 Sesión cerrada');
+      }
+      
       setSession(newSession);
       
       if (newSession?.user?.email) {
@@ -165,45 +200,6 @@ export default function App() {
 
     return () => subscription?.unsubscribe();
   }, []);
-
-  // ✅ Función para obtener la primera vista disponible
-  const getFirstAvailableView = (permissions: UserPermissions): ActiveView => {
-    if (permissions.can_view_dashboard) return 'dashboard';
-    if (permissions.can_view_orders) return 'orders';
-    if (permissions.can_view_cargo) return 'cargo';
-    if (permissions.can_view_documents) return 'documents';
-    if (permissions.can_view_tracking) return 'tracking';
-    if (permissions.can_view_fleet) return 'fleet';
-    if (permissions.can_view_drivers) return 'drivers';
-    if (permissions.can_view_providers) return 'providers';
-    return 'dashboard'; // fallback
-  };
-
-  // ✅ Verificar si una vista es accesible
-  const canAccessView = (view: ActiveView): boolean => {
-    switch (view) {
-      case 'dashboard': return userPermissions.can_view_dashboard;
-      case 'orders': return userPermissions.can_view_orders;
-      case 'cargo': return userPermissions.can_view_cargo;
-      case 'tracking': return userPermissions.can_view_tracking;
-      case 'documents': return userPermissions.can_view_documents;
-      case 'fleet': return userPermissions.can_view_fleet;
-      case 'drivers': return userPermissions.can_view_drivers;
-      case 'providers': return userPermissions.can_view_providers;
-      default: return false;
-    }
-  };
-
-  // ✅ Handler de navegación con verificación de permisos
-  const handleNavigate = (view: ActiveView) => {
-    if (canAccessView(view)) {
-      setActiveView(view);
-    } else {
-      // Si no tiene permisos, redirigir a la primera vista disponible
-      const firstAvailable = getFirstAvailableView(userPermissions);
-      setActiveView(firstAvailable);
-    }
-  };
 
   if (loading) {
     return (

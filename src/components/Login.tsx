@@ -27,7 +27,6 @@ export default function Login() {
         console.error('❌ Error en signInWithOAuth:', error);
         console.error('📄 Código de error:', error.code);
         console.error('📄 Mensaje:', error.message);
-        // ✅ 'details' no existe en AuthError, lo quitamos
         throw error;
       }
       

@@ -4,7 +4,6 @@ import { supabase } from '../lib/supabase';
 import type { ActiveView } from '../App';
 import type { Session } from '@supabase/supabase-js';
 
-// ✅ Interface para permisos
 interface UserPermissions {
   can_view_dashboard: boolean;
   can_view_orders: boolean;
@@ -32,7 +31,6 @@ interface NavItem {
   requiredPermission: keyof UserPermissions;
 }
 
-// ✅ Items de navegación con permisos requeridos
 const navItems: NavItem[] = [
   { id: 'dashboard', label: 'Dashboard', requiredPermission: 'can_view_dashboard' },
   { id: 'orders', label: 'Pedidos / Correo', badge: 2, requiredPermission: 'can_view_orders' },
@@ -118,10 +116,10 @@ export default function Sidebar({
 
   const handleLogout = async () => {
     await supabase.auth.signOut();
+    // ✅ Recargar la página para que se muestre el login
     window.location.reload();
   };
 
-  // ✅ Filtrar items según permisos
   const visibleNavItems = navItems.filter(item => {
     return permissions[item.requiredPermission] === true;
   });
@@ -233,19 +231,13 @@ export default function Sidebar({
                 </span>
               </div>
             </div>
+            {/* ✅ Botón de cerrar sesión mejorado */}
             <button
               onClick={handleLogout}
-              className="text-slate-600 hover:text-red-400 transition-colors flex-shrink-0"
+              className="text-xs text-red-400 hover:text-red-300 transition-colors flex-shrink-0 px-2 py-1 rounded border border-red-500/30 hover:border-red-400/50"
               title="Cerrar sesión"
             >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={1.8}
-                  d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"
-                />
-              </svg>
+              Cerrar sesión
             </button>
           </div>
         )}
