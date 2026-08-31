@@ -1,3 +1,4 @@
+// src/components/CargoRegistration.tsx
 import { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
 
@@ -236,7 +237,7 @@ export default function CargoRegistration() {
 
   // ✅ CÁLCULOS USANDO EL PRECIO DEL DIÉSEL OBTENIDO DE LA API
   const litres    = route.litres * truck.fuelRate;
-  const dieselCst = litres * dieselPrice;  // ✅ Usa el precio dinámico
+  const dieselCst = litres * dieselPrice;
   const tollCst   = route.toll;
   const laborCst  = 18000;
   const opCost    = dieselCst + tollCst + laborCst;
@@ -255,7 +256,6 @@ export default function CargoRegistration() {
     setSuccess(false);
 
     try {
-      // ... validaciones existentes ...
       if (!f.clientId) {
         throw new Error('Por favor selecciona un cliente');
       }
@@ -268,6 +268,9 @@ export default function CargoRegistration() {
       if (!f.kg || parseFloat(f.kg) <= 0) {
         throw new Error('Por favor ingresa el peso total');
       }
+
+      // ✅ OBTENER EL USUARIO ACTUAL
+      const { data: { session } } = await supabase.auth.getSession();
 
       // 2. Construir el objeto de la orden
       const orderData = {
@@ -290,9 +293,12 @@ export default function CargoRegistration() {
         profit: f.mode === 'propia' ? grossMargin : margin20,
         status: 'pending',
         priority: f.priority,
+        // ✅ NUEVO: Guardar quién creó la orden
+        created_by: session?.user?.id || null,
       };
 
       console.log('📝 Datos a guardar:', orderData);
+      console.log('👤 Creado por:', session?.user?.email || 'Usuario desconocido');
 
       const { data, error } = await supabase
         .from('orders')
@@ -653,7 +659,6 @@ export default function CargoRegistration() {
                       <span className="text-[10px] font-mono text-blue-400 bg-blue-900/40 px-2 py-0.5 rounded">OT-2451</span>
                     </div>
                     <p className="text-[10px] text-blue-300/70">Estimación operativa · Modo: {f.mode === 'propia' ? 'Flota Propia' : 'Subcontrato'}</p>
-                    {/* ✅ INDICADOR DEL PRECIO DEL DIÉSEL */}
                     <div className="mt-1 flex items-center gap-2">
                       {loadingDiesel ? (
                         <span className="text-[9px] text-blue-400 animate-pulse">⏳ Actualizando precio diésel...</span>
@@ -666,7 +671,6 @@ export default function CargoRegistration() {
                   <div className="px-5 py-4 space-y-0 divide-y divide-slate-50">
                     {f.mode === 'propia' ? (
                       <>
-                        {/* ✅ CostLine actualizado con precio dinámico */}
                         <CostLine 
                           label="Consumo diésel" 
                           value={clp(dieselCst)} 

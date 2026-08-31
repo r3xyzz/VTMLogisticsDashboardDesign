@@ -39,6 +39,12 @@ interface OrderWithClient {
         contact_email: string | null;
         contact_phone: string | null;
     };
+    // ✅ NUEVO: Datos del creador
+    creator?: {
+        id: string;
+        full_name: string;
+        email: string;
+    };
 }
 
 interface OrderDocuments {
@@ -262,7 +268,7 @@ function OrderDetailModal({ order, isOpen, onClose, onRefresh }: OrderDetailProp
             // Cliente
             pdf.setFontSize(13);
             pdf.setTextColor(25, 50, 80);
-            pdf.text(' DATOS DEL CLIENTE', 15, yPos);
+            pdf.text('📋 DATOS DEL CLIENTE', 15, yPos);
             yPos += 7;
             pdf.setDrawColor(200, 200, 200);
             pdf.line(15, yPos - 2, pageWidth - 15, yPos - 2);
@@ -282,7 +288,7 @@ function OrderDetailModal({ order, isOpen, onClose, onRefresh }: OrderDetailProp
             // Ruta
             pdf.setFontSize(13);
             pdf.setTextColor(25, 50, 80);
-            pdf.text(' RUTA', 15, yPos);
+            pdf.text('🗺️ RUTA', 15, yPos);
             yPos += 7;
             pdf.setDrawColor(200, 200, 200);
             pdf.line(15, yPos - 2, pageWidth - 15, yPos - 2);
@@ -302,7 +308,7 @@ function OrderDetailModal({ order, isOpen, onClose, onRefresh }: OrderDetailProp
             // Carga
             pdf.setFontSize(13);
             pdf.setTextColor(25, 50, 80);
-            pdf.text(' DETALLE DE CARGA', 15, yPos);
+            pdf.text('📦 DETALLE DE CARGA', 15, yPos);
             yPos += 7;
             pdf.setDrawColor(200, 200, 200);
             pdf.line(15, yPos - 2, pageWidth - 15, yPos - 2);
@@ -329,7 +335,7 @@ function OrderDetailModal({ order, isOpen, onClose, onRefresh }: OrderDetailProp
             // Financiero
             pdf.setFontSize(13);
             pdf.setTextColor(25, 50, 80);
-            pdf.text(' RESUMEN FINANCIERO', 15, yPos);
+            pdf.text('💰 RESUMEN FINANCIERO', 15, yPos);
             yPos += 7;
             pdf.setDrawColor(200, 200, 200);
             pdf.line(15, yPos - 2, pageWidth - 15, yPos - 2);
@@ -352,19 +358,19 @@ function OrderDetailModal({ order, isOpen, onClose, onRefresh }: OrderDetailProp
             // Estado de documentos (sin imágenes)
             pdf.setFontSize(13);
             pdf.setTextColor(25, 50, 80);
-            pdf.text(' ESTADO DE DOCUMENTOS', 15, yPos);
+            pdf.text('📋 ESTADO DE DOCUMENTOS', 15, yPos);
             yPos += 7;
             pdf.setDrawColor(200, 200, 200);
             pdf.line(15, yPos - 2, pageWidth - 15, yPos - 2);
             pdf.setFontSize(10);
             pdf.setTextColor(0, 0, 0);
-            pdf.text(`POD Vacío: ${documents?.pod_empty_url ? ' Cargado' : ' Pendiente'}`, 20, yPos);
+            pdf.text(`POD Vacío: ${documents?.pod_empty_url ? '✅ Cargado' : '⏳ Pendiente'}`, 20, yPos);
             yPos += 6;
-            pdf.text(`POD Final: ${documents?.pod_final_url ? ' Cargado' : ' Pendiente'}`, 20, yPos);
+            pdf.text(`POD Final: ${documents?.pod_final_url ? '✅ Cargado' : '⏳ Pendiente'}`, 20, yPos);
             yPos += 6;
-            pdf.text(`Guía de Despacho: ${documents?.guide_url ? ' Cargado' : ' Pendiente'}`, 20, yPos);
+            pdf.text(`Guía de Despacho: ${documents?.guide_url ? '✅ Cargado' : '⏳ Pendiente'}`, 20, yPos);
             yPos += 6;
-            pdf.text(`Factura: ${documents?.invoice_url ? ' Cargado' : ' Pendiente'}`, 20, yPos);
+            pdf.text(`Factura: ${documents?.invoice_url ? '✅ Cargado' : '⏳ Pendiente'}`, 20, yPos);
             yPos += 10;
 
             // Footer página 1
@@ -388,7 +394,7 @@ function OrderDetailModal({ order, isOpen, onClose, onRefresh }: OrderDetailProp
                 pdf.rect(0, 0, pageWidth, 20, 'F');
                 pdf.setFontSize(14);
                 pdf.setTextColor(255, 255, 255);
-                pdf.text(' POD Vacío', 15, 13);
+                pdf.text('📄 POD Vacío', 15, 13);
                 
                 pdf.setFontSize(9);
                 pdf.setTextColor(200, 200, 200);
@@ -429,7 +435,7 @@ function OrderDetailModal({ order, isOpen, onClose, onRefresh }: OrderDetailProp
                 pdf.rect(0, 0, pageWidth, 20, 'F');
                 pdf.setFontSize(14);
                 pdf.setTextColor(255, 255, 255);
-                pdf.text(' POD Final', 15, 13);
+                pdf.text('✅ POD Final', 15, 13);
                 
                 pdf.setFontSize(9);
                 pdf.setTextColor(200, 200, 200);
@@ -442,10 +448,10 @@ function OrderDetailModal({ order, isOpen, onClose, onRefresh }: OrderDetailProp
                     
                     pdf.addImage(podFinalBase64, 'JPEG', margin, 28, maxWidth, maxHeight);
                 } catch (e) {
-                    console.warn(' No se pudo insertar imagen POD Final:', e);
+                    console.warn('⚠️ No se pudo insertar imagen POD Final:', e);
                     pdf.setFontSize(12);
                     pdf.setTextColor(200, 0, 0);
-                    pdf.text(' Error al cargar la imagen', pageWidth / 2 - 30, pageHeight / 2);
+                    pdf.text('❌ Error al cargar la imagen', pageWidth / 2 - 30, pageHeight / 2);
                 }
                 
                 // Footer página 3
@@ -463,11 +469,11 @@ function OrderDetailModal({ order, isOpen, onClose, onRefresh }: OrderDetailProp
             // 5. DESCARGAR
             // ============================================
             pdf.save(`OT-${order.order_number}_detalle_completo.pdf`);
-            addToast(' PDF descargado correctamente', 'success');
+            addToast('✅ PDF descargado correctamente', 'success');
 
         } catch (error) {
             console.error('Error generando PDF:', error);
-            addToast(' Error al generar el PDF', 'error');
+            addToast('❌ Error al generar el PDF', 'error');
         }
     };
 
@@ -529,6 +535,20 @@ function OrderDetailModal({ order, isOpen, onClose, onRefresh }: OrderDetailProp
             }
 
             if (error) throw error;
+
+            // ✅ NUEVO: Si se subió el POD Final, actualizar el estado de la orden a 'completed'
+            if (type === 'pod_final') {
+                const { error: statusError } = await supabase
+                    .from('orders')
+                    .update({ status: 'completed' })
+                    .eq('id', order!.id);
+                
+                if (statusError) {
+                    console.error('Error actualizando estado de la orden:', statusError);
+                } else {
+                    console.log('✅ Orden completada:', order!.order_number);
+                }
+            }
 
             await fetchDocuments();
             onRefresh();
@@ -803,6 +823,32 @@ export default function DocumentsModule() {
             const { data, error } = await query;
 
             if (error) throw error;
+            
+            // ✅ OBTENER LOS CREADORES DE LAS ÓRDENES
+            if (data && data.length > 0) {
+                // Obtener los IDs de los creadores
+                const creatorIds = data
+                    .map(order => order.created_by)
+                    .filter(id => id !== null);
+                
+                if (creatorIds.length > 0) {
+                    const { data: userData, error: userError } = await supabase
+                        .from('user_profiles')
+                        .select('id, full_name, email')
+                        .in('id', creatorIds);
+                    
+                    if (!userError && userData) {
+                        // Asignar los datos del creador a cada orden
+                        data.forEach(order => {
+                            const creator = userData.find(u => u.id === order.created_by);
+                            if (creator) {
+                                order.creator = creator;
+                            }
+                        });
+                    }
+                }
+            }
+            
             setOrders(data || []);
         } catch (error) {
             console.error('Error fetching orders:', error);
@@ -929,6 +975,8 @@ export default function DocumentsModule() {
                                 <th className="text-left px-4 py-3 text-[10px] font-bold text-slate-500 uppercase tracking-wide">Cliente</th>
                                 <th className="text-left px-4 py-3 text-[10px] font-bold text-slate-500 uppercase tracking-wide">Ruta</th>
                                 <th className="text-left px-4 py-3 text-[10px] font-bold text-slate-500 uppercase tracking-wide">Fecha</th>
+                                {/* ✅ NUEVA COLUMNA */}
+                                <th className="text-left px-4 py-3 text-[10px] font-bold text-slate-500 uppercase tracking-wide">Creado por</th>
                                 <th className="text-center px-4 py-3 text-[10px] font-bold text-slate-500 uppercase tracking-wide">POD Firmado</th>
                                 <th className="text-center px-4 py-3 text-[10px] font-bold text-slate-500 uppercase tracking-wide">Guía Despacho</th>
                                 <th className="text-center px-4 py-3 text-[10px] font-bold text-slate-500 uppercase tracking-wide">Facturado</th>
@@ -938,7 +986,7 @@ export default function DocumentsModule() {
                         <tbody className="divide-y divide-slate-100">
                             {orders.length === 0 ? (
                                 <tr>
-                                    <td colSpan={8} className="px-4 py-8 text-center text-slate-500">
+                                    <td colSpan={9} className="px-4 py-8 text-center text-slate-500">
                                         No hay órdenes registradas
                                     </td>
                                 </tr>
@@ -958,6 +1006,10 @@ export default function DocumentsModule() {
                                             </td>
                                             <td className="px-4 py-3 text-xs text-slate-500">
                                                 {formatDate(order.created_at)}
+                                            </td>
+                                            {/* ✅ NUEVO: Mostrar el creador */}
+                                            <td className="px-4 py-3 text-xs text-slate-500">
+                                                {order.creator?.full_name || order.creator?.email || 'Sistema'}
                                             </td>
                                             <td className="px-4 py-3 text-center">
                                                 <Semaphore ok={status.pod} />

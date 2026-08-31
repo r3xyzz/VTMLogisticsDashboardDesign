@@ -36,6 +36,8 @@ export interface Order {
     profit: number;
     status: string;
     priority: string;
+    // ✅ NUEVO: Agregar created_by
+    created_by: string | null;
     created_at: string;
     updated_at: string;
     client?: Client;
@@ -88,7 +90,7 @@ export interface Driver {
     updated_at: string;
 }
 
-//  DRIVER BASIC (para listados rápidos)
+// ✅ DRIVER BASIC (para listados rápidos)
 export interface DriverBasic {
     id: string;
     rut: string;
@@ -97,7 +99,7 @@ export interface DriverBasic {
     current_fleet_id: string | null;
 }
 
-//  PROVIDER CON TODOS LOS CAMPOS DE LA BD
+// ✅ PROVIDER CON TODOS LOS CAMPOS DE LA BD
 export interface Provider {
     id: string;
     name: string;
@@ -173,13 +175,13 @@ export interface AdditionalCost {
     created_at: string;
 }
 
-export interface DriverDocument {
+export interface DriverDocumentStatus {
     license:{
         isValid: boolean;
-        daysUntilExpiration: number | null;
-        status: 'vigentee' | 'por_vencer' | 'vencido' | 'no_registrado';
+        daysUntilExpiry: number | null;
+        status: 'vigente' | 'por_vencer' | 'vencido' | 'no_registrado';
     };
     background_check: boolean;
-        cv: boolean;
-        allValid: boolean
+    cv: boolean;
+    allValid: boolean;
 }
