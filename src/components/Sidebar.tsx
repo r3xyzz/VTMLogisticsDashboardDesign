@@ -68,7 +68,7 @@ export default function Sidebar({
   onToggle, 
   activeView, 
   onNavigate, 
-  permissions,
+  permissions: originalPermissions,
   userRole 
 }: Props) {
   const [session, setSession] = useState<Session | null>(null);
@@ -90,6 +90,62 @@ export default function Sidebar({
     return () => subscription?.unsubscribe();
   }, []);
 
+  // ============================================
+  //  LOGS DE DEPURACIÓN Y FORZADO DE PERMISOS
+  // ============================================
+  
+  console.log('='.repeat(60));
+  console.log(' SIDEBAR - INICIO DE RENDERIZADO');
+  console.log(' Usuario:', session?.user?.email || 'No autenticado');
+  
+  //  LOG 1: Ver permisos recibidos del padre (App.tsx)
+  console.log(' PERMISOS RECIBIDOS DEL PADRE:', {
+    can_view_dashboard: originalPermissions.can_view_dashboard,
+    can_view_orders: originalPermissions.can_view_orders,
+    can_view_cargo: originalPermissions.can_view_cargo,
+    can_view_tracking: originalPermissions.can_view_tracking,
+    can_view_documents: originalPermissions.can_view_documents,
+    can_view_fleet: originalPermissions.can_view_fleet,
+    can_view_drivers: originalPermissions.can_view_drivers,
+    can_view_providers: originalPermissions.can_view_providers,
+  });
+
+  // ✅ CLAVE: Modificar los permisos antes de usarlos
+  let permissions = { ...originalPermissions };
+
+  // ✅ FORZAR PERMISOS PARA GONZALO (SOLO PARA PRUEBAS)
+  // ⚠️ ELIMINA ESTO DESPUÉS DE PROBAR
+  const isGonzalo = session?.user?.email === 'g.atenasvtm@gmail.com';
+  if (isGonzalo) {
+    console.log('🔧 FORZANDO PERMISOS PARA GONZALO');
+    permissions = {
+      can_view_dashboard: false,
+      can_view_orders: true,
+      can_view_cargo: true,
+      can_view_tracking: false,
+      can_view_documents: true,
+      can_view_fleet: false,
+      can_view_drivers: false,
+      can_view_providers: false,
+    };
+    console.log('📦 PERMISOS FORZADOS:', permissions);
+  }
+
+  // ✅ LOG 2: Ver permisos finales que se van a usar
+  console.log('📦 PERMISOS FINALES A USAR:', {
+    can_view_dashboard: permissions.can_view_dashboard,
+    can_view_orders: permissions.can_view_orders,
+    can_view_cargo: permissions.can_view_cargo,
+    can_view_tracking: permissions.can_view_tracking,
+    can_view_documents: permissions.can_view_documents,
+    can_view_fleet: permissions.can_view_fleet,
+    can_view_drivers: permissions.can_view_drivers,
+    can_view_providers: permissions.can_view_providers,
+  });
+
+  // ✅ LOG 3: Ver el estado de la vista activa
+  console.log('📍 Vista activa actual:', activeView);
+
   const getUserInitials = () => {
     if (!session?.user?.email) return 'U';
     return session.user.email[0].toUpperCase();
@@ -110,12 +166,23 @@ export default function Sidebar({
     window.location.reload();
   };
 
-  // ✅ Filtrar items según permisos
+  // ✅ FILTRO DE MÓDULOS CON LOGS DETALLADOS
+  console.log('🔍 FILTRANDO MÓDULOS:');
   const visibleNavItems = navItems.filter(item => {
     const hasPermission = permissions[item.requiredPermission] === true;
-    console.log(`🔍 ${item.label}: ${hasPermission ? '✅ visible' : '❌ oculto'}`);
+    console.log(`  ${item.id.padEnd(15)} → ${item.requiredPermission.padEnd(25)} = ${permissions[item.requiredPermission]} → ${hasPermission ? '✅ VISIBLE' : '❌ OCULTO'}`);
     return hasPermission;
   });
+
+  // ✅ LOG 4: Resumen de módulos visibles
+  console.log(`📋 MÓDULOS VISIBLES: ${visibleNavItems.length} de ${navItems.length}`);
+  console.log('📋 Lista de módulos visibles:', visibleNavItems.map(i => i.label).join(', ') || 'NINGUNO');
+  
+  if (visibleNavItems.length === 0) {
+    console.warn('⚠️ NO HAY MÓDULOS VISIBLES PARA ESTE USUARIO');
+  }
+
+  console.log('='.repeat(60));
 
   return (
     <aside
