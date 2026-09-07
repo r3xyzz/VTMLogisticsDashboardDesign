@@ -3,12 +3,12 @@ import { useState, useEffect } from 'react';
 import { MsalProvider, useMsal } from '@azure/msal-react';
 import { msalInstance, loginRequest } from '../lib/msal';
 import type { ActiveView } from '../App';
+import { supabase } from '../lib/supabase';
 
 interface Props {
   onNavigate: (v: ActiveView) => void;
 }
 
-// ✅ INTERFACE PARA CORREOS
 interface Email {
   id: string;
   subject: string;
@@ -30,7 +30,7 @@ interface Email {
   isRead: boolean;
 }
 
-// ✅ COMPONENTE DE LOGIN DE OUTLOOK
+// ✅ COMPONENTE DE LOGIN DE OUTLOOK (MEJORADO)
 function OutlookLogin({ 
   onLoginSuccess, 
   onLoginError 
@@ -47,17 +47,30 @@ function OutlookLogin({
       setLoading(true);
       setError(null);
 
-      const response = await instance.loginPopup(loginRequest);
+      // ✅ Forzar a que pida el correo empresarial
+      const response = await instance.loginPopup({
+        ...loginRequest,
+        prompt: 'select_account',
+        extraQueryParameters: {
+          domain_hint: 'vtmlogistics.com'
+        }
+      });
 
       console.log('✅ Login con Outlook exitoso:', response);
+      console.log('👤 Usuario autenticado:', response.account?.username);
 
       const accessToken = response.accessToken;
       onLoginSuccess(accessToken);
 
     } catch (err: any) {
       console.error('❌ Error al iniciar sesión con Outlook:', err);
-      const errorMessage = err.errorMessage || 'Error al iniciar sesión con Outlook';
-      setError(errorMessage);
+      
+      // ✅ Mensaje específico para error de dominio
+      if (err.errorMessage?.includes('domain_hint')) {
+        setError('❌ Debes usar una cuenta empresarial @vtmlogistics.com');
+      } else {
+        setError(err.errorMessage || 'Error al iniciar sesión con Outlook');
+      }
       onLoginError(err);
     } finally {
       setLoading(false);
@@ -66,6 +79,11 @@ function OutlookLogin({
 
   return (
     <div className="flex flex-col items-center gap-4">
+      <div className="w-full bg-blue-50 border border-blue-200 rounded-lg p-4 text-sm text-blue-700">
+        <p className="font-semibold">📧 Conectar correo empresarial</p>
+        <p className="text-xs mt-1">Usa tu cuenta de Outlook (@vtmlogistics.com) para ver tus correos empresariales.</p>
+      </div>
+
       <button
         onClick={handleOutlookLogin}
         disabled={loading}
@@ -74,7 +92,7 @@ function OutlookLogin({
         {loading ? (
           <div className="flex items-center gap-2">
             <div className="w-5 h-5 border-2 border-slate-300 border-t-blue-600 rounded-full animate-spin" />
-            <span>Cargando...</span>
+            <span>Conectando con Outlook...</span>
           </div>
         ) : (
           <>
@@ -83,7 +101,7 @@ function OutlookLogin({
               <path d="M12.1 7.4c-.9 0-1.6.6-1.8 1.5l-2.5 11.7c-.1.3 0 .6.2.8.2.2.4.3.7.3h5.7c.3 0 .5-.1.7-.3.2-.2.3-.5.2-.8l-2.5-11.7c-.2-.9-.9-1.5-1.8-1.5h-1.2z" opacity="0.3"/>
               <path d="M12.1 9.5c-.5 0-.9.3-1 .8l-1.9 8.8c-.1.2 0 .4.1.5.1.1.3.2.5.2h3.7c.2 0 .4-.1.5-.2.1-.1.2-.3.1-.5l-1.9-8.8c-.1-.5-.5-.8-1-.8h-1.2z" opacity="0.5"/>
             </svg>
-            <span>Conectar correo empresarial</span>
+            <span>Conectar correo empresarial (@vtmlogistics.com)</span>
           </>
         )}
       </button>
@@ -97,7 +115,7 @@ function OutlookLogin({
   );
 }
 
-// ✅ COMPONENTE DE LISTA DE CORREOS
+// ✅ COMPONENTE DE LISTA DE CORREOS (sin cambios)
 function EmailList({ 
   accessToken, 
   filter,
@@ -252,7 +270,7 @@ function EmailList({
       <div className="flex items-center justify-center h-64">
         <div className="text-center">
           <div className="w-8 h-8 border-2 border-slate-200 border-t-blue-600 rounded-full animate-spin mx-auto" />
-          <p className="mt-2 text-sm text-slate-500">Cargando correos...</p>
+          <p className="mt-2 text-sm text-slate-500">Cargando correos empresariales...</p>
         </div>
       </div>
     );
@@ -270,7 +288,7 @@ function EmailList({
     <div className="space-y-3">
       {emails.length === 0 ? (
         <div className="bg-gray-50 border border-gray-200 rounded-lg p-8 text-center">
-          <p className="text-gray-500">No hay correos que coincidan con el filtro</p>
+          <p className="text-gray-500">No hay correos empresariales que coincidan con el filtro</p>
         </div>
       ) : (
         emails.map((email) => {
@@ -358,6 +376,7 @@ export default function OrdersModule({ onNavigate }: Props) {
   const [isConnected, setIsConnected] = useState(false);
   const [connectionError, setConnectionError] = useState<string | null>(null);
   const [filter, setFilter] = useState<'todos' | 'carga' | 'cotizacion'>('todos');
+  const [outlookUser, setOutlookUser] = useState<string | null>(null);
 
   const handleOutlookLoginSuccess = (token: string) => {
     setOutlookToken(token);
@@ -375,13 +394,24 @@ export default function OrdersModule({ onNavigate }: Props) {
     onNavigate('cargo');
   };
 
+  // ✅ Obtener el usuario de Outlook después de conectar
+  useEffect(() => {
+    if (outlookToken) {
+      // Opcional: obtener el email del usuario desde la sesión de MSAL
+      const account = msalInstance.getActiveAccount();
+      if (account) {
+        setOutlookUser(account.username || account.name || 'Usuario Outlook');
+      }
+    }
+  }, [outlookToken]);
+
   return (
     <MsalProvider instance={msalInstance}>
       <div className="p-6 max-w-screen-xl mx-auto">
         <div className="flex items-center justify-between mb-6">
           <div>
             <h1 className="text-xl font-bold text-slate-900">📧 Pedidos / Correo</h1>
-            <p className="text-sm text-slate-500 mt-0.5">Correos de clientes y seguimiento de pedidos</p>
+            <p className="text-sm text-slate-500 mt-0.5">Correos empresariales (@vtmlogistics.com)</p>
           </div>
           <button
             onClick={() => onNavigate('cargo')}
@@ -392,7 +422,7 @@ export default function OrdersModule({ onNavigate }: Props) {
           </button>
         </div>
 
-        {/* ✅ CONEXIÓN CON OUTLOOK */}
+        {/* Conexión con Outlook */}
         {!isConnected ? (
           <div className="bg-white rounded-lg border border-slate-200 p-6">
             <div className="flex items-center gap-3 mb-2">
@@ -401,10 +431,13 @@ export default function OrdersModule({ onNavigate }: Props) {
                 <path d="M12.1 7.4c-.9 0-1.6.6-1.8 1.5l-2.5 11.7c-.1.3 0 .6.2.8.2.2.4.3.7.3h5.7c.3 0 .5-.1.7-.3.2-.2.3-.5.2-.8l-2.5-11.7c-.2-.9-.9-1.5-1.8-1.5h-1.2z" opacity="0.3"/>
                 <path d="M12.1 9.5c-.5 0-.9.3-1 .8l-1.9 8.8c-.1.2 0 .4.1.5.1.1.3.2.5.2h3.7c.2 0 .4-.1.5-.2.1-.1.2-.3.1-.5l-1.9-8.8c-.1-.5-.5-.8-1-.8h-1.2z" opacity="0.5"/>
               </svg>
-              <h2 className="text-lg font-semibold text-slate-800">Conectar correo empresarial</h2>
+              <h2 className="text-lg font-semibold text-slate-800">📨 Conectar correo empresarial</h2>
             </div>
             <p className="text-sm text-slate-500 mb-4">
-              Conecta tu correo de Outlook para ver los correos de clientes directamente aquí.
+              Conecta tu correo de Outlook (@vtmlogistics.com) para ver los correos de clientes directamente aquí.
+              <span className="block text-xs text-slate-400 mt-1">
+                ⚠️ Debes usar tu cuenta empresarial (@vtmlogistics.com), no tu cuenta personal.
+              </span>
             </p>
             <OutlookLogin 
               onLoginSuccess={handleOutlookLoginSuccess}
@@ -420,13 +453,21 @@ export default function OrdersModule({ onNavigate }: Props) {
           <div>
             {/* ✅ Conectado */}
             <div className="mb-4 p-3 bg-green-50 border border-green-200 rounded-lg text-sm text-green-700 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2">
-              <span>✅ Conectado a Outlook</span>
+              <div>
+                <span>✅ Conectado a Outlook empresarial</span>
+                {outlookUser && (
+                  <span className="text-xs text-green-600 block sm:inline sm:ml-2">
+                    👤 {outlookUser}
+                  </span>
+                )}
+              </div>
               <div className="flex items-center gap-3 flex-wrap">
-                <span className="text-xs text-green-600">Token activo</span>
+                <span className="text-xs text-green-600">📧 Correos empresariales</span>
                 <button
                   onClick={() => {
                     setIsConnected(false);
                     setOutlookToken(null);
+                    setOutlookUser(null);
                   }}
                   className="text-red-500 hover:text-red-700 text-xs font-semibold"
                 >
