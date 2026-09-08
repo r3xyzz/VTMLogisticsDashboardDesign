@@ -1,74 +1,68 @@
-// src/components/ProvidersModule.tsx
+// src/components/ClientsModule.tsx
 import { useEffect, useState } from 'react';
 import { supabase } from '../lib/supabase';
 import { Modal } from './ui/Modal';
 import { Toast, addToast, useToasts } from './ui/Toast';
-import type { Provider } from '../types/database';
 
-interface ProviderFormData {
+// Interfaz para Clientes (basada en la tabla clients)
+interface Client {
+    id: string;
+    code: string;
     name: string;
-    rut: string;
-    contact_name: string;
-    contact_phone: string;
-    contact_email: string;
-    address: string;
-    license_number: string;
-    background_check: string;
-    driver_cv: string;
-    vehicle_plate: string;
-    vehicle_brand: string;
-    vehicle_model: string;
-    vehicle_year: number;
-    permit_circulation: string;
-    technical_review: string;
-    cargo_insurance: string;
-    vehicle_insurance: string;
-    has_gps: boolean;
-    bank_account: string;
+    contact_name: string | null;
+    contact_email: string | null;
+    contact_phone: string | null;
+    address: string | null;
+    tax_id: string | null;
+    payment_terms: string | null;
     is_active: boolean;
-    notes: string; // ✅ NUEVO CAMPO
+    notes: string | null;
+    created_at: string;
+    updated_at: string;
 }
 
-export default function ProvidersModule() {
-    const [providers, setProviders] = useState<Provider[]>([]);
+interface ClientFormData {
+    code: string;
+    name: string;
+    contact_name: string;
+    contact_email: string;
+    contact_phone: string;
+    address: string;
+    tax_id: string;
+    payment_terms: string;
+    is_active: boolean;
+    notes: string;
+}
+
+export default function ClientsModule() {
+    const [clients, setClients] = useState<Client[]>([]);
     const [loading, setLoading] = useState(true);
     const [filterActive, setFilterActive] = useState<string>('all');
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [editingId, setEditingId] = useState<string | null>(null);
     const toasts = useToasts();
 
-    const [formData, setFormData] = useState<ProviderFormData>({
+    const [formData, setFormData] = useState<ClientFormData>({
+        code: '',
         name: '',
-        rut: '',
         contact_name: '',
-        contact_phone: '',
         contact_email: '',
+        contact_phone: '',
         address: '',
-        license_number: '',
-        background_check: '',
-        driver_cv: '',
-        vehicle_plate: '',
-        vehicle_brand: '',
-        vehicle_model: '',
-        vehicle_year: new Date().getFullYear(),
-        permit_circulation: '',
-        technical_review: '',
-        cargo_insurance: '',
-        vehicle_insurance: '',
-        has_gps: true,
-        bank_account: '',
+        tax_id: '',
+        payment_terms: '',
         is_active: true,
-        notes: '', // ✅ NUEVO
+        notes: '',
     });
 
     useEffect(() => {
-        fetchProviders();
+        fetchClients();
     }, [filterActive]);
 
-    async function fetchProviders() {
+    async function fetchClients() {
         try {
             setLoading(true);
-            let query = supabase.from('providers').select('*').order('name');
+            let query = supabase.from('clients').select('*').order('name');
 
             if (filterActive === 'active') {
                 query = query.eq('is_active', true);
@@ -78,10 +72,10 @@ export default function ProvidersModule() {
 
             const { data, error } = await query;
             if (error) throw error;
-            setProviders(data || []);
+            setClients(data || []);
         } catch (error) {
-            console.error('Error fetching providers:', error);
-            addToast('Error al cargar proveedores', 'error');
+            console.error('Error fetching clients:', error);
+            addToast('Error al cargar clientes', 'error');
         } finally {
             setLoading(false);
         }
@@ -99,27 +93,16 @@ export default function ProvidersModule() {
 
     function resetForm() {
         setFormData({
+            code: '',
             name: '',
-            rut: '',
             contact_name: '',
-            contact_phone: '',
             contact_email: '',
+            contact_phone: '',
             address: '',
-            license_number: '',
-            background_check: '',
-            driver_cv: '',
-            vehicle_plate: '',
-            vehicle_brand: '',
-            vehicle_model: '',
-            vehicle_year: new Date().getFullYear(),
-            permit_circulation: '',
-            technical_review: '',
-            cargo_insurance: '',
-            vehicle_insurance: '',
-            has_gps: true,
-            bank_account: '',
+            tax_id: '',
+            payment_terms: '',
             is_active: true,
-            notes: '', // ✅ NUEVO
+            notes: '',
         });
         setEditingId(null);
     }
@@ -130,134 +113,126 @@ export default function ProvidersModule() {
 
         try {
             if (!formData.name.trim()) {
-                addToast('El nombre del proveedor es obligatorio', 'error');
+                addToast('El nombre del cliente es obligatorio', 'error');
+                setLoading(false);
+                return;
+            }
+            if (!formData.code.trim()) {
+                addToast('El código del cliente es obligatorio', 'error');
                 setLoading(false);
                 return;
             }
 
+            // Verificar código único
+            if (!editingId) {
+                const { data: existing } = await supabase
+                    .from('clients')
+                    .select('id')
+                    .eq('code', formData.code)
+                    .maybeSingle();
+
+                if (existing) {
+                    addToast('Ya existe un cliente con este código', 'error');
+                    setLoading(false);
+                    return;
+                }
+            }
+
             const payload = {
+                code: formData.code,
                 name: formData.name,
-                rut: formData.rut || null,
                 contact_name: formData.contact_name || null,
-                contact_phone: formData.contact_phone || null,
                 contact_email: formData.contact_email || null,
+                contact_phone: formData.contact_phone || null,
                 address: formData.address || null,
-                license_number: formData.license_number || null,
-                background_check: formData.background_check || null,
-                driver_cv: formData.driver_cv || null,
-                vehicle_plate: formData.vehicle_plate || null,
-                vehicle_brand: formData.vehicle_brand || null,
-                vehicle_model: formData.vehicle_model || null,
-                vehicle_year: formData.vehicle_year || null,
-                permit_circulation: formData.permit_circulation || null,
-                technical_review: formData.technical_review || null,
-                cargo_insurance: formData.cargo_insurance || null,
-                vehicle_insurance: formData.vehicle_insurance || null,
-                has_gps: formData.has_gps,
-                bank_account: formData.bank_account || null,
+                tax_id: formData.tax_id || null,
+                payment_terms: formData.payment_terms || null,
                 is_active: formData.is_active,
-                notes: formData.notes || null, // ✅ NUEVO
+                notes: formData.notes || null,
             };
 
             let result;
             if (editingId) {
                 result = await supabase
-                    .from('providers')
+                    .from('clients')
                     .update(payload)
                     .eq('id', editingId);
             } else {
                 result = await supabase
-                    .from('providers')
+                    .from('clients')
                     .insert([payload]);
             }
 
             if (result.error) throw result.error;
 
             addToast(
-                editingId ? 'Proveedor actualizado correctamente' : 'Proveedor agregado correctamente',
+                editingId ? 'Cliente actualizado correctamente' : 'Cliente agregado correctamente',
                 'success'
             );
 
             setIsModalOpen(false);
             resetForm();
-            fetchProviders();
+            fetchClients();
         } catch (error) {
-            console.error('Error saving provider:', error);
-            addToast('Error al guardar el proveedor', 'error');
+            console.error('Error saving client:', error);
+            addToast('Error al guardar el cliente', 'error');
         } finally {
             setLoading(false);
         }
     }
 
     async function handleDelete(id: string) {
-        if (!confirm('¿Estás seguro de eliminar este proveedor?')) return;
+        if (!confirm('¿Estás seguro de eliminar este cliente?')) return;
 
         try {
             const { error } = await supabase
-                .from('providers')
+                .from('clients')
                 .delete()
                 .eq('id', id);
 
             if (error) throw error;
 
-            addToast('Proveedor eliminado correctamente', 'success');
-            fetchProviders();
+            addToast('Cliente eliminado correctamente', 'success');
+            fetchClients();
         } catch (error) {
-            console.error('Error deleting provider:', error);
-            addToast('Error al eliminar el proveedor', 'error');
+            console.error('Error deleting client:', error);
+            addToast('Error al eliminar el cliente', 'error');
         }
     }
 
-    function openEditModal(provider: Provider) {
-        setEditingId(provider.id);
+    function openEditModal(client: Client) {
+        setEditingId(client.id);
         setFormData({
-            name: provider.name,
-            rut: provider.rut || '',
-            contact_name: provider.contact_name || '',
-            contact_phone: provider.contact_phone || '',
-            contact_email: provider.contact_email || '',
-            address: provider.address || '',
-            license_number: provider.license_number || '',
-            background_check: provider.background_check || '',
-            driver_cv: provider.driver_cv || '',
-            vehicle_plate: provider.vehicle_plate || '',
-            vehicle_brand: provider.vehicle_brand || '',
-            vehicle_model: provider.vehicle_model || '',
-            vehicle_year: provider.vehicle_year || new Date().getFullYear(),
-            permit_circulation: provider.permit_circulation || '',
-            technical_review: provider.technical_review || '',
-            cargo_insurance: provider.cargo_insurance || '',
-            vehicle_insurance: provider.vehicle_insurance || '',
-            has_gps: provider.has_gps ?? true,
-            bank_account: provider.bank_account || '',
-            is_active: provider.is_active ?? true,
-            notes: provider.notes || '', // ✅ NUEVO
+            code: client.code || '',
+            name: client.name || '',
+            contact_name: client.contact_name || '',
+            contact_email: client.contact_email || '',
+            contact_phone: client.contact_phone || '',
+            address: client.address || '',
+            tax_id: client.tax_id || '',
+            payment_terms: client.payment_terms || '',
+            is_active: client.is_active ?? true,
+            notes: client.notes || '',
         });
         setIsModalOpen(true);
     }
 
-    function isDocumentValid(dateStr: string | null): boolean {
-        if (!dateStr) return false;
-        const date = new Date(dateStr);
-        const today = new Date();
-        return date >= today;
+    function formatDate(dateStr: string) {
+        return new Date(dateStr).toLocaleDateString('es-CL', {
+            day: '2-digit',
+            month: '2-digit',
+            year: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit'
+        });
     }
 
-    function getDocumentStatus(dateStr: string | null): { label: string; color: string } {
-        if (!dateStr) return { label: 'No registrado', color: 'text-gray-400' };
-        const valid = isDocumentValid(dateStr);
-        return {
-            label: valid ? '✅ Vigente' : '❌ Vencido',
-            color: valid ? 'text-green-600' : 'text-red-600',
-        };
-    }
-
-    if (loading && providers.length === 0) {
+    if (loading && clients.length === 0) {
         return (
             <div className="flex items-center justify-center h-64">
                 <div className="text-center">
                     <div className="text-2xl mb-2">⏳</div>
-                    <p className="text-gray-500">Cargando proveedores...</p>
+                    <p className="text-gray-500">Cargando clientes...</p>
                 </div>
             </div>
         );
@@ -276,8 +251,8 @@ export default function ProvidersModule() {
 
             <div className="flex items-center justify-between mb-6">
                 <div>
-                    <h1 className="text-xl font-bold text-slate-900">🤝 Proveedores</h1>
-                    <p className="text-sm text-slate-500 mt-0.5">Transportistas terceros y documentación</p>
+                    <h1 className="text-xl font-bold text-slate-900">🏢 Clientes</h1>
+                    <p className="text-sm text-slate-500 mt-0.5">Empresas que contratan servicios de transporte</p>
                 </div>
                 <button
                     onClick={() => {
@@ -286,125 +261,130 @@ export default function ProvidersModule() {
                     }}
                     className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
                 >
-                    + Agregar Proveedor
+                    + Agregar Cliente
                 </button>
             </div>
 
+            {/* Filtros */}
             <div className="mb-4 flex gap-2 flex-wrap">
                 <button
                     onClick={() => setFilterActive('all')}
-                    className={`px-3 py-1.5 text-sm rounded-lg transition-colors ${filterActive === 'all' ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'}`}
+                    className={`px-3 py-1.5 text-sm rounded-lg transition-colors ${
+                        filterActive === 'all' ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                    }`}
                 >
                     Todos
                 </button>
                 <button
                     onClick={() => setFilterActive('active')}
-                    className={`px-3 py-1.5 text-sm rounded-lg transition-colors ${filterActive === 'active' ? 'bg-green-600 text-white' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'}`}
+                    className={`px-3 py-1.5 text-sm rounded-lg transition-colors ${
+                        filterActive === 'active' ? 'bg-green-600 text-white' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                    }`}
                 >
                     Activos
                 </button>
                 <button
                     onClick={() => setFilterActive('inactive')}
-                    className={`px-3 py-1.5 text-sm rounded-lg transition-colors ${filterActive === 'inactive' ? 'bg-red-600 text-white' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'}`}
+                    className={`px-3 py-1.5 text-sm rounded-lg transition-colors ${
+                        filterActive === 'inactive' ? 'bg-red-600 text-white' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                    }`}
                 >
                     Inactivos
                 </button>
             </div>
 
-            {providers.length === 0 ? (
+            {clients.length === 0 ? (
                 <div className="bg-gray-50 border border-gray-200 rounded-lg p-8 text-center">
-                    <p className="text-gray-500">No hay proveedores registrados</p>
+                    <p className="text-gray-500">No hay clientes registrados</p>
                 </div>
             ) : (
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    {providers.map((provider) => (
-                        <div key={provider.id} className="bg-white rounded-lg border border-slate-200 overflow-hidden hover:shadow-lg transition-shadow">
+                    {clients.map((client) => (
+                        <div key={client.id} className="bg-white rounded-lg border border-slate-200 overflow-hidden hover:shadow-lg transition-shadow">
+                            {/* Header */}
                             <div className="px-4 py-3 border-b border-slate-100" style={{ background: '#050f1c' }}>
                                 <div className="flex items-center justify-between">
                                     <div>
-                                        <div className="text-white text-sm font-bold">{provider.name}</div>
-                                        <div className="text-blue-300 text-xs">{provider.rut}</div>
+                                        <div className="text-white text-sm font-bold">{client.name}</div>
+                                        <div className="text-blue-300 text-xs">Código: {client.code}</div>
                                     </div>
                                     <div className="text-right">
-                                        <span className={`px-2 py-1 text-xs font-semibold rounded-full ${provider.is_active ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
-                                            {provider.is_active ? 'Activo' : 'Inactivo'}
+                                        <span className={`px-2 py-1 text-xs font-semibold rounded-full ${
+                                            client.is_active ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
+                                        }`}>
+                                            {client.is_active ? 'Activo' : 'Inactivo'}
                                         </span>
                                     </div>
                                 </div>
                             </div>
 
+                            {/* Body */}
                             <div className="p-4 space-y-2">
-                                {provider.contact_name && (
+                                {client.contact_name && (
                                     <div className="flex justify-between text-sm">
                                         <span className="text-slate-500">Contacto:</span>
-                                        <span className="font-medium">{provider.contact_name}</span>
+                                        <span className="font-medium">{client.contact_name}</span>
                                     </div>
                                 )}
-                                {provider.contact_phone && (
+                                {client.contact_phone && (
                                     <div className="flex justify-between text-sm">
                                         <span className="text-slate-500">Teléfono:</span>
-                                        <span className="font-medium">{provider.contact_phone}</span>
+                                        <span className="font-medium">{client.contact_phone}</span>
                                     </div>
                                 )}
-                                {provider.vehicle_plate && (
+                                {client.contact_email && (
                                     <div className="flex justify-between text-sm">
-                                        <span className="text-slate-500">Vehículo:</span>
-                                        <span className="font-medium">{provider.vehicle_plate}</span>
+                                        <span className="text-slate-500">Email:</span>
+                                        <span className="font-medium text-sm truncate max-w-[150px]">{client.contact_email}</span>
                                     </div>
                                 )}
-                                <div className="flex justify-between text-sm">
-                                    <span className="text-slate-500">GPS:</span>
-                                    <span className={`font-medium ${provider.has_gps ? 'text-green-600' : 'text-red-600'}`}>
-                                        {provider.has_gps ? '✅ Activo' : '❌ Inactivo'}
-                                    </span>
+                                {client.tax_id && (
+                                    <div className="flex justify-between text-sm">
+                                        <span className="text-slate-500">RUT:</span>
+                                        <span className="font-medium">{client.tax_id}</span>
+                                    </div>
+                                )}
+                                {client.address && (
+                                    <div className="flex justify-between text-sm">
+                                        <span className="text-slate-500">Dirección:</span>
+                                        <span className="font-medium text-sm truncate max-w-[150px]">{client.address}</span>
+                                    </div>
+                                )}
+                                {client.payment_terms && (
+                                    <div className="flex justify-between text-sm">
+                                        <span className="text-slate-500">Condiciones de pago:</span>
+                                        <span className="font-medium">{client.payment_terms}</span>
+                                    </div>
+                                )}
+
+                                {/* Fechas */}
+                                <div className="flex justify-between text-xs text-slate-400 pt-1">
+                                    <span>Creado: {formatDate(client.created_at)}</span>
+                                    <span>Actualizado: {formatDate(client.updated_at)}</span>
                                 </div>
 
-                                {/* ✅ NUEVO: Mostrar notas del cliente */}
-                                {provider.notes && (
+                                {/* Notas */}
+                                {client.notes && (
                                     <div className="pt-2 border-t border-slate-100 mt-2">
                                         <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">
                                             📝 Notas
                                         </p>
                                         <p className="text-xs text-slate-600 bg-slate-50 p-2 rounded-lg border border-slate-100 max-h-20 overflow-y-auto">
-                                            {provider.notes}
+                                            {client.notes}
                                         </p>
                                     </div>
                                 )}
 
-                                {/* Documentos */}
-                                <div className="pt-3 border-t border-slate-100">
-                                    <p className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Documentos</p>
-                                    <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
-                                        <div className="flex justify-between">
-                                            <span className="text-slate-500">Licencia:</span>
-                                            <span className="font-medium">{provider.license_number || 'N/A'}</span>
-                                        </div>
-                                        <div className="flex justify-between">
-                                            <span className="text-slate-500">Revisión Téc.:</span>
-                                            <span className={`font-medium ${getDocumentStatus(provider.technical_review).color}`}>
-                                                {getDocumentStatus(provider.technical_review).label}
-                                            </span>
-                                        </div>
-                                        <div className="flex justify-between">
-                                            <span className="text-slate-500">Seg. Carga:</span>
-                                            <span className="font-medium">{provider.cargo_insurance || 'N/A'}</span>
-                                        </div>
-                                        <div className="flex justify-between">
-                                            <span className="text-slate-500">Seg. Vehículo:</span>
-                                            <span className="font-medium">{provider.vehicle_insurance || 'N/A'}</span>
-                                        </div>
-                                    </div>
-                                </div>
-
+                                {/* Acciones */}
                                 <div className="pt-3 border-t border-slate-100 flex items-center gap-2">
                                     <button
-                                        onClick={() => openEditModal(provider)}
+                                        onClick={() => openEditModal(client)}
                                         className="px-3 py-1 text-blue-600 hover:bg-blue-50 rounded text-xs flex-1"
                                     >
                                         ✏️ Editar
                                     </button>
                                     <button
-                                        onClick={() => handleDelete(provider.id)}
+                                        onClick={() => handleDelete(client.id)}
                                         className="px-3 py-1 text-red-600 hover:bg-red-50 rounded text-xs flex-1"
                                     >
                                         🗑️ Eliminar
@@ -416,17 +396,33 @@ export default function ProvidersModule() {
                 </div>
             )}
 
+            {/* Modal */}
             <Modal
                 isOpen={isModalOpen}
                 onClose={() => {
                     setIsModalOpen(false);
                     resetForm();
                 }}
-                title={editingId ? 'Editar Proveedor' : 'Agregar Proveedor'}
+                title={editingId ? 'Editar Cliente' : 'Agregar Cliente'}
                 size="lg"
             >
                 <form onSubmit={handleSubmit} className="space-y-4">
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        {/* Código */}
+                        <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-1">Código *</label>
+                            <input
+                                type="text"
+                                name="code"
+                                value={formData.code}
+                                onChange={handleInputChange}
+                                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                required
+                                placeholder="Ej: CLI-001"
+                            />
+                        </div>
+
+                        {/* Nombre */}
                         <div>
                             <label className="block text-sm font-medium text-gray-700 mb-1">Nombre *</label>
                             <input
@@ -436,22 +432,11 @@ export default function ProvidersModule() {
                                 onChange={handleInputChange}
                                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                                 required
-                                placeholder="Ej: Transportes Pérez"
+                                placeholder="Ej: Walmart Chile S.A."
                             />
                         </div>
 
-                        <div>
-                            <label className="block text-sm font-medium text-gray-700 mb-1">RUT</label>
-                            <input
-                                type="text"
-                                name="rut"
-                                value={formData.rut}
-                                onChange={handleInputChange}
-                                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                                placeholder="Ej: 76.123.456-7"
-                            />
-                        </div>
-
+                        {/* Contacto */}
                         <div>
                             <label className="block text-sm font-medium text-gray-700 mb-1">Contacto</label>
                             <input
@@ -464,6 +449,7 @@ export default function ProvidersModule() {
                             />
                         </div>
 
+                        {/* Teléfono */}
                         <div>
                             <label className="block text-sm font-medium text-gray-700 mb-1">Teléfono</label>
                             <input
@@ -476,6 +462,7 @@ export default function ProvidersModule() {
                             />
                         </div>
 
+                        {/* Email */}
                         <div>
                             <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
                             <input
@@ -484,46 +471,62 @@ export default function ProvidersModule() {
                                 value={formData.contact_email}
                                 onChange={handleInputChange}
                                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                                placeholder="contacto@proveedor.cl"
+                                placeholder="contacto@empresa.cl"
                             />
                         </div>
 
+                        {/* RUT */}
                         <div>
-                            <label className="block text-sm font-medium text-gray-700 mb-1">Placa del Vehículo</label>
+                            <label className="block text-sm font-medium text-gray-700 mb-1">RUT</label>
                             <input
                                 type="text"
-                                name="vehicle_plate"
-                                value={formData.vehicle_plate}
+                                name="tax_id"
+                                value={formData.tax_id}
                                 onChange={handleInputChange}
                                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                                placeholder="Ej: ABC-123"
+                                placeholder="Ej: 76.123.456-7"
                             />
                         </div>
 
-                        <div>
-                            <label className="block text-sm font-medium text-gray-700 mb-1">Licencia de Conducir</label>
+                        {/* Dirección */}
+                        <div className="md:col-span-2">
+                            <label className="block text-sm font-medium text-gray-700 mb-1">Dirección</label>
                             <input
                                 type="text"
-                                name="license_number"
-                                value={formData.license_number}
+                                name="address"
+                                value={formData.address}
                                 onChange={handleInputChange}
                                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                                placeholder="Número de licencia"
+                                placeholder="Dirección completa"
                             />
                         </div>
 
+                        {/* Condiciones de pago */}
                         <div>
-                            <label className="block text-sm font-medium text-gray-700 mb-1">Revisión Técnica</label>
+                            <label className="block text-sm font-medium text-gray-700 mb-1">Condiciones de pago</label>
                             <input
-                                type="date"
-                                name="technical_review"
-                                value={formData.technical_review}
+                                type="text"
+                                name="payment_terms"
+                                value={formData.payment_terms}
                                 onChange={handleInputChange}
                                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                placeholder="Ej: 30 días, Contado, etc."
                             />
                         </div>
 
-                        {/* ✅ NUEVO CAMPO DE NOTAS */}
+                        {/* Activo */}
+                        <div className="flex items-center gap-2">
+                            <input
+                                type="checkbox"
+                                name="is_active"
+                                checked={formData.is_active}
+                                onChange={handleInputChange}
+                                className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+                            />
+                            <label className="text-sm font-medium text-gray-700">Cliente activo</label>
+                        </div>
+
+                        {/* Notas */}
                         <div className="md:col-span-2">
                             <label className="block text-sm font-medium text-gray-700 mb-1">
                                 📝 Notas del cliente
@@ -539,28 +542,6 @@ export default function ProvidersModule() {
                             <p className="mt-1 text-xs text-gray-400">
                                 Ej: Prefiere contacto por WhatsApp, horarios de atención especiales, dirección de entrega alternativa, etc.
                             </p>
-                        </div>
-
-                        <div className="flex items-center gap-2">
-                            <input
-                                type="checkbox"
-                                name="has_gps"
-                                checked={formData.has_gps}
-                                onChange={handleInputChange}
-                                className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
-                            />
-                            <label className="text-sm font-medium text-gray-700">GPS Activo</label>
-                        </div>
-
-                        <div className="flex items-center gap-2">
-                            <input
-                                type="checkbox"
-                                name="is_active"
-                                checked={formData.is_active}
-                                onChange={handleInputChange}
-                                className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
-                            />
-                            <label className="text-sm font-medium text-gray-700">Proveedor Activo</label>
                         </div>
                     </div>
 

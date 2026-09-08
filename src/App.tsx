@@ -11,6 +11,7 @@ import DocumentsModule from './components/DocumentsModule';
 import FleetModule from './components/FleetModule';
 import ProvidersModule from './components/ProvidersModule';
 import DriversModule from './components/DriversModule';
+import ClientsModule from './components/ClientsModule';
 import Login from './components/Login';
 
 export type ActiveView = 
@@ -21,7 +22,8 @@ export type ActiveView =
   | 'documents' 
   | 'fleet' 
   | 'providers'
-  | 'drivers';
+  | 'drivers'
+  | 'clients';
 
 // ✅ Interfaz para permisos
 interface UserPermissions {
@@ -33,6 +35,7 @@ interface UserPermissions {
   can_view_fleet: boolean;
   can_view_drivers: boolean;
   can_view_providers: boolean;
+  can_view_clients: boolean; // ✅ NUEVO
 }
 
 const defaultPermissions: UserPermissions = {
@@ -44,6 +47,7 @@ const defaultPermissions: UserPermissions = {
   can_view_fleet: false,
   can_view_drivers: false,
   can_view_providers: false,
+  can_view_clients: false, // ✅ NUEVO
 };
 
 export default function App() {
@@ -84,7 +88,6 @@ export default function App() {
 
       if (permError || !permissionsData) {
         console.log('⚠️ No se encontraron permisos para el rol:', userData.role);
-        // Si es admin, dar todos los permisos
         if (userData.role === 'admin') {
           return { 
             authorized: true, 
@@ -98,6 +101,7 @@ export default function App() {
               can_view_fleet: true,
               can_view_drivers: true,
               can_view_providers: true,
+              can_view_clients: true,
             }
           };
         }
@@ -116,6 +120,7 @@ export default function App() {
         can_view_fleet: permissionsData.can_view_fleet || false,
         can_view_drivers: permissionsData.can_view_drivers || false,
         can_view_providers: permissionsData.can_view_providers || false,
+        can_view_clients: permissionsData.can_view_clients || false,
       };
 
       console.log('✅ Permisos finales:', permissions);
@@ -136,7 +141,8 @@ export default function App() {
     if (permissions.can_view_fleet) return 'fleet';
     if (permissions.can_view_drivers) return 'drivers';
     if (permissions.can_view_providers) return 'providers';
-    return 'dashboard'; // fallback
+    if (permissions.can_view_clients) return 'clients';
+    return 'dashboard';
   };
 
   // ✅ Verificar si una vista es accesible
@@ -150,6 +156,7 @@ export default function App() {
       case 'fleet': return userPermissions.can_view_fleet;
       case 'drivers': return userPermissions.can_view_drivers;
       case 'providers': return userPermissions.can_view_providers;
+      case 'clients': return userPermissions.can_view_clients;
       default: return false;
     }
   };
@@ -244,6 +251,7 @@ export default function App() {
     fleet: <FleetModule />,
     providers: <ProvidersModule />,
     drivers: <DriversModule />,
+    clients: <ClientsModule />,
   };
 
   // ✅ Solo renderizar la vista activa si es accesible

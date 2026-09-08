@@ -13,6 +13,7 @@ export interface Client {
     is_active: boolean;
     created_at: string;
     updated_at: string;
+    notes: string | null;
 }
 
 export interface Order {
@@ -124,6 +125,7 @@ export interface Provider {
     is_active: boolean | null;
     created_at: string;
     updated_at: string;
+    notes: string | null;
 }
 
 export interface TripAssignment {

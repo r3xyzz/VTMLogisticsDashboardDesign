@@ -13,6 +13,7 @@ interface UserPermissions {
   can_view_fleet: boolean;
   can_view_drivers: boolean;
   can_view_providers: boolean;
+  can_view_clients: boolean; // ✅ NUEVO
 }
 
 interface Props {
@@ -39,6 +40,7 @@ const navItems: NavItem[] = [
   { id: 'documents', label: 'POD · Documentos', requiredPermission: 'can_view_documents' },
   { id: 'fleet', label: 'Flota · Vehículos', requiredPermission: 'can_view_fleet' },
   { id: 'drivers', label: 'Conductores', requiredPermission: 'can_view_drivers' },
+  { id: 'clients', label: 'Clientes', requiredPermission: 'can_view_clients' }, // ✅ NUEVO
   { id: 'providers', label: 'Proveedores', badge: 3, requiredPermission: 'can_view_providers' },
 ];
 
@@ -52,6 +54,8 @@ function NavIcon({ id }: { id: ActiveView }) {
     fleet: 'M9 17a2 2 0 11-4 0 2 2 0 014 0zM19 17a2 2 0 11-4 0 2 2 0 014 0z M13 16V6a1 1 0 00-1-1H4a1 1 0 00-1 1v10a1 1 0 001 1h1m8-1a1 1 0 01-1 1H9m4-1V8a1 1 0 011-1h2.586a1 1 0 01.707.293l3.414 3.414a1 1 0 01.293.707V16a1 1 0 01-1 1h-1m-6-1a1 1 0 001 1h1M5 17a2 2 0 104 0m-4 0a2 2 0 114 0m6 0a2 2 0 104 0m-4 0a2 2 0 114 0',
     providers: 'M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z',
     drivers: 'M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z',
+    // ✅ NUEVO ICONO PARA CLIENTES
+    clients: 'M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4',
   };
   const paths = Array.isArray(d[id]) ? (d[id] as string[]) : [d[id] as string];
   return (
@@ -91,15 +95,15 @@ export default function Sidebar({
   }, []);
 
   // ============================================
-  //  LOGS DE DEPURACIÓN Y FORZADO DE PERMISOS
+  // ✅ LOGS DE DEPURACIÓN Y FORZADO DE PERMISOS
   // ============================================
   
   console.log('='.repeat(60));
-  console.log(' SIDEBAR - INICIO DE RENDERIZADO');
-  console.log(' Usuario:', session?.user?.email || 'No autenticado');
+  console.log('🧪 SIDEBAR - INICIO DE RENDERIZADO');
+  console.log('👤 Usuario:', session?.user?.email || 'No autenticado');
   
-  //  LOG 1: Ver permisos recibidos del padre (App.tsx)
-  console.log(' PERMISOS RECIBIDOS DEL PADRE:', {
+  // ✅ LOG 1: Ver permisos recibidos del padre (App.tsx)
+  console.log('📦 PERMISOS RECIBIDOS DEL PADRE:', {
     can_view_dashboard: originalPermissions.can_view_dashboard,
     can_view_orders: originalPermissions.can_view_orders,
     can_view_cargo: originalPermissions.can_view_cargo,
@@ -107,6 +111,7 @@ export default function Sidebar({
     can_view_documents: originalPermissions.can_view_documents,
     can_view_fleet: originalPermissions.can_view_fleet,
     can_view_drivers: originalPermissions.can_view_drivers,
+    can_view_clients: originalPermissions.can_view_clients,
     can_view_providers: originalPermissions.can_view_providers,
   });
 
@@ -126,6 +131,7 @@ export default function Sidebar({
       can_view_documents: true,
       can_view_fleet: false,
       can_view_drivers: false,
+      can_view_clients: true,
       can_view_providers: false,
     };
     console.log('📦 PERMISOS FORZADOS:', permissions);
@@ -140,6 +146,7 @@ export default function Sidebar({
     can_view_documents: permissions.can_view_documents,
     can_view_fleet: permissions.can_view_fleet,
     can_view_drivers: permissions.can_view_drivers,
+    can_view_clients: permissions.can_view_clients,
     can_view_providers: permissions.can_view_providers,
   });
 
