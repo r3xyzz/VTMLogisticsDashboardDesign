@@ -13,7 +13,7 @@ interface UserPermissions {
   can_view_fleet: boolean;
   can_view_drivers: boolean;
   can_view_providers: boolean;
-  can_view_clients: boolean; // ✅ NUEVO
+  can_view_clients: boolean;
 }
 
 interface Props {
@@ -40,7 +40,7 @@ const navItems: NavItem[] = [
   { id: 'documents', label: 'POD · Documentos', requiredPermission: 'can_view_documents' },
   { id: 'fleet', label: 'Flota · Vehículos', requiredPermission: 'can_view_fleet' },
   { id: 'drivers', label: 'Conductores', requiredPermission: 'can_view_drivers' },
-  { id: 'clients', label: 'Clientes', requiredPermission: 'can_view_clients' }, // ✅ NUEVO
+  { id: 'clients', label: 'Clientes', requiredPermission: 'can_view_clients' },
   { id: 'providers', label: 'Proveedores', badge: 3, requiredPermission: 'can_view_providers' },
 ];
 
@@ -54,7 +54,6 @@ function NavIcon({ id }: { id: ActiveView }) {
     fleet: 'M9 17a2 2 0 11-4 0 2 2 0 014 0zM19 17a2 2 0 11-4 0 2 2 0 014 0z M13 16V6a1 1 0 00-1-1H4a1 1 0 00-1 1v10a1 1 0 001 1h1m8-1a1 1 0 01-1 1H9m4-1V8a1 1 0 011-1h2.586a1 1 0 01.707.293l3.414 3.414a1 1 0 01.293.707V16a1 1 0 01-1 1h-1m-6-1a1 1 0 001 1h1M5 17a2 2 0 104 0m-4 0a2 2 0 114 0m6 0a2 2 0 104 0m-4 0a2 2 0 114 0',
     providers: 'M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z',
     drivers: 'M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z',
-    // ✅ NUEVO ICONO PARA CLIENTES
     clients: 'M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4',
   };
   const paths = Array.isArray(d[id]) ? (d[id] as string[]) : [d[id] as string];
@@ -72,7 +71,7 @@ export default function Sidebar({
   onToggle, 
   activeView, 
   onNavigate, 
-  permissions: originalPermissions,
+  permissions,
   userRole 
 }: Props) {
   const [session, setSession] = useState<Session | null>(null);
@@ -94,65 +93,6 @@ export default function Sidebar({
     return () => subscription?.unsubscribe();
   }, []);
 
-  // ============================================
-  // ✅ LOGS DE DEPURACIÓN Y FORZADO DE PERMISOS
-  // ============================================
-  
-  console.log('='.repeat(60));
-  console.log('🧪 SIDEBAR - INICIO DE RENDERIZADO');
-  console.log('👤 Usuario:', session?.user?.email || 'No autenticado');
-  
-  // ✅ LOG 1: Ver permisos recibidos del padre (App.tsx)
-  console.log('📦 PERMISOS RECIBIDOS DEL PADRE:', {
-    can_view_dashboard: originalPermissions.can_view_dashboard,
-    can_view_orders: originalPermissions.can_view_orders,
-    can_view_cargo: originalPermissions.can_view_cargo,
-    can_view_tracking: originalPermissions.can_view_tracking,
-    can_view_documents: originalPermissions.can_view_documents,
-    can_view_fleet: originalPermissions.can_view_fleet,
-    can_view_drivers: originalPermissions.can_view_drivers,
-    can_view_clients: originalPermissions.can_view_clients,
-    can_view_providers: originalPermissions.can_view_providers,
-  });
-
-  // ✅ CLAVE: Modificar los permisos antes de usarlos
-  let permissions = { ...originalPermissions };
-
-  // ✅ FORZAR PERMISOS PARA GONZALO (SOLO PARA PRUEBAS)
-  // ⚠️ ELIMINA ESTO DESPUÉS DE PROBAR
-  const isGonzalo = session?.user?.email === 'g.atenasvtm@gmail.com';
-  if (isGonzalo) {
-    console.log('🔧 FORZANDO PERMISOS PARA GONZALO');
-    permissions = {
-      can_view_dashboard: false,
-      can_view_orders: true,
-      can_view_cargo: true,
-      can_view_tracking: false,
-      can_view_documents: true,
-      can_view_fleet: false,
-      can_view_drivers: false,
-      can_view_clients: true,
-      can_view_providers: false,
-    };
-    console.log('📦 PERMISOS FORZADOS:', permissions);
-  }
-
-  // ✅ LOG 2: Ver permisos finales que se van a usar
-  console.log('📦 PERMISOS FINALES A USAR:', {
-    can_view_dashboard: permissions.can_view_dashboard,
-    can_view_orders: permissions.can_view_orders,
-    can_view_cargo: permissions.can_view_cargo,
-    can_view_tracking: permissions.can_view_tracking,
-    can_view_documents: permissions.can_view_documents,
-    can_view_fleet: permissions.can_view_fleet,
-    can_view_drivers: permissions.can_view_drivers,
-    can_view_clients: permissions.can_view_clients,
-    can_view_providers: permissions.can_view_providers,
-  });
-
-  // ✅ LOG 3: Ver el estado de la vista activa
-  console.log('📍 Vista activa actual:', activeView);
-
   const getUserInitials = () => {
     if (!session?.user?.email) return 'U';
     return session.user.email[0].toUpperCase();
@@ -173,23 +113,10 @@ export default function Sidebar({
     window.location.reload();
   };
 
-  // ✅ FILTRO DE MÓDULOS CON LOGS DETALLADOS
-  console.log('🔍 FILTRANDO MÓDULOS:');
+  // ✅ Filtrar items según permisos
   const visibleNavItems = navItems.filter(item => {
-    const hasPermission = permissions[item.requiredPermission] === true;
-    console.log(`  ${item.id.padEnd(15)} → ${item.requiredPermission.padEnd(25)} = ${permissions[item.requiredPermission]} → ${hasPermission ? '✅ VISIBLE' : '❌ OCULTO'}`);
-    return hasPermission;
+    return permissions[item.requiredPermission] === true;
   });
-
-  // ✅ LOG 4: Resumen de módulos visibles
-  console.log(`📋 MÓDULOS VISIBLES: ${visibleNavItems.length} de ${navItems.length}`);
-  console.log('📋 Lista de módulos visibles:', visibleNavItems.map(i => i.label).join(', ') || 'NINGUNO');
-  
-  if (visibleNavItems.length === 0) {
-    console.warn('⚠️ NO HAY MÓDULOS VISIBLES PARA ESTE USUARIO');
-  }
-
-  console.log('='.repeat(60));
 
   return (
     <aside
@@ -200,6 +127,7 @@ export default function Sidebar({
         borderRight: '1px solid rgba(255,255,255,0.06)',
       }}
     >
+      {/* Header */}
       <div
         className="flex items-center gap-3 px-4 h-14 flex-shrink-0"
         style={{ borderBottom: '1px solid rgba(255,255,255,0.07)' }}
@@ -220,6 +148,7 @@ export default function Sidebar({
         )}
       </div>
 
+      {/* Navegación */}
       <nav className="flex-1 py-3 overflow-y-auto overflow-x-hidden">
         {!collapsed && (
           <div className="px-4 pt-1 pb-2">
@@ -281,6 +210,7 @@ export default function Sidebar({
         )}
       </nav>
 
+      {/* Footer con usuario y logout */}
       <div style={{ borderTop: '1px solid rgba(255,255,255,0.07)' }}>
         {!collapsed && (
           <div className="flex items-center gap-3 px-4 py-3">
