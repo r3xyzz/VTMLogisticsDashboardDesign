@@ -12,6 +12,7 @@ import FleetModule from './components/FleetModule';
 import ProvidersModule from './components/ProvidersModule';
 import DriversModule from './components/DriversModule';
 import ClientsModule from './components/ClientsModule';
+import CalculationsModule from './components/CalculationsModule';
 import Login from './components/Login';
 
 export type ActiveView = 
@@ -23,7 +24,8 @@ export type ActiveView =
   | 'fleet' 
   | 'providers'
   | 'drivers'
-  | 'clients';
+  | 'clients'
+  | 'calculations';
 
 // ✅ Interfaz para permisos
 interface UserPermissions {
@@ -35,7 +37,8 @@ interface UserPermissions {
   can_view_fleet: boolean;
   can_view_drivers: boolean;
   can_view_providers: boolean;
-  can_view_clients: boolean; // ✅ NUEVO
+  can_view_clients: boolean;
+  can_view_calculations: boolean;
 }
 
 const defaultPermissions: UserPermissions = {
@@ -47,7 +50,8 @@ const defaultPermissions: UserPermissions = {
   can_view_fleet: false,
   can_view_drivers: false,
   can_view_providers: false,
-  can_view_clients: false, // ✅ NUEVO
+  can_view_clients: false,
+  can_view_calculations: false,
 };
 
 export default function App() {
@@ -102,6 +106,7 @@ export default function App() {
               can_view_drivers: true,
               can_view_providers: true,
               can_view_clients: true,
+              can_view_calculations: true,
             }
           };
         }
@@ -121,6 +126,7 @@ export default function App() {
         can_view_drivers: permissionsData.can_view_drivers || false,
         can_view_providers: permissionsData.can_view_providers || false,
         can_view_clients: permissionsData.can_view_clients || false,
+        can_view_calculations: permissionsData.can_view_calculations || false,
       };
 
       console.log('✅ Permisos finales:', permissions);
@@ -142,6 +148,7 @@ export default function App() {
     if (permissions.can_view_drivers) return 'drivers';
     if (permissions.can_view_providers) return 'providers';
     if (permissions.can_view_clients) return 'clients';
+    if (permissions.can_view_calculations) return 'calculations';
     return 'dashboard';
   };
 
@@ -157,6 +164,7 @@ export default function App() {
       case 'drivers': return userPermissions.can_view_drivers;
       case 'providers': return userPermissions.can_view_providers;
       case 'clients': return userPermissions.can_view_clients;
+      case 'calculations': return userPermissions.can_view_calculations;
       default: return false;
     }
   };
@@ -252,6 +260,7 @@ export default function App() {
     providers: <ProvidersModule />,
     drivers: <DriversModule />,
     clients: <ClientsModule />,
+    calculations: <CalculationsModule />,
   };
 
   // ✅ Solo renderizar la vista activa si es accesible

@@ -14,6 +14,7 @@ interface UserPermissions {
   can_view_drivers: boolean;
   can_view_providers: boolean;
   can_view_clients: boolean;
+  can_view_calculations: boolean;
 }
 
 interface Props {
@@ -42,6 +43,7 @@ const navItems: NavItem[] = [
   { id: 'drivers', label: 'Conductores', requiredPermission: 'can_view_drivers' },
   { id: 'clients', label: 'Clientes', requiredPermission: 'can_view_clients' },
   { id: 'providers', label: 'Proveedores', badge: 3, requiredPermission: 'can_view_providers' },
+  { id: 'calculations', label: 'Cálculo', requiredPermission: 'can_view_calculations' },
 ];
 
 function NavIcon({ id }: { id: ActiveView }) {
@@ -55,6 +57,7 @@ function NavIcon({ id }: { id: ActiveView }) {
     providers: 'M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z',
     drivers: 'M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z',
     clients: 'M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4',
+    calculations: 'M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 11h.01M12 11h.01M15 11h.01M4 20h16a2 2 0 002-2V6a2 2 0 00-2-2H4a2 2 0 00-2 2v12a2 2 0 002 2z',
   };
   const paths = Array.isArray(d[id]) ? (d[id] as string[]) : [d[id] as string];
   return (
