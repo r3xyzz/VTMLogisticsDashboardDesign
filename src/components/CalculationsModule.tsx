@@ -1,173 +1,508 @@
 // src/components/CalculationsModule.tsx
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { supabase } from '../lib/supabase';
 import { Modal } from './ui/Modal';
 import { addToast, useToasts, Toast } from './ui/Toast';
+import type { 
+    Calculation, 
+    CalculationColumn, 
+    CalculationItem, 
+    CalculationValue,
+    CalculationFull 
+} from '../types/database';
 
-// ✅ TIPOS DE DATOS
-interface CalculationColumn {
-    id: string;
-    name: string;
-}
-
-interface CalculationItem {
-    id: string;
-    name: string;
-    values: { [columnId: string]: number };
-}
-
-interface Calculation {
-    id: string;
-    name: string;
-    description: string;
-    origin: string;
-    destination: string;
-    distance_km: number;
-    notes: string;
-    columns: CalculationColumn[];
-    items: CalculationItem[];
-    totalCost: { [columnId: string]: number };
-    totalSale: { [columnId: string]: number };
-    margin: number;
-}
-
-// ✅ DATOS ESTÁTICOS DE EJEMPLO
-const initialCalculations: Calculation[] = [
-    {
-        id: '1',
-        name: 'Valparaíso → Santiago',
-        description: 'Servicios generales zona central',
-        origin: 'Valparaíso',
-        destination: 'Santiago',
-        distance_km: 117,
-        notes: 'Precios base sin IVA',
-        margin: 50,
-        columns: [
-            { id: 'col1', name: '5 TON' },
-            { id: 'col2', name: '10 TON' },
-            { id: 'col3', name: 'RAMPLA (15 TON)' },
-        ],
-        items: [
-            { id: 'item1', name: 'Petróleo', values: { col1: 263, col2: 300, col3: 660 } },
-            { id: 'item2', name: 'Peajes', values: { col1: 150, col2: 150, col3: 250 } },
-            { id: 'item3', name: 'Viático', values: { col1: 90, col2: 90, col3: 90 } },
-            { id: 'item4', name: 'Estadía', values: { col1: 60, col2: 60, col3: 60 } },
-            { id: 'item5', name: 'Bono', values: { col1: 50, col2: 50, col3: 50 } },
-            { id: 'item6', name: 'Mantención', values: { col1: 100, col2: 100, col3: 150 } },
-        ],
-        totalCost: { col1: 713, col2: 750, col3: 1260 },
-        totalSale: { col1: 1070, col2: 1125, col3: 1890 },
-    },
-    {
-        id: '2',
-        name: 'San Antonio → Talcahuano',
-        description: 'Servicio zona sur',
-        origin: 'San Antonio',
-        destination: 'Talcahuano',
-        distance_km: 503,
-        notes: 'Incluye retiro en puerto',
-        margin: 55,
-        columns: [
-            { id: 'col1', name: 'Camioneta' },
-            { id: 'col2', name: '10 TON' },
-            { id: 'col3', name: 'Rampla' },
-        ],
-        items: [
-            { id: 'item1', name: 'Petróleo', values: { col1: 435, col2: 725, col3: 2325 } },
-            { id: 'item2', name: 'Peajes', values: { col1: 60, col2: 150, col3: 200 } },
-            { id: 'item3', name: 'Viáticos', values: { col1: 120, col2: 150, col3: 150 } },
-            { id: 'item4', name: 'Estadía', values: { col1: 210, col2: 210, col3: 210 } },
-            { id: 'item5', name: 'Bono', values: { col1: 70, col2: 70, col3: 70 } },
-            { id: 'item6', name: 'Mantención', values: { col1: 100, col2: 150, col3: 200 } },
-        ],
-        totalCost: { col1: 995, col2: 1455, col3: 3155 },
-        totalSale: { col1: 1750, col2: 2650, col3: 4150 },
-    },
-];
-
+// ✅ Helper para formatear CLP
 const clp = (n: number) =>
     new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP', maximumFractionDigits: 0 }).format(n);
 
 export default function CalculationsModule() {
-    const [calculations, setCalculations] = useState<Calculation[]>(initialCalculations);
-    const [selectedCalc, setSelectedCalc] = useState<Calculation | null>(null);
+    const [calculations, setCalculations] = useState<Calculation[]>([]);
+    const [loading, setLoading] = useState(true);
+    const [selectedCalc, setSelectedCalc] = useState<CalculationFull | null>(null);
     const [isEditorOpen, setIsEditorOpen] = useState(false);
     const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
     const [deletingId, setDeletingId] = useState<string | null>(null);
     const toasts = useToasts();
 
-    // ✅ Crear nuevo cálculo
+    // ============================================
+    // ✅ CARGAR CÁLCULOS DESDE SUPABASE
+    // ============================================
+    useEffect(() => {
+        fetchCalculations();
+    }, []);
+
+    async function fetchCalculations() {
+        try {
+            setLoading(true);
+            console.log('🔄 Cargando cálculos desde Supabase...');
+
+            const { data, error } = await supabase
+                .from('calculations')
+                .select('*')
+                .eq('is_active', true)
+                .order('created_at', { ascending: false });
+
+            if (error) throw error;
+
+            console.log('✅ Cálculos cargados:', data?.length || 0);
+            setCalculations(data || []);
+        } catch (error) {
+            console.error('❌ Error al cargar cálculos:', error);
+            addToast('Error al cargar los cálculos', 'error');
+        } finally {
+            setLoading(false);
+        }
+    }
+
+    // ============================================
+    // ✅ CARGAR CÁLCULO COMPLETO (con columnas, items, valores)
+    // ============================================
+    async function fetchCalculationFull(calculationId: string): Promise<CalculationFull | null> {
+        try {
+            console.log('🔄 Cargando cálculo completo:', calculationId);
+
+            // 1. Obtener el cálculo principal
+            const { data: calc, error: calcError } = await supabase
+                .from('calculations')
+                .select('*')
+                .eq('id', calculationId)
+                .single();
+
+            if (calcError) throw calcError;
+
+            // 2. Obtener las columnas
+            const { data: columns, error: colError } = await supabase
+                .from('calculation_columns')
+                .select('*')
+                .eq('calculation_id', calculationId)
+                .order('column_order', { ascending: true });
+
+            if (colError) throw colError;
+
+            // 3. Obtener los items
+            const { data: items, error: itemError } = await supabase
+                .from('calculation_items')
+                .select('*')
+                .eq('calculation_id', calculationId)
+                .order('item_order', { ascending: true });
+
+            if (itemError) throw itemError;
+
+            // 4. Obtener los valores
+            const { data: values, error: valError } = await supabase
+                .from('calculation_values')
+                .select('*')
+                .eq('calculation_id', calculationId);
+
+            if (valError) throw valError;
+
+            console.log('✅ Cálculo completo cargado:', {
+                calc: calc.name,
+                columns: columns?.length,
+                items: items?.length,
+                values: values?.length,
+            });
+
+            return {
+                ...calc,
+                columns: columns || [],
+                items: items || [],
+                values: values || [],
+            };
+        } catch (error) {
+            console.error('❌ Error al cargar cálculo completo:', error);
+            return null;
+        }
+    }
+
+    // ============================================
+    // ✅ CREAR NUEVO CÁLCULO
+    // ============================================
     const handleCreateNew = () => {
-        const newCalc: Calculation = {
-            id: Date.now().toString(),
+        const newCalc: CalculationFull = {
+            id: '',
             name: '',
-            description: '',
-            origin: '',
-            destination: '',
-            distance_km: 0,
-            notes: '',
+            description: null,
+            origin: null,
+            destination: null,
+            distance_km: null,
+            notes: null,
             margin: 50,
+            is_active: true,
+            created_by: null,
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
             columns: [
-                { id: 'col1', name: '5 TON' },
-                { id: 'col2', name: '10 TON' },
-                { id: 'col3', name: 'RAMPLA' },
+                { id: '', calculation_id: '', name: '5 TON', column_order: 0, created_at: '' },
+                { id: '', calculation_id: '', name: '10 TON', column_order: 1, created_at: '' },
+                { id: '', calculation_id: '', name: 'RAMPLA', column_order: 2, created_at: '' },
             ],
             items: [
-                { id: 'item1', name: 'Petróleo', values: {} },
-                { id: 'item2', name: 'Peajes', values: {} },
-                { id: 'item3', name: 'Viático', values: {} },
+                { id: '', calculation_id: '', name: 'Petróleo', item_order: 0, created_at: '' },
+                { id: '', calculation_id: '', name: 'Peajes', item_order: 1, created_at: '' },
+                { id: '', calculation_id: '', name: 'Viático', item_order: 2, created_at: '' },
             ],
-            totalCost: {},
-            totalSale: {},
+            values: [],
         };
         setSelectedCalc(newCalc);
         setIsEditorOpen(true);
     };
 
-    // ✅ Abrir editor
-    const handleEdit = (calc: Calculation) => {
-        setSelectedCalc({ ...calc });
-        setIsEditorOpen(true);
+    // ============================================
+    // ✅ EDITAR CÁLCULO EXISTENTE
+    // ============================================
+    const handleEdit = async (calc: Calculation) => {
+        const fullCalc = await fetchCalculationFull(calc.id);
+        if (fullCalc) {
+            setSelectedCalc(fullCalc);
+            setIsEditorOpen(true);
+        } else {
+            addToast('Error al cargar el cálculo', 'error');
+        }
     };
 
-    // ✅ Eliminar
+    // ============================================
+    // ✅ ELIMINAR CÁLCULO
+    // ============================================
     const handleDelete = (id: string) => {
         setDeletingId(id);
         setIsDeleteModalOpen(true);
     };
 
-    const confirmDelete = () => {
-        if (deletingId) {
-            setCalculations(prev => prev.filter(c => c.id !== deletingId));
+    const confirmDelete = async () => {
+        if (!deletingId) return;
+
+        try {
+            console.log('🗑️ Eliminando cálculo:', deletingId);
+            
+            const { error } = await supabase
+                .from('calculations')
+                .delete()
+                .eq('id', deletingId);
+
+            if (error) throw error;
+
             addToast('Cálculo eliminado correctamente', 'success');
+            fetchCalculations();
             setDeletingId(null);
             setIsDeleteModalOpen(false);
+        } catch (error) {
+            console.error('❌ Error al eliminar:', error);
+            addToast('Error al eliminar el cálculo', 'error');
         }
     };
 
-    // ✅ Guardar cambios
-    const handleSave = (updatedCalc: Calculation) => {
-        setCalculations(prev => {
-            const exists = prev.find(c => c.id === updatedCalc.id);
-            if (exists) {
-                return prev.map(c => c.id === updatedCalc.id ? updatedCalc : c);
+    // ============================================
+    // ✅ DUPLICAR CÁLCULO
+    // ============================================
+    const handleDuplicate = async (calc: Calculation) => {
+        try {
+            console.log('📋 Duplicando cálculo:', calc.name);
+
+            // 1. Cargar el cálculo completo original
+            const originalFull = await fetchCalculationFull(calc.id);
+            if (!originalFull) {
+                addToast('Error al cargar el cálculo original', 'error');
+                return;
             }
-            return [...prev, updatedCalc];
-        });
-        setIsEditorOpen(false);
-        setSelectedCalc(null);
-        addToast('Cálculo guardado correctamente', 'success');
+
+            // 2. Crear el nuevo cálculo
+            const { data: { session } } = await supabase.auth.getSession();
+
+            const { data: newCalc, error: newCalcError } = await supabase
+                .from('calculations')
+                .insert([{
+                    name: `${originalFull.name} (copia)`,
+                    description: originalFull.description,
+                    origin: originalFull.origin,
+                    destination: originalFull.destination,
+                    distance_km: originalFull.distance_km,
+                    notes: originalFull.notes,
+                    margin: originalFull.margin,
+                    is_active: true,
+                    created_by: session?.user?.id || null,
+                }])
+                .select()
+                .single();
+
+            if (newCalcError) throw newCalcError;
+
+            // 3. Duplicar las columnas y crear un mapa de IDs
+            const columnMap: { [oldId: string]: string } = {};
+            
+            for (const col of originalFull.columns) {
+                const { data: newCol, error: colError } = await supabase
+                    .from('calculation_columns')
+                    .insert([{
+                        calculation_id: newCalc.id,
+                        name: col.name,
+                        column_order: col.column_order,
+                    }])
+                    .select()
+                    .single();
+
+                if (colError) throw colError;
+                columnMap[col.id] = newCol.id;
+            }
+
+            // 4. Duplicar los items y crear un mapa de IDs
+            const itemMap: { [oldId: string]: string } = {};
+            
+            for (const item of originalFull.items) {
+                const { data: newItem, error: itemError } = await supabase
+                    .from('calculation_items')
+                    .insert([{
+                        calculation_id: newCalc.id,
+                        name: item.name,
+                        item_order: item.item_order,
+                    }])
+                    .select()
+                    .single();
+
+                if (itemError) throw itemError;
+                itemMap[item.id] = newItem.id;
+            }
+
+            // 5. Duplicar los valores
+            const newValues = originalFull.values.map(v => ({
+                calculation_id: newCalc.id,
+                item_id: itemMap[v.item_id],
+                column_id: columnMap[v.column_id],
+                value: v.value,
+            }));
+
+            if (newValues.length > 0) {
+                const { error: valError } = await supabase
+                    .from('calculation_values')
+                    .insert(newValues);
+
+                if (valError) throw valError;
+            }
+
+            addToast('Cálculo duplicado correctamente', 'success');
+            fetchCalculations();
+        } catch (error) {
+            console.error('❌ Error al duplicar:', error);
+            addToast('Error al duplicar el cálculo', 'error');
+        }
     };
 
-    // ✅ Duplicar
-    const handleDuplicate = (calc: Calculation) => {
-        const duplicated: Calculation = {
-            ...calc,
-            id: Date.now().toString(),
-            name: `${calc.name} (copia)`,
-        };
-        setCalculations(prev => [...prev, duplicated]);
-        addToast('Cálculo duplicado correctamente', 'success');
+    // ============================================
+    // ✅ GUARDAR CÁLCULO (crear o actualizar)
+    // ============================================
+    const handleSave = async (updatedCalc: CalculationFull) => {
+        try {
+            console.log('💾 Guardando cálculo...');
+            setLoading(true);
+
+            const { data: { session } } = await supabase.auth.getSession();
+
+            let calculationId = updatedCalc.id;
+
+            // 1. Guardar/actualizar el cálculo principal
+            if (!calculationId) {
+                // CREAR NUEVO
+                const { data: newCalc, error: calcError } = await supabase
+                    .from('calculations')
+                    .insert([{
+                        name: updatedCalc.name || 'Sin nombre',
+                        description: updatedCalc.description || null,
+                        origin: updatedCalc.origin || null,
+                        destination: updatedCalc.destination || null,
+                        distance_km: updatedCalc.distance_km || null,
+                        notes: updatedCalc.notes || null,
+                        margin: updatedCalc.margin || 50,
+                        is_active: true,
+                        created_by: session?.user?.id || null,
+                    }])
+                    .select()
+                    .single();
+
+                if (calcError) throw calcError;
+                calculationId = newCalc.id;
+                console.log('✅ Cálculo creado:', calculationId);
+            } else {
+                // ACTUALIZAR EXISTENTE
+                const { error: calcError } = await supabase
+                    .from('calculations')
+                    .update({
+                        name: updatedCalc.name || 'Sin nombre',
+                        description: updatedCalc.description || null,
+                        origin: updatedCalc.origin || null,
+                        destination: updatedCalc.destination || null,
+                        distance_km: updatedCalc.distance_km || null,
+                        notes: updatedCalc.notes || null,
+                        margin: updatedCalc.margin || 50,
+                    })
+                    .eq('id', calculationId);
+
+                if (calcError) throw calcError;
+                console.log('✅ Cálculo actualizado:', calculationId);
+            }
+
+            // 2. Guardar columnas
+            const columnMap: { [oldId: string]: string } = {};
+            
+            // Eliminar columnas que ya no están
+            if (updatedCalc.id) {
+                const existingColumnIds = updatedCalc.columns
+                    .filter(c => c.id)
+                    .map(c => c.id);
+                
+                if (existingColumnIds.length > 0) {
+                    await supabase
+                        .from('calculation_columns')
+                        .delete()
+                        .eq('calculation_id', calculationId)
+                        .not('id', 'in', `(${existingColumnIds.join(',')})`);
+                } else {
+                    await supabase
+                        .from('calculation_columns')
+                        .delete()
+                        .eq('calculation_id', calculationId);
+                }
+            }
+
+            for (const col of updatedCalc.columns) {
+                if (col.id) {
+                    // Actualizar existente
+                    const { error } = await supabase
+                        .from('calculation_columns')
+                        .update({ name: col.name, column_order: col.column_order })
+                        .eq('id', col.id);
+
+                    if (error) throw error;
+                    columnMap[col.id] = col.id;
+                } else {
+                    // Crear nueva
+                    const { data: newCol, error } = await supabase
+                        .from('calculation_columns')
+                        .insert([{
+                            calculation_id: calculationId,
+                            name: col.name,
+                            column_order: col.column_order,
+                        }])
+                        .select()
+                        .single();
+
+                    if (error) throw error;
+                    columnMap[col.id || col.name] = newCol.id;
+                }
+            }
+
+            // 3. Guardar items
+            const itemMap: { [oldId: string]: string } = {};
+            
+            // Eliminar items que ya no están
+            if (updatedCalc.id) {
+                const existingItemIds = updatedCalc.items
+                    .filter(i => i.id)
+                    .map(i => i.id);
+                
+                if (existingItemIds.length > 0) {
+                    await supabase
+                        .from('calculation_items')
+                        .delete()
+                        .eq('calculation_id', calculationId)
+                        .not('id', 'in', `(${existingItemIds.join(',')})`);
+                } else {
+                    await supabase
+                        .from('calculation_items')
+                        .delete()
+                        .eq('calculation_id', calculationId);
+                }
+            }
+
+            for (const item of updatedCalc.items) {
+                if (item.id) {
+                    // Actualizar existente
+                    const { error } = await supabase
+                        .from('calculation_items')
+                        .update({ name: item.name, item_order: item.item_order })
+                        .eq('id', item.id);
+
+                    if (error) throw error;
+                    itemMap[item.id] = item.id;
+                } else {
+                    // Crear nuevo
+                    const { data: newItem, error } = await supabase
+                        .from('calculation_items')
+                        .insert([{
+                            calculation_id: calculationId,
+                            name: item.name,
+                            item_order: item.item_order,
+                        }])
+                        .select()
+                        .single();
+
+                    if (error) throw error;
+                    itemMap[item.id || item.name] = newItem.id;
+                }
+            }
+
+            // 4. Guardar valores
+            // Eliminar valores existentes de este cálculo
+            await supabase
+                .from('calculation_values')
+                .delete()
+                .eq('calculation_id', calculationId);
+
+            // Insertar nuevos valores
+            const newValues: any[] = [];
+            
+            for (const item of updatedCalc.items) {
+                const itemId = item.id || itemMap[item.name];
+                if (!itemId) continue;
+
+                for (const col of updatedCalc.columns) {
+                    const colId = col.id || columnMap[col.name];
+                    if (!colId) continue;
+
+                    // Buscar el valor en el array de values del item
+                    const value = (item as any).values?.[col.id || col.name] || 0;
+
+                    newValues.push({
+                        calculation_id: calculationId,
+                        item_id: itemId,
+                        column_id: colId,
+                        value: value,
+                    });
+                }
+            }
+
+            if (newValues.length > 0) {
+                const { error: valError } = await supabase
+                    .from('calculation_values')
+                    .insert(newValues);
+
+                if (valError) throw valError;
+            }
+
+            addToast('Cálculo guardado correctamente', 'success');
+            setIsEditorOpen(false);
+            setSelectedCalc(null);
+            fetchCalculations();
+        } catch (error) {
+            console.error('❌ Error al guardar:', error);
+            addToast('Error al guardar el cálculo', 'error');
+        } finally {
+            setLoading(false);
+        }
     };
+
+    // ============================================
+    // ✅ RENDER
+    // ============================================
+    if (loading && calculations.length === 0) {
+        return (
+            <div className="flex items-center justify-center h-64">
+                <div className="text-center">
+                    <div className="text-2xl mb-2">⏳</div>
+                    <p className="text-gray-500">Cargando cálculos...</p>
+                </div>
+            </div>
+        );
+    }
 
     return (
         <div className="p-6 max-w-screen-xl mx-auto">
@@ -234,12 +569,11 @@ export default function CalculationsModule() {
                                             <p className="text-xs text-slate-500 mt-2">{calc.description}</p>
                                         )}
                                         <div className="flex items-center gap-3 mt-2 text-xs text-slate-400 flex-wrap">
-                                            {calc.distance_km > 0 && (
+                                            {calc.distance_km && (
                                                 <span>📍 {calc.distance_km} km</span>
                                             )}
-                                            <span>📝 {calc.items.length} items</span>
-                                            <span>🚛 {calc.columns.length} vehículos</span>
                                             <span>💹 Margen {calc.margin}%</span>
+                                            <span>📅 {new Date(calc.created_at).toLocaleDateString('es-CL')}</span>
                                         </div>
                                     </div>
                                     <div className="flex items-center gap-2 flex-shrink-0">
@@ -264,43 +598,6 @@ export default function CalculationsModule() {
                                         </button>
                                     </div>
                                 </div>
-
-                                {/* Preview de la tabla */}
-                                <div className="mt-3 overflow-x-auto">
-                                    <table className="w-full text-xs border-collapse">
-                                        <thead>
-                                            <tr className="bg-slate-50">
-                                                <th className="text-left p-2 border border-slate-200 font-bold text-slate-600">
-                                                    Item
-                                                </th>
-                                                {calc.columns.map(col => (
-                                                    <th key={col.id} className="text-center p-2 border border-slate-200 font-bold text-slate-600">
-                                                        {col.name}
-                                                    </th>
-                                                ))}
-                                            </tr>
-                                        </thead>
-                                        <tbody>
-                                            {calc.items.slice(0, 3).map(item => (
-                                                <tr key={item.id}>
-                                                    <td className="p-2 border border-slate-200 text-slate-600">{item.name}</td>
-                                                    {calc.columns.map(col => (
-                                                        <td key={col.id} className="p-2 border border-slate-200 text-center font-mono text-slate-700">
-                                                            {item.values[col.id] || '-'}
-                                                        </td>
-                                                    ))}
-                                                </tr>
-                                            ))}
-                                            {calc.items.length > 3 && (
-                                                <tr>
-                                                    <td colSpan={calc.columns.length + 1} className="p-2 text-center text-slate-400 italic">
-                                                        ... {calc.items.length - 3} items más
-                                                    </td>
-                                                </tr>
-                                            )}
-                                        </tbody>
-                                    </table>
-                                </div>
                             </div>
                         </div>
                     ))}
@@ -317,6 +614,7 @@ export default function CalculationsModule() {
                         setSelectedCalc(null);
                     }}
                     onSave={handleSave}
+                    saving={loading}
                 />
             )}
 
@@ -351,32 +649,60 @@ export default function CalculationsModule() {
     );
 }
 
+// ============================================
 // ✅ COMPONENTE EDITOR
+// ============================================
 interface CalculationEditorProps {
     isOpen: boolean;
-    calculation: Calculation;
+    calculation: CalculationFull;
     onClose: () => void;
-    onSave: (calc: Calculation) => void;
+    onSave: (calc: CalculationFull) => void;
+    saving: boolean;
 }
 
-function CalculationEditor({ isOpen, calculation, onClose, onSave }: CalculationEditorProps) {
-    const [localCalc, setLocalCalc] = useState<Calculation>({ ...calculation });
+function CalculationEditor({ isOpen, calculation, onClose, onSave, saving }: CalculationEditorProps) {
+    const [localCalc, setLocalCalc] = useState<CalculationFull>({ ...calculation });
 
     // ✅ Actualizar campo
-    const updateField = (field: keyof Calculation, value: any) => {
+    const updateField = (field: keyof CalculationFull, value: any) => {
         setLocalCalc(prev => ({ ...prev, [field]: value }));
     };
 
     // ✅ Actualizar valor de celda
     const updateValue = (itemId: string, columnId: string, value: number) => {
-        setLocalCalc(prev => ({
-            ...prev,
-            items: prev.items.map(item =>
-                item.id === itemId
-                    ? { ...item, values: { ...item.values, [columnId]: value } }
-                    : item
-            ),
-        }));
+        setLocalCalc(prev => {
+            const existingValue = prev.values.find(v => v.item_id === itemId && v.column_id === columnId);
+            
+            if (existingValue) {
+                return {
+                    ...prev,
+                    values: prev.values.map(v =>
+                        v.item_id === itemId && v.column_id === columnId
+                            ? { ...v, value }
+                            : v
+                    ),
+                };
+            } else {
+                return {
+                    ...prev,
+                    values: [...prev.values, {
+                        id: '',
+                        calculation_id: prev.id,
+                        item_id: itemId,
+                        column_id: columnId,
+                        value,
+                        created_at: '',
+                        updated_at: '',
+                    }],
+                };
+            }
+        });
+    };
+
+    // ✅ Obtener valor de celda
+    const getValue = (itemId: string, columnId: string): number => {
+        const val = localCalc.values.find(v => v.item_id === itemId && v.column_id === columnId);
+        return val?.value || 0;
     };
 
     // ✅ Actualizar nombre de item
@@ -392,9 +718,11 @@ function CalculationEditor({ isOpen, calculation, onClose, onSave }: Calculation
     // ✅ Agregar item
     const addItem = () => {
         const newItem: CalculationItem = {
-            id: `item_${Date.now()}`,
+            id: '',
+            calculation_id: localCalc.id,
             name: 'Nuevo item',
-            values: {},
+            item_order: localCalc.items.length,
+            created_at: '',
         };
         setLocalCalc(prev => ({ ...prev, items: [...prev.items, newItem] }));
     };
@@ -404,6 +732,7 @@ function CalculationEditor({ isOpen, calculation, onClose, onSave }: Calculation
         setLocalCalc(prev => ({
             ...prev,
             items: prev.items.filter(i => i.id !== itemId),
+            values: prev.values.filter(v => v.item_id !== itemId),
         }));
     };
 
@@ -420,8 +749,11 @@ function CalculationEditor({ isOpen, calculation, onClose, onSave }: Calculation
     // ✅ Agregar columna
     const addColumn = () => {
         const newCol: CalculationColumn = {
-            id: `col_${Date.now()}`,
+            id: '',
+            calculation_id: localCalc.id,
             name: 'Nuevo vehículo',
+            column_order: localCalc.columns.length,
+            created_at: '',
         };
         setLocalCalc(prev => ({ ...prev, columns: [...prev.columns, newCol] }));
     };
@@ -431,35 +763,24 @@ function CalculationEditor({ isOpen, calculation, onClose, onSave }: Calculation
         setLocalCalc(prev => ({
             ...prev,
             columns: prev.columns.filter(c => c.id !== columnId),
+            values: prev.values.filter(v => v.column_id !== columnId),
         }));
     };
 
     // ✅ Calcular COSTO FINAL (suma de items)
     const calculateTotalCost = (columnId: string): number => {
-        return localCalc.items.reduce((sum, item) => sum + (item.values[columnId] || 0), 0);
+        return localCalc.items.reduce((sum, item) => sum + getValue(item.id, columnId), 0);
     };
 
     // ✅ Calcular VENTA FINAL (costo + margen)
     const calculateTotalSale = (columnId: string): number => {
         const cost = calculateTotalCost(columnId);
-        return Math.round(cost * (1 + localCalc.margin / 100));
+        return Math.round(cost * (1 + (localCalc.margin || 0) / 100));
     };
 
     // ✅ Guardar
     const handleSave = () => {
-        // Calcular totales antes de guardar
-        const finalCalc: Calculation = {
-            ...localCalc,
-            totalCost: localCalc.columns.reduce((acc, col) => ({
-                ...acc,
-                [col.id]: calculateTotalCost(col.id),
-            }), {}),
-            totalSale: localCalc.columns.reduce((acc, col) => ({
-                ...acc,
-                [col.id]: calculateTotalSale(col.id),
-            }), {}),
-        };
-        onSave(finalCalc);
+        onSave(localCalc);
     };
 
     return (
@@ -479,7 +800,7 @@ function CalculationEditor({ isOpen, calculation, onClose, onSave }: Calculation
                             </label>
                             <input
                                 type="text"
-                                value={localCalc.name}
+                                value={localCalc.name || ''}
                                 onChange={e => updateField('name', e.target.value)}
                                 className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                                 placeholder="Ej: Valparaíso → Santiago"
@@ -491,7 +812,7 @@ function CalculationEditor({ isOpen, calculation, onClose, onSave }: Calculation
                             </label>
                             <input
                                 type="text"
-                                value={localCalc.origin}
+                                value={localCalc.origin || ''}
                                 onChange={e => updateField('origin', e.target.value)}
                                 className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                                 placeholder="Ej: Valparaíso"
@@ -503,7 +824,7 @@ function CalculationEditor({ isOpen, calculation, onClose, onSave }: Calculation
                             </label>
                             <input
                                 type="text"
-                                value={localCalc.destination}
+                                value={localCalc.destination || ''}
                                 onChange={e => updateField('destination', e.target.value)}
                                 className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                                 placeholder="Ej: Santiago"
@@ -515,7 +836,7 @@ function CalculationEditor({ isOpen, calculation, onClose, onSave }: Calculation
                             </label>
                             <input
                                 type="number"
-                                value={localCalc.distance_km}
+                                value={localCalc.distance_km || ''}
                                 onChange={e => updateField('distance_km', parseFloat(e.target.value) || 0)}
                                 className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                                 placeholder="Ej: 117"
@@ -527,7 +848,7 @@ function CalculationEditor({ isOpen, calculation, onClose, onSave }: Calculation
                             </label>
                             <input
                                 type="number"
-                                value={localCalc.margin}
+                                value={localCalc.margin || 0}
                                 onChange={e => updateField('margin', parseFloat(e.target.value) || 0)}
                                 className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                                 placeholder="Ej: 50"
@@ -538,7 +859,7 @@ function CalculationEditor({ isOpen, calculation, onClose, onSave }: Calculation
                                 Descripción / Notas
                             </label>
                             <textarea
-                                value={localCalc.notes}
+                                value={localCalc.notes || ''}
                                 onChange={e => updateField('notes', e.target.value)}
                                 className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
                                 rows={2}
@@ -558,7 +879,7 @@ function CalculationEditor({ isOpen, calculation, onClose, onSave }: Calculation
                                         Item / Concepto
                                     </th>
                                     {localCalc.columns.map(col => (
-                                        <th key={col.id} className="p-2 border border-slate-200 min-w-[120px]">
+                                        <th key={col.id || col.name} className="p-2 border border-slate-200 min-w-[120px]">
                                             <div className="flex items-center gap-1">
                                                 <input
                                                     type="text"
@@ -589,7 +910,7 @@ function CalculationEditor({ isOpen, calculation, onClose, onSave }: Calculation
                             </thead>
                             <tbody>
                                 {localCalc.items.map(item => (
-                                    <tr key={item.id} className="hover:bg-slate-50">
+                                    <tr key={item.id || item.name} className="hover:bg-slate-50">
                                         <td className="p-2 border border-slate-200">
                                             <div className="flex items-center gap-1">
                                                 <input
@@ -608,10 +929,10 @@ function CalculationEditor({ isOpen, calculation, onClose, onSave }: Calculation
                                             </div>
                                         </td>
                                         {localCalc.columns.map(col => (
-                                            <td key={col.id} className="p-1 border border-slate-200">
+                                            <td key={col.id || col.name} className="p-1 border border-slate-200">
                                                 <input
                                                     type="number"
-                                                    value={item.values[col.id] || ''}
+                                                    value={getValue(item.id, col.id) || ''}
                                                     onChange={e => updateValue(item.id, col.id, parseFloat(e.target.value) || 0)}
                                                     className="w-full text-center text-xs font-mono text-slate-700 bg-transparent border-none focus:outline-none focus:ring-1 focus:ring-blue-400 rounded px-1"
                                                     placeholder="0"
@@ -639,7 +960,7 @@ function CalculationEditor({ isOpen, calculation, onClose, onSave }: Calculation
                                         💰 COSTO FINAL
                                     </td>
                                     {localCalc.columns.map(col => (
-                                        <td key={col.id} className="p-2 border border-slate-200 text-center font-mono text-xs font-bold text-blue-700">
+                                        <td key={col.id || col.name} className="p-2 border border-slate-200 text-center font-mono text-xs font-bold text-blue-700">
                                             {clp(calculateTotalCost(col.id))}
                                         </td>
                                     ))}
@@ -652,7 +973,7 @@ function CalculationEditor({ isOpen, calculation, onClose, onSave }: Calculation
                                         💵 VENTA FINAL (margen {localCalc.margin}%)
                                     </td>
                                     {localCalc.columns.map(col => (
-                                        <td key={col.id} className="p-2 border border-slate-200 text-center font-mono text-xs font-bold text-green-700">
+                                        <td key={col.id || col.name} className="p-2 border border-slate-200 text-center font-mono text-xs font-bold text-green-700">
                                             {clp(calculateTotalSale(col.id))}
                                         </td>
                                     ))}
@@ -667,15 +988,17 @@ function CalculationEditor({ isOpen, calculation, onClose, onSave }: Calculation
                 <div className="flex justify-end gap-3 pt-4 border-t border-slate-200">
                     <button
                         onClick={onClose}
-                        className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-colors"
+                        disabled={saving}
+                        className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-colors disabled:opacity-50"
                     >
                         Cancelar
                     </button>
                     <button
                         onClick={handleSave}
-                        className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                        disabled={saving}
+                        className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50"
                     >
-                        💾 Guardar Cálculo
+                        {saving ? '⏳ Guardando...' : '💾 Guardar Cálculo'}
                     </button>
                 </div>
             </div>

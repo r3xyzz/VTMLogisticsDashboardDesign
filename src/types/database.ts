@@ -187,3 +187,51 @@ export interface DriverDocumentStatus {
     cv: boolean;
     allValid: boolean;
 }
+
+export interface Calculation {
+    id: string;
+    name: string;
+    description: string | null;
+    origin: string | null;
+    destination: string | null;
+    distance_km: number | null;
+    notes: string | null;
+    margin: number;
+    is_active: boolean;
+    created_by: string | null;
+    created_at: string;
+    updated_at: string;
+}
+
+export interface CalculationColumn {
+    id: string;
+    calculation_id: string;
+    name: string;
+    column_order: number;
+    created_at: string;
+}
+
+export interface CalculationItem {
+    id: string;
+    calculation_id: string;
+    name: string;
+    item_order: number;
+    created_at: string;
+}
+
+export interface CalculationValue {
+    id: string;
+    calculation_id: string;
+    item_id: string;
+    column_id: string;
+    value: number;
+    created_at: string;
+    updated_at: string;
+}
+
+//  Tipo compuesto para el editor
+export interface CalculationFull extends Calculation {
+    columns: CalculationColumn[];
+    items: CalculationItem[];
+    values: CalculationValue[];
+}
