@@ -14,11 +14,18 @@ import type {
 const clp = (n: number) =>
     new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP', maximumFractionDigits: 0 }).format(n);
 
-// ✅ Helper para generar IDs temporales únicos
-const generateTempId = (prefix: string) => `${prefix}_temp_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-
-// ✅ Helper para verificar si un ID es temporal
-const isTempId = (id: string) => id.startsWith('col_temp_') || id.startsWith('item_temp_');
+// ✅ Helper para generar UUIDs reales
+const generateUUID = (): string => {
+    if (typeof crypto !== 'undefined' && crypto.randomUUID) {
+        return crypto.randomUUID();
+    }
+    // Fallback para navegadores antiguos
+    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+        const r = Math.random() * 16 | 0;
+        const v = c === 'x' ? r : (r & 0x3 | 0x8);
+        return v.toString(16);
+    });
+};
 
 export default function CalculationsModule() {
     const [calculations, setCalculations] = useState<Calculation[]>([]);
@@ -33,6 +40,9 @@ export default function CalculationsModule() {
         fetchCalculations();
     }, []);
 
+    // ============================================
+    // ✅ CARGAR CÁLCULOS
+    // ============================================
     async function fetchCalculations() {
         try {
             setLoading(true);
@@ -52,6 +62,9 @@ export default function CalculationsModule() {
         }
     }
 
+    // ============================================
+    // ✅ CARGAR CÁLCULO COMPLETO
+    // ============================================
     async function fetchCalculationFull(calculationId: string): Promise<CalculationFull | null> {
         try {
             const { data: calc, error: calcError } = await supabase
@@ -97,7 +110,18 @@ export default function CalculationsModule() {
         }
     }
 
+    // ============================================
+    // ✅ CREAR NUEVO
+    // ============================================
     const handleCreateNew = () => {
+        // ✅ Generar UUIDs reales desde el inicio
+        const col1Id = generateUUID();
+        const col2Id = generateUUID();
+        const col3Id = generateUUID();
+        const item1Id = generateUUID();
+        const item2Id = generateUUID();
+        const item3Id = generateUUID();
+
         const newCalc: CalculationFull = {
             id: '',
             name: '',
@@ -112,14 +136,14 @@ export default function CalculationsModule() {
             created_at: new Date().toISOString(),
             updated_at: new Date().toISOString(),
             columns: [
-                { id: generateTempId('col'), calculation_id: '', name: '5 TON', column_order: 0, created_at: '' },
-                { id: generateTempId('col'), calculation_id: '', name: '10 TON', column_order: 1, created_at: '' },
-                { id: generateTempId('col'), calculation_id: '', name: 'RAMPLA', column_order: 2, created_at: '' },
+                { id: col1Id, calculation_id: '', name: '5 TON', column_order: 0, created_at: '' },
+                { id: col2Id, calculation_id: '', name: '10 TON', column_order: 1, created_at: '' },
+                { id: col3Id, calculation_id: '', name: 'RAMPLA', column_order: 2, created_at: '' },
             ],
             items: [
-                { id: generateTempId('item'), calculation_id: '', name: 'Petróleo', item_order: 0, created_at: '' },
-                { id: generateTempId('item'), calculation_id: '', name: 'Peajes', item_order: 1, created_at: '' },
-                { id: generateTempId('item'), calculation_id: '', name: 'Viático', item_order: 2, created_at: '' },
+                { id: item1Id, calculation_id: '', name: 'Petróleo', item_order: 0, created_at: '' },
+                { id: item2Id, calculation_id: '', name: 'Peajes', item_order: 1, created_at: '' },
+                { id: item3Id, calculation_id: '', name: 'Viático', item_order: 2, created_at: '' },
             ],
             values: [],
         };
@@ -127,6 +151,9 @@ export default function CalculationsModule() {
         setIsEditorOpen(true);
     };
 
+    // ============================================
+    // ✅ EDITAR
+    // ============================================
     const handleEdit = async (calc: Calculation) => {
         const fullCalc = await fetchCalculationFull(calc.id);
         if (fullCalc) {
@@ -137,6 +164,9 @@ export default function CalculationsModule() {
         }
     };
 
+    // ============================================
+    // ✅ ELIMINAR
+    // ============================================
     const handleDelete = (id: string) => {
         setDeletingId(id);
         setIsDeleteModalOpen(true);
@@ -163,8 +193,13 @@ export default function CalculationsModule() {
         }
     };
 
+    // ============================================
+    // ✅ DUPLICAR (SIMPLIFICADO - CON UUIDs)
+    // ============================================
     const handleDuplicate = async (calc: Calculation) => {
         try {
+            console.log('📋 Duplicando cálculo:', calc.name);
+
             const originalFull = await fetchCalculationFull(calc.id);
             if (!originalFull) {
                 addToast('Error al cargar el cálculo original', 'error');
@@ -173,10 +208,52 @@ export default function CalculationsModule() {
 
             const { data: { session } } = await supabase.auth.getSession();
 
-            // 1. Crear el nuevo cálculo
-            const { data: newCalc, error: newCalcError } = await supabase
+            // ✅ Generar nuevo ID para el cálculo
+            const newCalculationId = generateUUID();
+
+            // ✅ Crear mapeo de IDs viejos → nuevos
+            const columnIdMap: { [oldId: string]: string } = {};
+            const itemIdMap: { [oldId: string]: string } = {};
+
+            // Generar nuevos UUIDs para columnas
+            const newColumns = originalFull.columns.map(col => {
+                const newId = generateUUID();
+                columnIdMap[col.id] = newId;
+                return {
+                    id: newId,
+                    calculation_id: newCalculationId,
+                    name: col.name,
+                    column_order: col.column_order,
+                };
+            });
+
+            // Generar nuevos UUIDs para items
+            const newItems = originalFull.items.map(item => {
+                const newId = generateUUID();
+                itemIdMap[item.id] = newId;
+                return {
+                    id: newId,
+                    calculation_id: newCalculationId,
+                    name: item.name,
+                    item_order: item.item_order,
+                };
+            });
+
+            // Generar nuevos valores con los IDs mapeados
+            const newValues = originalFull.values.map(v => ({
+                id: generateUUID(),
+                calculation_id: newCalculationId,
+                item_id: itemIdMap[v.item_id],
+                column_id: columnIdMap[v.column_id],
+                value: v.value,
+            }));
+
+            // ✅ Insertar todo en orden
+            // 1. Cálculo principal
+            const { error: calcError } = await supabase
                 .from('calculations')
                 .insert([{
+                    id: newCalculationId,
                     name: `${originalFull.name} (copia)`,
                     description: originalFull.description,
                     origin: originalFull.origin,
@@ -186,56 +263,29 @@ export default function CalculationsModule() {
                     margin: originalFull.margin,
                     is_active: true,
                     created_by: session?.user?.id || null,
-                }])
-                .select()
-                .single();
+                }]);
 
-            if (newCalcError) throw newCalcError;
+            if (calcError) throw calcError;
 
-            // 2. Duplicar columnas y mapear IDs
-            const columnMap: { [oldId: string]: string } = {};
-            
-            for (const col of originalFull.columns) {
-                const { data: newCol, error: colError } = await supabase
+            // 2. Columnas
+            if (newColumns.length > 0) {
+                const { error: colError } = await supabase
                     .from('calculation_columns')
-                    .insert([{
-                        calculation_id: newCalc.id,
-                        name: col.name,
-                        column_order: col.column_order,
-                    }])
-                    .select()
-                    .single();
+                    .insert(newColumns);
 
                 if (colError) throw colError;
-                columnMap[col.id] = newCol.id;
             }
 
-            // 3. Duplicar items y mapear IDs
-            const itemMap: { [oldId: string]: string } = {};
-            
-            for (const item of originalFull.items) {
-                const { data: newItem, error: itemError } = await supabase
+            // 3. Items
+            if (newItems.length > 0) {
+                const { error: itemError } = await supabase
                     .from('calculation_items')
-                    .insert([{
-                        calculation_id: newCalc.id,
-                        name: item.name,
-                        item_order: item.item_order,
-                    }])
-                    .select()
-                    .single();
+                    .insert(newItems);
 
                 if (itemError) throw itemError;
-                itemMap[item.id] = newItem.id;
             }
 
-            // 4. Duplicar valores
-            const newValues = originalFull.values.map(v => ({
-                calculation_id: newCalc.id,
-                item_id: itemMap[v.item_id],
-                column_id: columnMap[v.column_id],
-                value: v.value,
-            }));
-
+            // 4. Valores
             if (newValues.length > 0) {
                 const { error: valError } = await supabase
                     .from('calculation_values')
@@ -244,6 +294,7 @@ export default function CalculationsModule() {
                 if (valError) throw valError;
             }
 
+            console.log('✅ Cálculo duplicado correctamente');
             addToast('Cálculo duplicado correctamente', 'success');
             fetchCalculations();
         } catch (error) {
@@ -252,20 +303,32 @@ export default function CalculationsModule() {
         }
     };
 
-    // ✅ GUARDAR CÁLCULO CORREGIDO
+    // ============================================
+    // ✅ GUARDAR (SIMPLIFICADO - SIN MAPEO)
+    // ============================================
     const handleSave = async (updatedCalc: CalculationFull) => {
         try {
             console.log('💾 Guardando cálculo...');
+            console.log('📊 Items:', updatedCalc.items.length);
+            console.log('📊 Columnas:', updatedCalc.columns.length);
+            console.log('📊 Valores:', updatedCalc.values.length);
+            
             setLoading(true);
 
             const { data: { session } } = await supabase.auth.getSession();
             let calculationId = updatedCalc.id;
 
-            // 1. Guardar/actualizar el cálculo principal
+            // ============================================
+            // 1. GUARDAR CÁLCULO PRINCIPAL
+            // ============================================
             if (!calculationId) {
-                const { data: newCalc, error: calcError } = await supabase
+                // Crear nuevo con UUID generado en el frontend
+                calculationId = generateUUID();
+                
+                const { error: calcError } = await supabase
                     .from('calculations')
                     .insert([{
+                        id: calculationId,
                         name: updatedCalc.name || 'Sin nombre',
                         description: updatedCalc.description || null,
                         origin: updatedCalc.origin || null,
@@ -275,13 +338,12 @@ export default function CalculationsModule() {
                         margin: updatedCalc.margin || 50,
                         is_active: true,
                         created_by: session?.user?.id || null,
-                    }])
-                    .select()
-                    .single();
+                    }]);
 
                 if (calcError) throw calcError;
-                calculationId = newCalc.id;
+                console.log('✅ Cálculo creado:', calculationId);
             } else {
+                // Actualizar existente
                 const { error: calcError } = await supabase
                     .from('calculations')
                     .update({
@@ -296,133 +358,94 @@ export default function CalculationsModule() {
                     .eq('id', calculationId);
 
                 if (calcError) throw calcError;
+                console.log('✅ Cálculo actualizado:', calculationId);
             }
 
-            // 2. Mapeo de columnas (ID temporal → ID real)
-            const columnMap: { [tempId: string]: string } = {};
-
-            // Crear/actualizar columnas
-            for (const col of updatedCalc.columns) {
-                if (isTempId(col.id) || !col.id) {
-                    // Crear nueva
-                    const { data: newCol, error } = await supabase
-                        .from('calculation_columns')
-                        .insert([{
-                            calculation_id: calculationId,
-                            name: col.name,
-                            column_order: col.column_order,
-                        }])
-                        .select()
-                        .single();
-
-                    if (error) throw error;
-                    columnMap[col.id] = newCol.id;
-                } else {
-                    // Actualizar existente
-                    const { error } = await supabase
-                        .from('calculation_columns')
-                        .update({ name: col.name, column_order: col.column_order })
-                        .eq('id', col.id);
-
-                    if (error) throw error;
-                    columnMap[col.id] = col.id;
-                }
-            }
-
-            // Eliminar columnas que ya no están
-            const validColumnIds = updatedCalc.columns
-                .filter(c => !isTempId(c.id) && c.id)
-                .map(c => c.id);
-
-            if (validColumnIds.length > 0) {
+            // ============================================
+            // 2. ELIMINAR DATOS ANTIGUOS (solo si es edición)
+            // ============================================
+            if (updatedCalc.id) {
+                console.log('🗑️ Eliminando items, columnas y valores antiguos...');
+                
                 await supabase
-                    .from('calculation_columns')
-                    .delete()
-                    .eq('calculation_id', calculationId)
-                    .not('id', 'in', `(${validColumnIds.join(',')})`);
-            } else {
-                await supabase
-                    .from('calculation_columns')
-                    .delete()
-                    .eq('calculation_id', calculationId);
-            }
-
-            // 3. Mapeo de items (ID temporal → ID real)
-            const itemMap: { [tempId: string]: string } = {};
-
-            for (const item of updatedCalc.items) {
-                if (isTempId(item.id) || !item.id) {
-                    // Crear nuevo
-                    const { data: newItem, error } = await supabase
-                        .from('calculation_items')
-                        .insert([{
-                            calculation_id: calculationId,
-                            name: item.name,
-                            item_order: item.item_order,
-                        }])
-                        .select()
-                        .single();
-
-                    if (error) throw error;
-                    itemMap[item.id] = newItem.id;
-                } else {
-                    // Actualizar existente
-                    const { error } = await supabase
-                        .from('calculation_items')
-                        .update({ name: item.name, item_order: item.item_order })
-                        .eq('id', item.id);
-
-                    if (error) throw error;
-                    itemMap[item.id] = item.id;
-                }
-            }
-
-            // Eliminar items que ya no están
-            const validItemIds = updatedCalc.items
-                .filter(i => !isTempId(i.id) && i.id)
-                .map(i => i.id);
-
-            if (validItemIds.length > 0) {
-                await supabase
-                    .from('calculation_items')
-                    .delete()
-                    .eq('calculation_id', calculationId)
-                    .not('id', 'in', `(${validItemIds.join(',')})`);
-            } else {
-                await supabase
-                    .from('calculation_items')
-                    .delete()
-                    .eq('calculation_id', calculationId);
-            }
-
-            // 4. Guardar valores (con mapeo de IDs temporales)
-            await supabase
-                .from('calculation_values')
-                .delete()
-                .eq('calculation_id', calculationId);
-
-            const newValues: any[] = [];
-            
-            for (const value of updatedCalc.values) {
-                const realItemId = itemMap[value.item_id];
-                const realColumnId = columnMap[value.column_id];
-
-                if (realItemId && realColumnId) {
-                    newValues.push({
-                        calculation_id: calculationId,
-                        item_id: realItemId,
-                        column_id: realColumnId,
-                        value: value.value || 0,
-                    });
-                }
-            }
-
-            if (newValues.length > 0) {
-                const { error: valError } = await supabase
                     .from('calculation_values')
-                    .insert(newValues);
+                    .delete()
+                    .eq('calculation_id', calculationId);
 
-                if (valError) throw valError;
+                await supabase
+                    .from('calculation_items')
+                    .delete()
+                    .eq('calculation_id', calculationId);
+
+                await supabase
+                    .from('calculation_columns')
+                    .delete()
+                    .eq('calculation_id', calculationId);
+            }
+
+            // ============================================
+            // 3. INSERTAR COLUMNAS (con UUIDs ya asignados)
+            // ============================================
+            if (updatedCalc.columns.length > 0) {
+                const columnsToInsert = updatedCalc.columns.map(col => ({
+                    id: col.id || generateUUID(),
+                    calculation_id: calculationId,
+                    name: col.name,
+                    column_order: col.column_order,
+                }));
+
+                const { error: colError } = await supabase
+                    .from('calculation_columns')
+                    .insert(columnsToInsert);
+
+                if (colError) throw colError;
+                console.log(`✅ ${columnsToInsert.length} columnas insertadas`);
+            }
+
+            // ============================================
+            // 4. INSERTAR ITEMS (con UUIDs ya asignados)
+            // ============================================
+            if (updatedCalc.items.length > 0) {
+                const itemsToInsert = updatedCalc.items.map(item => ({
+                    id: item.id || generateUUID(),
+                    calculation_id: calculationId,
+                    name: item.name,
+                    item_order: item.item_order,
+                }));
+
+                const { error: itemError } = await supabase
+                    .from('calculation_items')
+                    .insert(itemsToInsert);
+
+                if (itemError) throw itemError;
+                console.log(`✅ ${itemsToInsert.length} items insertados`);
+            }
+
+            // ============================================
+            // 5. INSERTAR VALORES (con IDs ya válidos)
+            // ============================================
+            if (updatedCalc.values.length > 0) {
+                const valuesToInsert = updatedCalc.values
+                    .filter(v => v.item_id && v.column_id)
+                    .map(v => ({
+                        id: v.id || generateUUID(),
+                        calculation_id: calculationId,
+                        item_id: v.item_id,
+                        column_id: v.column_id,
+                        value: v.value || 0,
+                    }));
+
+                if (valuesToInsert.length > 0) {
+                    const { error: valError } = await supabase
+                        .from('calculation_values')
+                        .insert(valuesToInsert);
+
+                    if (valError) {
+                        console.error('❌ Error insertando valores:', valError);
+                        throw valError;
+                    }
+                    console.log(`✅ ${valuesToInsert.length} valores insertados`);
+                }
             }
 
             addToast('Cálculo guardado correctamente', 'success');
@@ -437,6 +460,9 @@ export default function CalculationsModule() {
         }
     };
 
+    // ============================================
+    // RENDER
+    // ============================================
     if (loading && calculations.length === 0) {
         return (
             <div className="flex items-center justify-center h-64">
@@ -607,7 +633,7 @@ function CalculationEditor({ isOpen, calculation, onClose, onSave, saving }: Cal
         setLocalCalc(prev => ({ ...prev, [field]: value }));
     };
 
-    // ✅ Actualizar valor de celda (por índice de array, más seguro)
+    // ✅ Actualizar valor de celda
     const updateValue = (itemId: string, columnId: string, value: number) => {
         setLocalCalc(prev => {
             const existingIndex = prev.values.findIndex(
@@ -622,7 +648,7 @@ function CalculationEditor({ isOpen, calculation, onClose, onSave, saving }: Cal
                 return {
                     ...prev,
                     values: [...prev.values, {
-                        id: generateTempId('val'),
+                        id: generateUUID(),
                         calculation_id: prev.id,
                         item_id: itemId,
                         column_id: columnId,
@@ -651,7 +677,7 @@ function CalculationEditor({ isOpen, calculation, onClose, onSave, saving }: Cal
 
     const addItem = () => {
         const newItem: CalculationItem = {
-            id: generateTempId('item'),
+            id: generateUUID(),
             calculation_id: localCalc.id,
             name: 'Nuevo item',
             item_order: localCalc.items.length,
@@ -679,7 +705,7 @@ function CalculationEditor({ isOpen, calculation, onClose, onSave, saving }: Cal
 
     const addColumn = () => {
         const newCol: CalculationColumn = {
-            id: generateTempId('col'),
+            id: generateUUID(),
             calculation_id: localCalc.id,
             name: 'Nuevo vehículo',
             column_order: localCalc.columns.length,
