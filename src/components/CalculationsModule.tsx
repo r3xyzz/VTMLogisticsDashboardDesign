@@ -11,9 +11,14 @@ import type {
     CalculationFull 
 } from '../types/database';
 
-// ✅ Helper para formatear CLP
 const clp = (n: number) =>
     new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP', maximumFractionDigits: 0 }).format(n);
+
+// ✅ Helper para generar IDs temporales únicos
+const generateTempId = (prefix: string) => `${prefix}_temp_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+
+// ✅ Helper para verificar si un ID es temporal
+const isTempId = (id: string) => id.startsWith('col_temp_') || id.startsWith('item_temp_');
 
 export default function CalculationsModule() {
     const [calculations, setCalculations] = useState<Calculation[]>([]);
@@ -24,9 +29,6 @@ export default function CalculationsModule() {
     const [deletingId, setDeletingId] = useState<string | null>(null);
     const toasts = useToasts();
 
-    // ============================================
-    // ✅ CARGAR CÁLCULOS DESDE SUPABASE
-    // ============================================
     useEffect(() => {
         fetchCalculations();
     }, []);
@@ -34,8 +36,6 @@ export default function CalculationsModule() {
     async function fetchCalculations() {
         try {
             setLoading(true);
-            console.log('🔄 Cargando cálculos desde Supabase...');
-
             const { data, error } = await supabase
                 .from('calculations')
                 .select('*')
@@ -43,8 +43,6 @@ export default function CalculationsModule() {
                 .order('created_at', { ascending: false });
 
             if (error) throw error;
-
-            console.log('✅ Cálculos cargados:', data?.length || 0);
             setCalculations(data || []);
         } catch (error) {
             console.error('❌ Error al cargar cálculos:', error);
@@ -54,14 +52,8 @@ export default function CalculationsModule() {
         }
     }
 
-    // ============================================
-    // ✅ CARGAR CÁLCULO COMPLETO (con columnas, items, valores)
-    // ============================================
     async function fetchCalculationFull(calculationId: string): Promise<CalculationFull | null> {
         try {
-            console.log('🔄 Cargando cálculo completo:', calculationId);
-
-            // 1. Obtener el cálculo principal
             const { data: calc, error: calcError } = await supabase
                 .from('calculations')
                 .select('*')
@@ -70,7 +62,6 @@ export default function CalculationsModule() {
 
             if (calcError) throw calcError;
 
-            // 2. Obtener las columnas
             const { data: columns, error: colError } = await supabase
                 .from('calculation_columns')
                 .select('*')
@@ -79,7 +70,6 @@ export default function CalculationsModule() {
 
             if (colError) throw colError;
 
-            // 3. Obtener los items
             const { data: items, error: itemError } = await supabase
                 .from('calculation_items')
                 .select('*')
@@ -88,20 +78,12 @@ export default function CalculationsModule() {
 
             if (itemError) throw itemError;
 
-            // 4. Obtener los valores
             const { data: values, error: valError } = await supabase
                 .from('calculation_values')
                 .select('*')
                 .eq('calculation_id', calculationId);
 
             if (valError) throw valError;
-
-            console.log('✅ Cálculo completo cargado:', {
-                calc: calc.name,
-                columns: columns?.length,
-                items: items?.length,
-                values: values?.length,
-            });
 
             return {
                 ...calc,
@@ -115,9 +97,6 @@ export default function CalculationsModule() {
         }
     }
 
-    // ============================================
-    // ✅ CREAR NUEVO CÁLCULO
-    // ============================================
     const handleCreateNew = () => {
         const newCalc: CalculationFull = {
             id: '',
@@ -133,14 +112,14 @@ export default function CalculationsModule() {
             created_at: new Date().toISOString(),
             updated_at: new Date().toISOString(),
             columns: [
-                { id: '', calculation_id: '', name: '5 TON', column_order: 0, created_at: '' },
-                { id: '', calculation_id: '', name: '10 TON', column_order: 1, created_at: '' },
-                { id: '', calculation_id: '', name: 'RAMPLA', column_order: 2, created_at: '' },
+                { id: generateTempId('col'), calculation_id: '', name: '5 TON', column_order: 0, created_at: '' },
+                { id: generateTempId('col'), calculation_id: '', name: '10 TON', column_order: 1, created_at: '' },
+                { id: generateTempId('col'), calculation_id: '', name: 'RAMPLA', column_order: 2, created_at: '' },
             ],
             items: [
-                { id: '', calculation_id: '', name: 'Petróleo', item_order: 0, created_at: '' },
-                { id: '', calculation_id: '', name: 'Peajes', item_order: 1, created_at: '' },
-                { id: '', calculation_id: '', name: 'Viático', item_order: 2, created_at: '' },
+                { id: generateTempId('item'), calculation_id: '', name: 'Petróleo', item_order: 0, created_at: '' },
+                { id: generateTempId('item'), calculation_id: '', name: 'Peajes', item_order: 1, created_at: '' },
+                { id: generateTempId('item'), calculation_id: '', name: 'Viático', item_order: 2, created_at: '' },
             ],
             values: [],
         };
@@ -148,9 +127,6 @@ export default function CalculationsModule() {
         setIsEditorOpen(true);
     };
 
-    // ============================================
-    // ✅ EDITAR CÁLCULO EXISTENTE
-    // ============================================
     const handleEdit = async (calc: Calculation) => {
         const fullCalc = await fetchCalculationFull(calc.id);
         if (fullCalc) {
@@ -161,9 +137,6 @@ export default function CalculationsModule() {
         }
     };
 
-    // ============================================
-    // ✅ ELIMINAR CÁLCULO
-    // ============================================
     const handleDelete = (id: string) => {
         setDeletingId(id);
         setIsDeleteModalOpen(true);
@@ -173,8 +146,6 @@ export default function CalculationsModule() {
         if (!deletingId) return;
 
         try {
-            console.log('🗑️ Eliminando cálculo:', deletingId);
-            
             const { error } = await supabase
                 .from('calculations')
                 .delete()
@@ -192,23 +163,17 @@ export default function CalculationsModule() {
         }
     };
 
-    // ============================================
-    // ✅ DUPLICAR CÁLCULO
-    // ============================================
     const handleDuplicate = async (calc: Calculation) => {
         try {
-            console.log('📋 Duplicando cálculo:', calc.name);
-
-            // 1. Cargar el cálculo completo original
             const originalFull = await fetchCalculationFull(calc.id);
             if (!originalFull) {
                 addToast('Error al cargar el cálculo original', 'error');
                 return;
             }
 
-            // 2. Crear el nuevo cálculo
             const { data: { session } } = await supabase.auth.getSession();
 
+            // 1. Crear el nuevo cálculo
             const { data: newCalc, error: newCalcError } = await supabase
                 .from('calculations')
                 .insert([{
@@ -227,7 +192,7 @@ export default function CalculationsModule() {
 
             if (newCalcError) throw newCalcError;
 
-            // 3. Duplicar las columnas y crear un mapa de IDs
+            // 2. Duplicar columnas y mapear IDs
             const columnMap: { [oldId: string]: string } = {};
             
             for (const col of originalFull.columns) {
@@ -245,7 +210,7 @@ export default function CalculationsModule() {
                 columnMap[col.id] = newCol.id;
             }
 
-            // 4. Duplicar los items y crear un mapa de IDs
+            // 3. Duplicar items y mapear IDs
             const itemMap: { [oldId: string]: string } = {};
             
             for (const item of originalFull.items) {
@@ -263,7 +228,7 @@ export default function CalculationsModule() {
                 itemMap[item.id] = newItem.id;
             }
 
-            // 5. Duplicar los valores
+            // 4. Duplicar valores
             const newValues = originalFull.values.map(v => ({
                 calculation_id: newCalc.id,
                 item_id: itemMap[v.item_id],
@@ -287,21 +252,17 @@ export default function CalculationsModule() {
         }
     };
 
-    // ============================================
-    // ✅ GUARDAR CÁLCULO (crear o actualizar)
-    // ============================================
+    // ✅ GUARDAR CÁLCULO CORREGIDO
     const handleSave = async (updatedCalc: CalculationFull) => {
         try {
             console.log('💾 Guardando cálculo...');
             setLoading(true);
 
             const { data: { session } } = await supabase.auth.getSession();
-
             let calculationId = updatedCalc.id;
 
             // 1. Guardar/actualizar el cálculo principal
             if (!calculationId) {
-                // CREAR NUEVO
                 const { data: newCalc, error: calcError } = await supabase
                     .from('calculations')
                     .insert([{
@@ -320,9 +281,7 @@ export default function CalculationsModule() {
 
                 if (calcError) throw calcError;
                 calculationId = newCalc.id;
-                console.log('✅ Cálculo creado:', calculationId);
             } else {
-                // ACTUALIZAR EXISTENTE
                 const { error: calcError } = await supabase
                     .from('calculations')
                     .update({
@@ -337,43 +296,14 @@ export default function CalculationsModule() {
                     .eq('id', calculationId);
 
                 if (calcError) throw calcError;
-                console.log('✅ Cálculo actualizado:', calculationId);
             }
 
-            // 2. Guardar columnas
-            const columnMap: { [oldId: string]: string } = {};
-            
-            // Eliminar columnas que ya no están
-            if (updatedCalc.id) {
-                const existingColumnIds = updatedCalc.columns
-                    .filter(c => c.id)
-                    .map(c => c.id);
-                
-                if (existingColumnIds.length > 0) {
-                    await supabase
-                        .from('calculation_columns')
-                        .delete()
-                        .eq('calculation_id', calculationId)
-                        .not('id', 'in', `(${existingColumnIds.join(',')})`);
-                } else {
-                    await supabase
-                        .from('calculation_columns')
-                        .delete()
-                        .eq('calculation_id', calculationId);
-                }
-            }
+            // 2. Mapeo de columnas (ID temporal → ID real)
+            const columnMap: { [tempId: string]: string } = {};
 
+            // Crear/actualizar columnas
             for (const col of updatedCalc.columns) {
-                if (col.id) {
-                    // Actualizar existente
-                    const { error } = await supabase
-                        .from('calculation_columns')
-                        .update({ name: col.name, column_order: col.column_order })
-                        .eq('id', col.id);
-
-                    if (error) throw error;
-                    columnMap[col.id] = col.id;
-                } else {
+                if (isTempId(col.id) || !col.id) {
                     // Crear nueva
                     const { data: newCol, error } = await supabase
                         .from('calculation_columns')
@@ -386,44 +316,42 @@ export default function CalculationsModule() {
                         .single();
 
                     if (error) throw error;
-                    columnMap[col.id || col.name] = newCol.id;
-                }
-            }
-
-            // 3. Guardar items
-            const itemMap: { [oldId: string]: string } = {};
-            
-            // Eliminar items que ya no están
-            if (updatedCalc.id) {
-                const existingItemIds = updatedCalc.items
-                    .filter(i => i.id)
-                    .map(i => i.id);
-                
-                if (existingItemIds.length > 0) {
-                    await supabase
-                        .from('calculation_items')
-                        .delete()
-                        .eq('calculation_id', calculationId)
-                        .not('id', 'in', `(${existingItemIds.join(',')})`);
+                    columnMap[col.id] = newCol.id;
                 } else {
-                    await supabase
-                        .from('calculation_items')
-                        .delete()
-                        .eq('calculation_id', calculationId);
-                }
-            }
-
-            for (const item of updatedCalc.items) {
-                if (item.id) {
                     // Actualizar existente
                     const { error } = await supabase
-                        .from('calculation_items')
-                        .update({ name: item.name, item_order: item.item_order })
-                        .eq('id', item.id);
+                        .from('calculation_columns')
+                        .update({ name: col.name, column_order: col.column_order })
+                        .eq('id', col.id);
 
                     if (error) throw error;
-                    itemMap[item.id] = item.id;
-                } else {
+                    columnMap[col.id] = col.id;
+                }
+            }
+
+            // Eliminar columnas que ya no están
+            const validColumnIds = updatedCalc.columns
+                .filter(c => !isTempId(c.id) && c.id)
+                .map(c => c.id);
+
+            if (validColumnIds.length > 0) {
+                await supabase
+                    .from('calculation_columns')
+                    .delete()
+                    .eq('calculation_id', calculationId)
+                    .not('id', 'in', `(${validColumnIds.join(',')})`);
+            } else {
+                await supabase
+                    .from('calculation_columns')
+                    .delete()
+                    .eq('calculation_id', calculationId);
+            }
+
+            // 3. Mapeo de items (ID temporal → ID real)
+            const itemMap: { [tempId: string]: string } = {};
+
+            for (const item of updatedCalc.items) {
+                if (isTempId(item.id) || !item.id) {
                     // Crear nuevo
                     const { data: newItem, error } = await supabase
                         .from('calculation_items')
@@ -436,36 +364,55 @@ export default function CalculationsModule() {
                         .single();
 
                     if (error) throw error;
-                    itemMap[item.id || item.name] = newItem.id;
+                    itemMap[item.id] = newItem.id;
+                } else {
+                    // Actualizar existente
+                    const { error } = await supabase
+                        .from('calculation_items')
+                        .update({ name: item.name, item_order: item.item_order })
+                        .eq('id', item.id);
+
+                    if (error) throw error;
+                    itemMap[item.id] = item.id;
                 }
             }
 
-            // 4. Guardar valores
-            // Eliminar valores existentes de este cálculo
+            // Eliminar items que ya no están
+            const validItemIds = updatedCalc.items
+                .filter(i => !isTempId(i.id) && i.id)
+                .map(i => i.id);
+
+            if (validItemIds.length > 0) {
+                await supabase
+                    .from('calculation_items')
+                    .delete()
+                    .eq('calculation_id', calculationId)
+                    .not('id', 'in', `(${validItemIds.join(',')})`);
+            } else {
+                await supabase
+                    .from('calculation_items')
+                    .delete()
+                    .eq('calculation_id', calculationId);
+            }
+
+            // 4. Guardar valores (con mapeo de IDs temporales)
             await supabase
                 .from('calculation_values')
                 .delete()
                 .eq('calculation_id', calculationId);
 
-            // Insertar nuevos valores
             const newValues: any[] = [];
             
-            for (const item of updatedCalc.items) {
-                const itemId = item.id || itemMap[item.name];
-                if (!itemId) continue;
+            for (const value of updatedCalc.values) {
+                const realItemId = itemMap[value.item_id];
+                const realColumnId = columnMap[value.column_id];
 
-                for (const col of updatedCalc.columns) {
-                    const colId = col.id || columnMap[col.name];
-                    if (!colId) continue;
-
-                    // Buscar el valor en el array de values del item
-                    const value = (item as any).values?.[col.id || col.name] || 0;
-
+                if (realItemId && realColumnId) {
                     newValues.push({
                         calculation_id: calculationId,
-                        item_id: itemId,
-                        column_id: colId,
-                        value: value,
+                        item_id: realItemId,
+                        column_id: realColumnId,
+                        value: value.value || 0,
                     });
                 }
             }
@@ -490,9 +437,6 @@ export default function CalculationsModule() {
         }
     };
 
-    // ============================================
-    // ✅ RENDER
-    // ============================================
     if (loading && calculations.length === 0) {
         return (
             <div className="flex items-center justify-center h-64">
@@ -515,7 +459,6 @@ export default function CalculationsModule() {
                 />
             ))}
 
-            {/* Header */}
             <div className="flex items-center justify-between mb-6">
                 <div>
                     <h1 className="text-xl font-bold text-slate-900">🧮 Cálculo de Cotizaciones</h1>
@@ -529,7 +472,6 @@ export default function CalculationsModule() {
                 </button>
             </div>
 
-            {/* Lista de cálculos */}
             {calculations.length === 0 ? (
                 <div className="bg-gray-50 border border-gray-200 rounded-lg p-8 text-center">
                     <p className="text-gray-500">No hay cálculos registrados</p>
@@ -604,7 +546,6 @@ export default function CalculationsModule() {
                 </div>
             )}
 
-            {/* Modal Editor */}
             {selectedCalc && (
                 <CalculationEditor
                     isOpen={isEditorOpen}
@@ -618,7 +559,6 @@ export default function CalculationsModule() {
                 />
             )}
 
-            {/* Modal Confirmar Eliminación */}
             <Modal
                 isOpen={isDeleteModalOpen}
                 onClose={() => setIsDeleteModalOpen(false)}
@@ -663,30 +603,26 @@ interface CalculationEditorProps {
 function CalculationEditor({ isOpen, calculation, onClose, onSave, saving }: CalculationEditorProps) {
     const [localCalc, setLocalCalc] = useState<CalculationFull>({ ...calculation });
 
-    // ✅ Actualizar campo
     const updateField = (field: keyof CalculationFull, value: any) => {
         setLocalCalc(prev => ({ ...prev, [field]: value }));
     };
 
-    // ✅ Actualizar valor de celda
+    // ✅ Actualizar valor de celda (por índice de array, más seguro)
     const updateValue = (itemId: string, columnId: string, value: number) => {
         setLocalCalc(prev => {
-            const existingValue = prev.values.find(v => v.item_id === itemId && v.column_id === columnId);
+            const existingIndex = prev.values.findIndex(
+                v => v.item_id === itemId && v.column_id === columnId
+            );
             
-            if (existingValue) {
-                return {
-                    ...prev,
-                    values: prev.values.map(v =>
-                        v.item_id === itemId && v.column_id === columnId
-                            ? { ...v, value }
-                            : v
-                    ),
-                };
+            if (existingIndex >= 0) {
+                const newValues = [...prev.values];
+                newValues[existingIndex] = { ...newValues[existingIndex], value };
+                return { ...prev, values: newValues };
             } else {
                 return {
                     ...prev,
                     values: [...prev.values, {
-                        id: '',
+                        id: generateTempId('val'),
                         calculation_id: prev.id,
                         item_id: itemId,
                         column_id: columnId,
@@ -699,13 +635,11 @@ function CalculationEditor({ isOpen, calculation, onClose, onSave, saving }: Cal
         });
     };
 
-    // ✅ Obtener valor de celda
     const getValue = (itemId: string, columnId: string): number => {
         const val = localCalc.values.find(v => v.item_id === itemId && v.column_id === columnId);
         return val?.value || 0;
     };
 
-    // ✅ Actualizar nombre de item
     const updateItemName = (itemId: string, name: string) => {
         setLocalCalc(prev => ({
             ...prev,
@@ -715,10 +649,9 @@ function CalculationEditor({ isOpen, calculation, onClose, onSave, saving }: Cal
         }));
     };
 
-    // ✅ Agregar item
     const addItem = () => {
         const newItem: CalculationItem = {
-            id: '',
+            id: generateTempId('item'),
             calculation_id: localCalc.id,
             name: 'Nuevo item',
             item_order: localCalc.items.length,
@@ -727,7 +660,6 @@ function CalculationEditor({ isOpen, calculation, onClose, onSave, saving }: Cal
         setLocalCalc(prev => ({ ...prev, items: [...prev.items, newItem] }));
     };
 
-    // ✅ Eliminar item
     const removeItem = (itemId: string) => {
         setLocalCalc(prev => ({
             ...prev,
@@ -736,7 +668,6 @@ function CalculationEditor({ isOpen, calculation, onClose, onSave, saving }: Cal
         }));
     };
 
-    // ✅ Actualizar nombre de columna
     const updateColumnName = (columnId: string, name: string) => {
         setLocalCalc(prev => ({
             ...prev,
@@ -746,10 +677,9 @@ function CalculationEditor({ isOpen, calculation, onClose, onSave, saving }: Cal
         }));
     };
 
-    // ✅ Agregar columna
     const addColumn = () => {
         const newCol: CalculationColumn = {
-            id: '',
+            id: generateTempId('col'),
             calculation_id: localCalc.id,
             name: 'Nuevo vehículo',
             column_order: localCalc.columns.length,
@@ -758,7 +688,6 @@ function CalculationEditor({ isOpen, calculation, onClose, onSave, saving }: Cal
         setLocalCalc(prev => ({ ...prev, columns: [...prev.columns, newCol] }));
     };
 
-    // ✅ Eliminar columna
     const removeColumn = (columnId: string) => {
         setLocalCalc(prev => ({
             ...prev,
@@ -767,18 +696,15 @@ function CalculationEditor({ isOpen, calculation, onClose, onSave, saving }: Cal
         }));
     };
 
-    // ✅ Calcular COSTO FINAL (suma de items)
     const calculateTotalCost = (columnId: string): number => {
         return localCalc.items.reduce((sum, item) => sum + getValue(item.id, columnId), 0);
     };
 
-    // ✅ Calcular VENTA FINAL (costo + margen)
     const calculateTotalSale = (columnId: string): number => {
         const cost = calculateTotalCost(columnId);
         return Math.round(cost * (1 + (localCalc.margin || 0) / 100));
     };
 
-    // ✅ Guardar
     const handleSave = () => {
         onSave(localCalc);
     };
@@ -879,7 +805,7 @@ function CalculationEditor({ isOpen, calculation, onClose, onSave, saving }: Cal
                                         Item / Concepto
                                     </th>
                                     {localCalc.columns.map(col => (
-                                        <th key={col.id || col.name} className="p-2 border border-slate-200 min-w-[120px]">
+                                        <th key={col.id} className="p-2 border border-slate-200 min-w-[120px]">
                                             <div className="flex items-center gap-1">
                                                 <input
                                                     type="text"
@@ -910,7 +836,7 @@ function CalculationEditor({ isOpen, calculation, onClose, onSave, saving }: Cal
                             </thead>
                             <tbody>
                                 {localCalc.items.map(item => (
-                                    <tr key={item.id || item.name} className="hover:bg-slate-50">
+                                    <tr key={item.id} className="hover:bg-slate-50">
                                         <td className="p-2 border border-slate-200">
                                             <div className="flex items-center gap-1">
                                                 <input
@@ -929,7 +855,7 @@ function CalculationEditor({ isOpen, calculation, onClose, onSave, saving }: Cal
                                             </div>
                                         </td>
                                         {localCalc.columns.map(col => (
-                                            <td key={col.id || col.name} className="p-1 border border-slate-200">
+                                            <td key={col.id} className="p-1 border border-slate-200">
                                                 <input
                                                     type="number"
                                                     value={getValue(item.id, col.id) || ''}
@@ -942,7 +868,6 @@ function CalculationEditor({ isOpen, calculation, onClose, onSave, saving }: Cal
                                         <td className="p-1 border border-slate-200 bg-slate-50"></td>
                                     </tr>
                                 ))}
-                                {/* Fila para agregar items */}
                                 <tr>
                                     <td colSpan={localCalc.columns.length + 2} className="p-2 border border-slate-200 bg-slate-50">
                                         <button
@@ -954,26 +879,24 @@ function CalculationEditor({ isOpen, calculation, onClose, onSave, saving }: Cal
                                     </td>
                                 </tr>
 
-                                {/* COSTO FINAL */}
                                 <tr className="bg-blue-50">
                                     <td className="p-2 border border-slate-200 font-bold text-slate-700 text-xs">
                                         💰 COSTO FINAL
                                     </td>
                                     {localCalc.columns.map(col => (
-                                        <td key={col.id || col.name} className="p-2 border border-slate-200 text-center font-mono text-xs font-bold text-blue-700">
+                                        <td key={col.id} className="p-2 border border-slate-200 text-center font-mono text-xs font-bold text-blue-700">
                                             {clp(calculateTotalCost(col.id))}
                                         </td>
                                     ))}
                                     <td className="p-2 border border-slate-200 bg-slate-50"></td>
                                 </tr>
 
-                                {/* VENTA FINAL */}
                                 <tr className="bg-green-50">
                                     <td className="p-2 border border-slate-200 font-bold text-slate-700 text-xs">
                                         💵 VENTA FINAL (margen {localCalc.margin}%)
                                     </td>
                                     {localCalc.columns.map(col => (
-                                        <td key={col.id || col.name} className="p-2 border border-slate-200 text-center font-mono text-xs font-bold text-green-700">
+                                        <td key={col.id} className="p-2 border border-slate-200 text-center font-mono text-xs font-bold text-green-700">
                                             {clp(calculateTotalSale(col.id))}
                                         </td>
                                     ))}
@@ -984,7 +907,6 @@ function CalculationEditor({ isOpen, calculation, onClose, onSave, saving }: Cal
                     </div>
                 </div>
 
-                {/* Botones */}
                 <div className="flex justify-end gap-3 pt-4 border-t border-slate-200">
                     <button
                         onClick={onClose}
