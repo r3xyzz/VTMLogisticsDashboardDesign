@@ -1,0 +1,109 @@
+**Jefe:** Por ejemplo, si el costo son $2.000.000 y yo vendo a $3.000.000, $2.000.000 es el costo y él le agrega el 50% del costo, se lo agrega como *profit*. Por eso se saca el 50%, me lo entregó por el informe, ¿cierto? Sí.
+
+**Ethan:** Le tendría que poner ahí en "Guardar cálculo" y creo que debería guardarse, y ahí queda. Qué... ¿ese es tramo sur? Ahí va a quedar guardado y después si lo quiere editar, ahí mismo.
+
+**Jefe:** Buenísimo, buenísimo. Exacto. Después vengo y Diego dice: "Oye, chucha, ¿sabéis qué? Voy a tener que sacar el kilómetro..." A ver, quiero ver algo que no me acuerdo si estaba. Ya, dime qué hay acá. El tramo anterior era 1.600, pero en realidad a Diego le voy a decir: "Son 3.200 km a recorrer", son 1.600 km por tramo, pero el tramo Valparaíso - Angol, por ejemplo, si tú vais para allá y vais a volver cargado, o sea, tenéis que devolverte para acá, tenéis que... Mira, ven aquí. Pero aquí lo importante...
+
+**Ethan:** Voy a tener que ser bien específico en las descripciones de eso.
+
+**Jefe:** Yo creo que aquí voy a cometer un error. Aquí le voy a decir a Diego: "Tú tenéis que colocar el tramo completo: 3.200 km." ¿Sabes por qué, Diego? Y aquí... ¿Cómo poner Valparaíso - Angol - Valparaíso?
+
+**Ethan:** Dígame la idea que quiere poner y yo después la agrego.
+
+**Jefe:** Como que quede...
+
+**Ethan:** ¿Quiere poner los tramos triples también?
+
+**Jefe:** Claro, así como... ¿Sabes cómo le llamamos cuando tú... por ejemplo, yo voy a Santiago no más, me descargan, quedo vacío y allá dicen: "El tramo para allá le llamamos *one way*." Y cuando vamos con un contenedor, lo descargamos, pero me tengo que devolver con el contenedor para acá, o sea, yo no puedo tomar otra carga, se llama *round trip*. Pero ¿por qué? Mira, si le pongo Angol, se presta para dos cosas. Guardar cálculo. Él va a decir: "¿Tramo Angol - Valparaíso 3.200 km? ¡Es mucho, hueón! No, son 1.600". "Puta, ya, entonces colócame ahí: si estamos recorriendo el tramo Valparaíso - Angol, poneme 1.600 km, porque eso es lo que va a recorrer de aquí hasta allá". "Okay", yo le voy a decir "Perfecto, pero el problema es que estos costos son de la vuelta completa. No es que el camionero va para Puerto Montt, entrega la carga y se queda a vivir allá."
+
+**Ethan:** No, claro. El tramo completo ya.
+
+**Jefe:** ¿Me entiendes? Le tengo que decir a Diego: "Al camionero no le puedo decir 'quédate a vivir en Puerto Montt', porque obviamente ahí sería el gasto de aquí para allá no más, sería la mitad de esto." ¿Cachái?
+
+**Ethan:** Entiendo.
+
+**Jefe:** Pero aquí tienes que considerar que lo que estamos haciendo es el tramo completo. Entonces me va a decir: "Bueno, pon el tramo completo, pero aquí tendrías que colocarme Angol - Valparaíso", por decir algo. Guardar. ¿Ahí se va a ver?
+
+**Ethan:** Sí.
+
+**Jefe:** Y entonces después va a venir a mirar: "¿Cuánto me gastará app?" Ya, pero hay un detalle importante. Algo que hay que colocar aquí: Referencia valor combustible Chile: $1.550 pesos. ¿Cachái?
+
+**Ethan:** Mju.
+
+**Jefe:** Y esto tendría que verse anotado o que quede por aquí.
+
+**Ethan:** Ya entiendo, la nota que quede por ahí encima.
+
+**Jefe:** Claro, porque a lo mejo cuando él digite cotizar: "Puta, sabéis que estamos en el 2027 y me cotizaron una rampa, voy a mirar los costos aquí. El petróleo... ¿cuánto costaba? Ah, $1.550 y ahora está a $2.000 pesos el litro, por tanto cambió. Oye, ¿los peajes? Estaban a $12.300, pero ahora están a $18.400..."
+
+**Ethan:** Entonces lo que podríamos poner en el apartado "Cálculo de cotización" sería que se muestre la descripción, poner bien los tramos y en "Editar", cuando se vayan a hacer los ítems, ser más específico en cómo se tiene que rellenar.
+
+**Jefe:** Claro, por ejemplo, valor combustible y peajes calculados al... voy a poner una fecha cualquiera: 15 de agosto del 2026. Entonces va a decir: "Ya pues, Diego, esa referencia de gasto con la que partes de base dice que está calculada al 15 de agosto y estamos a 1 de enero del 2027..."
+
+**Ethan:** ¿Sabes lo que podría hacer también? En esa misma interfaz, dentro del cálculo, le puedo poner la fecha de la creación de la cotización. Así se tiene referencia de la fecha por encima para ir viendo.
+
+**Jefe:** Es que para sacarte una cachá de... supongamos que hemos hecho 20 cotizaciones a Angol.
+
+**Ethan:** Ya.
+
+**Jefe:** En el historial tendrías todos los servicios que hemos cotizado a Angol. ¿Sabes para qué serviría? Para que cuando él esté trabajando diga: "Oye, le coticé un servicio al Titán, a Gonzalo, a Vicente... ¿Cuántos de ellos cerraron el servicio? No cerraron ninguno. Oye, Gonzalo, te llamo porque cotizaste un servicio a Angol, quería saber cómo te fue..." Hacer un seguimiento. "No, ya lo hicimos, ustedes estaban muy caros." "Puta, no me dijiste. ¿Cuánto más caro?" Hacer un *feedback* con el cliente. Pero por otro lado, que él sepa que la última cotización que hizo el 15 de agosto se va a tener que meter al sistema a buscar cuánto costaba el petróleo ese día. Pero si él tiene como referencia anotado que la última cotización tomó $1.550, puede ser que cuando vuelva a cotizar el petróleo esté a $1.000 pesos.
+
+**Ethan:** Es que a eso iba. Cuando se haga la cotización se va a dejar una marca de tiempo del día que se creó la cotización: día, mes, año, y a lo mejor le podría poner hora.
+
+**Jefe:** Perfecto, podría ser. Pero si no dejas puesto el valor del combustible de ese día, el que venga un mes después a cotizar va a saber que se cotizó el 15 de agosto, pero va a preguntar: "Rodrigo, ¿y qué tomaste de referencia? ¿Qué valor?" Chucha, no lo puse...
+
+**Ethan:** Entonces voy a agregar, cuando se cree la cotización, un campo más entre la distancia y el margen —que el margen sería el *profit* que me habías dicho—...
+
+**Jefe:** Sí, el *profit*.
+
+**Ethan:** Le voy a poner ahí "Valor del combustible hoy en día en el que se está anotando esto".
+
+**Jefe:** Al día. Valor del combustible al día. Porque también podrías sacar los peajes al día.
+
+**Ethan:** También anotar eso mismo ahí.
+
+**Jefe:** ¿Cachái por qué? Porque va a saber que los peajes y el combustible habitualmente de un año a otro suben, nunca bajan. Pero el combustible sí podría bajar. "Oye, cotizaste a $1.550 y resulta que el petróleo está hoy a $1.250, $300 pesos menos. Por 3.200 km son como 450 lucas. Si lo vende a $3.000.000, la competencia está vendiendo a $2.400.000. Entonces el cliente dice: 'Me estáis cobrando $3.000.000 y todos los demás cobrando $2.400.000', nunca vais a cerrar un servicio." Por eso la importancia del valor del combustible y los peajes. Los peajes sabemos que son siempre los mismos. En cambio, en los distintos camiones el petróleo vale lo mismo, pero lo que cambia un poquito es el rendimiento. Por eso obtengo valores distintos: "En petróleo con el Titán se come 4 completos este hueón, yo me como 2 y este se come 1." ¿A qué llegamos, cachái? "Oye, ¿sabéis qué? En el viaje a Iquique el petróleo está a $1.750 pesos y en Antofagasta a $1.650, entonces ya no lo puedo calcular a $1.550, tengo que sacar una relación: $1.600 pesos." Dejo como referencia lo que vale en la zona central y siempre dejo un margen, por eso le pongo 50%, porque en realidad nuestra ganancia es como un 30%. Me voy a un 50% porque todos los clientes piden rebaja. Les bajo el 10%, me queda en 40%. Si reclaman: "Puta, estáis 300 lucas más caro", les bajo a 25% o 30% y llego a los 30 que era lo que quería. Porque si cotizo al tiro lo que quiero, piden rebaja igual y termino ganando un 10%. No voy a ir a Iquique por $500 lucas porque es mucho gasto y mucho riesgo para nuestros equipos.
+
+**Ethan:** Claro, riesgo y las ganancias que a lo mejor no van a salir a cuenta con el tema de la ida y vuelta.
+
+**Jefe:** Todo lo que gasto en ir al norte y volver, aunque me gane $2.000.000, con esa plata trabajo dos semanas aquí con todos los camiones chicos y me gano el mismo millón de pesos sin arriesgar quedar en pana en Arica. Aquí en Santiago/San Antonio nuestros choferes llegan todos los días a la casa. Pero me gustó la planilla. Ahora tengo un cliente que me está cotizando una carga a Lebu y yo no tengo Lebu cargado. Tengo que ir a buscar al sistema y me demoro. En cambio aquí veo: "Ah, cotizaron la semana pasada a Lebu." No creo que haya cambiado tanto el petróleo, cotizo a la misma tarifa y en 5 minutos está listo. Les cotizo en la misma FTM y vamos a tener que pasar por todos los destinos: Arica - Valparaíso, Arica - San Antonio. Si puedes crear los destinos fijos por regiones, genial. Hablo de destinos cercanos: Arica, Iquique, Calama, Coquimbo, La Serena, Santiago, Rancagua, Curicó, Chillán, Los Ángeles, Talcahuano, Concepción, Temuco, Osorno, Puerto Montt. Después voy a mirar los destinos específicos dentro de esas regiones. Por ejemplo, en Talcahuano vamos a Los Ángeles, Coronel, Concepción. Como están dentro del mismo circuito, se toma como referencia la tarifa de Talcahuano, están al lado. Diego sabrá que Iquique está calculado a Zona Franca, pero ir a Alto Hospicio son 400 km más y el gasto es mayor.
+
+**Ethan:** Ya me estoy haciendo la idea de cómo hacerlo.
+
+**Jefe:** La idea es agilizar la cotización.
+
+**Ethan:** Añadir tramos pero conservar los tramos ya prehechos para que se calcule.
+
+**Jefe:** Él va a tener los tramos prehechos.
+
+**Ethan:** Como los tramos que habíamos puesto cuando se crean las cotizaciones de los OD (origen, ciudad, destino, ruta Valpo - Santiago, Santiago - San Antonio o rutas triples).
+
+**Jefe:** Claro. Quiero que esté fijo en el sistema la comuna oficial de cada región y después los destinos dentro de la región. En Coquimbo tomo como referencia Coquimbo, pero me pueden pedir Los Vilos, Illapel, Salamanca. En Temuco calculas a la plaza, pero de ahí te puedes ir hora y media al mar u hora y media a la cordillera. Si me dicen Collipulli, desde la carretera tienes dos horas más. O en la Quinta Región: Los Andes, San Felipe. Si cotizas a Valparaíso o San Antonio gasto $100.000 de petróleo y cobro $150.000, pero si la dirección es Santa María en San Felipe, pertenece a la Región de Valparaíso pero está a 100 km de distancia.
+
+**Ethan:** Ah, eso no lo sabía.
+
+**Jefe:** San Antonio no es región, pertenece a la Región de Valparaíso, pero está a 100 km. Una cosa es cotizar a la región como base y otra es cuánto te alejas. Agregar las bases sirve para tener una referencia de costo. Después le digo a Diego que agreguemos destinos a medida que cotizamos.
+
+**Ethan:** Claro, queda ahí y los administradores pueden ver eso.
+
+**Jefe:** Y te vas a un buscador: "Tarifas Valparaíso - Angol", te tira todo el historial, abres la última, ajustas el valor actual del petróleo y la actualizas.
+
+**Ethan:** Sí, voy entendiendo. Se me había ocurrido agregar a este apartado de Cálculo y Cotizaciones que, dependiendo de la cuenta e-mail con la que se inicie sesión, quede guardado quién hizo la cotización. Si usted ingresa con su e-mail y su compañero con el suyo, queda registrado "Cotización hecha por Rodrigo", aparte de la fecha y hora.
+
+**Jefe:** ¿Quién fue el último que se metió?
+
+**Ethan:** Quién fue el que creó la cotización.
+
+**Jefe:** Claro, el último que se metió fue el que cotizó. Si veo un valor errado, sé quién fue el último que la editó y le puedo decir: "Oye, pusiste $20 lucas en vez de $200."
+
+**Ethan:** Claro, para que quede un registro y no pase lo de las hojas de Excel donde todos usaban la misma cuenta y no se sabía quién hacía los cambios.
+
+**Jefe:** Me parece perfecto.
+
+**Ethan:** Voy a ver si puedo terminar esto hoy para después pasar con Gonzalo, porque lo de él también lo va a ocupar Vicente.
+
+**Jefe:** Perfecto.
+
+**Ethan:** Terminando con los chiquillos paso al área de Finanzas.
+
+**Jefe:** Acuérdate de los coordinadores. De hecho, podríamos ir ahora 5 minutos y les preguntamos.

@@ -12,14 +12,16 @@ export default function Login() {
       setLoading(true);
       setError(null);
       setLoginAttempts(prev => prev + 1);
+      const redirectUrl = new URL('/', window.location.origin).toString();
       
       console.log(`🔄 ====== INTENTO DE LOGIN #${loginAttempts + 1} ======`);
       console.log('📍 URL actual:', window.location.href);
+      console.log('↩️ URL de retorno:', redirectUrl);
       
       const { data, error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
         options: {
-          redirectTo: window.location.origin,
+          redirectTo: redirectUrl,
         },
       });
 

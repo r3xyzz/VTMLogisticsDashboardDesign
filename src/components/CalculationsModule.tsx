@@ -14,6 +14,33 @@ import type {
 const clp = (n: number) =>
     new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP', maximumFractionDigits: 0 }).format(n);
 
+const getDescriptionPreview = (description: string | null, notes: string | null): string | null => {
+    const text = description?.trim() || notes?.trim() || '';
+    if (!text) return null;
+
+    const words = text.split(/\s+/);
+    return words.length > 6 ? `${words.slice(0, 6).join(' ')} ....` : text;
+};
+
+const CHILE_REGIONS = [
+    'Arica y Parinacota',
+    'Tarapacá',
+    'Antofagasta',
+    'Atacama',
+    'Coquimbo',
+    'Valparaíso',
+    'Región Metropolitana de Santiago',
+    'Libertador General Bernardo O’Higgins',
+    'Maule',
+    'Ñuble',
+    'Biobío',
+    'La Araucanía',
+    'Los Ríos',
+    'Los Lagos',
+    'Aysén del General Carlos Ibáñez del Campo',
+    'Magallanes y de la Antártica Chilena',
+];
+
 // ✅ Helper para generar UUIDs reales
 const generateUUID = (): string => {
     if (typeof crypto !== 'undefined' && crypto.randomUUID) {
@@ -114,7 +141,6 @@ export default function CalculationsModule() {
     // ✅ CREAR NUEVO
     // ============================================
     const handleCreateNew = () => {
-        // ✅ Generar UUIDs reales desde el inicio
         const col1Id = generateUUID();
         const col2Id = generateUUID();
         const col3Id = generateUUID();
@@ -128,11 +154,14 @@ export default function CalculationsModule() {
             description: null,
             origin: null,
             destination: null,
+            destination_commune: null,
+            route_type: 'one_way',
             distance_km: null,
             notes: null,
             margin: 50,
             is_active: true,
             created_by: null,
+            created_by_email: null,
             created_at: new Date().toISOString(),
             updated_at: new Date().toISOString(),
             columns: [
@@ -194,7 +223,7 @@ export default function CalculationsModule() {
     };
 
     // ============================================
-    // ✅ DUPLICAR (SIMPLIFICADO - CON UUIDs)
+    // ✅ DUPLICAR
     // ============================================
     const handleDuplicate = async (calc: Calculation) => {
         try {
@@ -207,15 +236,12 @@ export default function CalculationsModule() {
             }
 
             const { data: { session } } = await supabase.auth.getSession();
-
-            // ✅ Generar nuevo ID para el cálculo
             const newCalculationId = generateUUID();
+            const creatorEmail = session?.user?.email || null;
 
-            // ✅ Crear mapeo de IDs viejos → nuevos
             const columnIdMap: { [oldId: string]: string } = {};
             const itemIdMap: { [oldId: string]: string } = {};
 
-            // Generar nuevos UUIDs para columnas
             const newColumns = originalFull.columns.map(col => {
                 const newId = generateUUID();
                 columnIdMap[col.id] = newId;
@@ -227,7 +253,6 @@ export default function CalculationsModule() {
                 };
             });
 
-            // Generar nuevos UUIDs para items
             const newItems = originalFull.items.map(item => {
                 const newId = generateUUID();
                 itemIdMap[item.id] = newId;
@@ -239,7 +264,6 @@ export default function CalculationsModule() {
                 };
             });
 
-            // Generar nuevos valores con los IDs mapeados
             const newValues = originalFull.values.map(v => ({
                 id: generateUUID(),
                 calculation_id: newCalculationId,
@@ -248,8 +272,6 @@ export default function CalculationsModule() {
                 value: v.value,
             }));
 
-            // ✅ Insertar todo en orden
-            // 1. Cálculo principal
             const { error: calcError } = await supabase
                 .from('calculations')
                 .insert([{
@@ -258,39 +280,36 @@ export default function CalculationsModule() {
                     description: originalFull.description,
                     origin: originalFull.origin,
                     destination: originalFull.destination,
+                    destination_commune: originalFull.destination_commune,
+                    route_type: originalFull.route_type || 'one_way',
                     distance_km: originalFull.distance_km,
                     notes: originalFull.notes,
                     margin: originalFull.margin,
                     is_active: true,
                     created_by: session?.user?.id || null,
+                    created_by_email: creatorEmail,
                 }]);
 
             if (calcError) throw calcError;
 
-            // 2. Columnas
             if (newColumns.length > 0) {
                 const { error: colError } = await supabase
                     .from('calculation_columns')
                     .insert(newColumns);
-
                 if (colError) throw colError;
             }
 
-            // 3. Items
             if (newItems.length > 0) {
                 const { error: itemError } = await supabase
                     .from('calculation_items')
                     .insert(newItems);
-
                 if (itemError) throw itemError;
             }
 
-            // 4. Valores
             if (newValues.length > 0) {
                 const { error: valError } = await supabase
                     .from('calculation_values')
                     .insert(newValues);
-
                 if (valError) throw valError;
             }
 
@@ -304,7 +323,7 @@ export default function CalculationsModule() {
     };
 
     // ============================================
-    // ✅ GUARDAR (SIMPLIFICADO - SIN MAPEO)
+    // ✅ GUARDAR
     // ============================================
     const handleSave = async (updatedCalc: CalculationFull) => {
         try {
@@ -317,12 +336,9 @@ export default function CalculationsModule() {
 
             const { data: { session } } = await supabase.auth.getSession();
             let calculationId = updatedCalc.id;
+            const creatorEmail = session?.user?.email || null;
 
-            // ============================================
-            // 1. GUARDAR CÁLCULO PRINCIPAL
-            // ============================================
             if (!calculationId) {
-                // Crear nuevo con UUID generado en el frontend
                 calculationId = generateUUID();
                 
                 const { error: calcError } = await supabase
@@ -333,17 +349,19 @@ export default function CalculationsModule() {
                         description: updatedCalc.description || null,
                         origin: updatedCalc.origin || null,
                         destination: updatedCalc.destination || null,
+                        destination_commune: updatedCalc.destination_commune || null,
+                        route_type: updatedCalc.route_type || 'one_way',
                         distance_km: updatedCalc.distance_km || null,
                         notes: updatedCalc.notes || null,
                         margin: updatedCalc.margin || 50,
                         is_active: true,
                         created_by: session?.user?.id || null,
+                        created_by_email: creatorEmail,
                     }]);
 
                 if (calcError) throw calcError;
                 console.log('✅ Cálculo creado:', calculationId);
             } else {
-                // Actualizar existente
                 const { error: calcError } = await supabase
                     .from('calculations')
                     .update({
@@ -351,6 +369,8 @@ export default function CalculationsModule() {
                         description: updatedCalc.description || null,
                         origin: updatedCalc.origin || null,
                         destination: updatedCalc.destination || null,
+                        destination_commune: updatedCalc.destination_commune || null,
+                        route_type: updatedCalc.route_type || 'one_way',
                         distance_km: updatedCalc.distance_km || null,
                         notes: updatedCalc.notes || null,
                         margin: updatedCalc.margin || 50,
@@ -361,12 +381,8 @@ export default function CalculationsModule() {
                 console.log('✅ Cálculo actualizado:', calculationId);
             }
 
-            // ============================================
-            // 2. ELIMINAR DATOS ANTIGUOS (solo si es edición)
-            // ============================================
+            // Eliminar datos antiguos (solo si es edición)
             if (updatedCalc.id) {
-                console.log('🗑️ Eliminando items, columnas y valores antiguos...');
-                
                 await supabase
                     .from('calculation_values')
                     .delete()
@@ -383,9 +399,7 @@ export default function CalculationsModule() {
                     .eq('calculation_id', calculationId);
             }
 
-            // ============================================
-            // 3. INSERTAR COLUMNAS (con UUIDs ya asignados)
-            // ============================================
+            // Insertar columnas
             if (updatedCalc.columns.length > 0) {
                 const columnsToInsert = updatedCalc.columns.map(col => ({
                     id: col.id || generateUUID(),
@@ -397,14 +411,11 @@ export default function CalculationsModule() {
                 const { error: colError } = await supabase
                     .from('calculation_columns')
                     .insert(columnsToInsert);
-
                 if (colError) throw colError;
                 console.log(`✅ ${columnsToInsert.length} columnas insertadas`);
             }
 
-            // ============================================
-            // 4. INSERTAR ITEMS (con UUIDs ya asignados)
-            // ============================================
+            // Insertar items
             if (updatedCalc.items.length > 0) {
                 const itemsToInsert = updatedCalc.items.map(item => ({
                     id: item.id || generateUUID(),
@@ -416,14 +427,11 @@ export default function CalculationsModule() {
                 const { error: itemError } = await supabase
                     .from('calculation_items')
                     .insert(itemsToInsert);
-
                 if (itemError) throw itemError;
                 console.log(`✅ ${itemsToInsert.length} items insertados`);
             }
 
-            // ============================================
-            // 5. INSERTAR VALORES (con IDs ya válidos)
-            // ============================================
+            // Insertar valores
             if (updatedCalc.values.length > 0) {
                 const valuesToInsert = updatedCalc.values
                     .filter(v => v.item_id && v.column_id)
@@ -439,11 +447,7 @@ export default function CalculationsModule() {
                     const { error: valError } = await supabase
                         .from('calculation_values')
                         .insert(valuesToInsert);
-
-                    if (valError) {
-                        console.error('❌ Error insertando valores:', valError);
-                        throw valError;
-                    }
+                    if (valError) throw valError;
                     console.log(`✅ ${valuesToInsert.length} valores insertados`);
                 }
             }
@@ -516,6 +520,7 @@ export default function CalculationsModule() {
                             className="bg-white rounded-lg border border-slate-200 overflow-hidden hover:shadow-lg transition-shadow"
                         >
                             <div className="p-4">
+                                {/* Header del cálculo */}
                                 <div className="flex items-start justify-between gap-4">
                                     <div className="flex-1 min-w-0">
                                         <div className="flex items-center gap-3">
@@ -528,20 +533,34 @@ export default function CalculationsModule() {
                                                 </h3>
                                                 <p className="text-xs text-slate-500">
                                                     {calc.origin && calc.destination
-                                                        ? `${calc.origin} → ${calc.destination}`
+                                                                ? `${calc.origin} → ${calc.destination}${calc.destination_commune ? ` · ${calc.destination_commune}` : ''}`
                                                         : 'Sin ruta definida'}
                                                 </p>
                                             </div>
                                         </div>
-                                        {calc.description && (
-                                            <p className="text-xs text-slate-500 mt-2">{calc.description}</p>
+                                        {getDescriptionPreview(calc.description, calc.notes) && (
+                                            <p
+                                                className="text-xs text-slate-500 mt-2"
+                                                title={calc.description || calc.notes || ''}
+                                            >
+                                                {getDescriptionPreview(calc.description, calc.notes)}
+                                            </p>
                                         )}
                                         <div className="flex items-center gap-3 mt-2 text-xs text-slate-400 flex-wrap">
                                             {calc.distance_km && (
                                                 <span>📍 {calc.distance_km} km</span>
                                             )}
+                                            <span>
+                                                🔁 {calc.route_type === 'round_trip' ? 'Round trip' : 'One way'}
+                                            </span>
                                             <span>💹 Margen {calc.margin}%</span>
-                                            <span>📅 {new Date(calc.created_at).toLocaleDateString('es-CL')}</span>
+                                            <span>
+                                            <span>
+                                                ✉️ Creado por: {calc.created_by_email || 'Correo no registrado'}
+                                            </span>
+                                                📅 {new Date(calc.created_at).toLocaleDateString('es-CL')}{' '}
+                                                {new Date(calc.created_at).toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' })}
+                                            </span>
                                         </div>
                                     </div>
                                     <div className="flex items-center gap-2 flex-shrink-0">
@@ -566,6 +585,9 @@ export default function CalculationsModule() {
                                         </button>
                                     </div>
                                 </div>
+
+                                {/* Vista previa de la tabla */}
+                                <PreviewTable calculationId={calc.id} margin={calc.margin} />
                             </div>
                         </div>
                     ))}
@@ -616,6 +638,197 @@ export default function CalculationsModule() {
 }
 
 // ============================================
+// ✅ COMPONENTE VISTA PREVIA DE TABLA
+// ============================================
+interface PreviewTableProps {
+    calculationId: string;
+    margin: number;
+}
+
+function PreviewTable({ calculationId, margin }: PreviewTableProps) {
+    const [loading, setLoading] = useState(true);
+    const [columns, setColumns] = useState<CalculationColumn[]>([]);
+    const [items, setItems] = useState<CalculationItem[]>([]);
+    const [values, setValues] = useState<CalculationValue[]>([]);
+    const [showAll, setShowAll] = useState(false);
+
+    const MAX_PREVIEW_ROWS = 4;
+    const MAX_PREVIEW_COLS = 4;
+
+    useEffect(() => {
+        fetchPreviewData();
+    }, [calculationId]);
+
+    async function fetchPreviewData() {
+        try {
+            setLoading(true);
+
+            const { data: colsData } = await supabase
+                .from('calculation_columns')
+                .select('*')
+                .eq('calculation_id', calculationId)
+                .order('column_order', { ascending: true });
+
+            const { data: itemsData } = await supabase
+                .from('calculation_items')
+                .select('*')
+                .eq('calculation_id', calculationId)
+                .order('item_order', { ascending: true });
+
+            const { data: valuesData } = await supabase
+                .from('calculation_values')
+                .select('*')
+                .eq('calculation_id', calculationId);
+
+            setColumns(colsData || []);
+            setItems(itemsData || []);
+            setValues(valuesData || []);
+        } catch (error) {
+            console.error('Error al cargar preview:', error);
+        } finally {
+            setLoading(false);
+        }
+    }
+
+    const getValue = (itemId: string, columnId: string): number => {
+        const val = values.find(v => v.item_id === itemId && v.column_id === columnId);
+        return val?.value || 0;
+    };
+
+    const calculateTotalCost = (columnId: string): number => {
+        return items.reduce((sum, item) => sum + getValue(item.id, columnId), 0);
+    };
+
+    const calculateTotalSale = (columnId: string): number => {
+        const cost = calculateTotalCost(columnId);
+        return Math.round(cost * (1 + margin / 100));
+    };
+
+    if (loading) {
+        return (
+            <div className="mt-3 p-3 bg-slate-50 rounded-lg text-xs text-slate-400 text-center">
+                ⏳ Cargando vista previa...
+            </div>
+        );
+    }
+
+    if (items.length === 0 || columns.length === 0) {
+        return (
+            <div className="mt-3 p-3 bg-slate-50 rounded-lg text-xs text-slate-400 text-center">
+                No hay items o columnas para mostrar
+            </div>
+        );
+    }
+
+    const visibleItems = showAll ? items : items.slice(0, MAX_PREVIEW_ROWS);
+    const visibleColumns = showAll ? columns : columns.slice(0, MAX_PREVIEW_COLS);
+    const hasMoreItems = items.length > MAX_PREVIEW_ROWS;
+    const hasMoreColumns = columns.length > MAX_PREVIEW_COLS;
+    const hasMore = hasMoreItems || hasMoreColumns;
+
+    return (
+        <div className="mt-3">
+            <div className="overflow-x-auto rounded-lg border border-slate-200">
+                <table className="w-full text-xs border-collapse">
+                    <thead>
+                        <tr className="bg-slate-50">
+                            <th className="text-left p-1.5 border border-slate-200 font-bold text-slate-600 min-w-[100px]">
+                                Item
+                            </th>
+                            {visibleColumns.map(col => (
+                                <th key={col.id} className="text-center p-1.5 border border-slate-200 font-bold text-slate-600 min-w-[70px]">
+                                    {col.name}
+                                </th>
+                            ))}
+                            {hasMoreColumns && !showAll && (
+                                <th className="text-center p-1.5 border border-slate-200 bg-slate-100 text-slate-400 font-bold min-w-[50px]">
+                                    +{columns.length - MAX_PREVIEW_COLS}
+                                </th>
+                            )}
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {visibleItems.map(item => (
+                            <tr key={item.id} className="hover:bg-slate-50">
+                                <td className="p-1.5 border border-slate-200 text-slate-600 font-medium">
+                                    {item.name}
+                                </td>
+                                {visibleColumns.map(col => (
+                                    <td key={col.id} className="p-1.5 border border-slate-200 text-center font-mono text-slate-700">
+                                        {getValue(item.id, col.id) || '-'}
+                                    </td>
+                                ))}
+                                {hasMoreColumns && !showAll && (
+                                    <td className="p-1.5 border border-slate-200 bg-slate-50 text-center text-slate-300">
+                                        ...
+                                    </td>
+                                )}
+                            </tr>
+                        ))}
+
+                        {hasMoreItems && !showAll && (
+                            <tr>
+                                <td 
+                                    colSpan={visibleColumns.length + (hasMoreColumns && !showAll ? 2 : 1)} 
+                                    className="p-1.5 text-center text-slate-400 italic border border-slate-200 bg-slate-50"
+                                >
+                                    ... +{items.length - MAX_PREVIEW_ROWS} items más
+                                </td>
+                            </tr>
+                        )}
+
+                        <tr className="bg-blue-50">
+                            <td className="p-1.5 border border-slate-200 font-bold text-slate-700">
+                                💰 COSTO
+                            </td>
+                            {visibleColumns.map(col => (
+                                <td key={col.id} className="p-1.5 border border-slate-200 text-center font-mono text-blue-700 font-bold">
+                                    {clp(calculateTotalCost(col.id))}
+                                </td>
+                            ))}
+                            {hasMoreColumns && !showAll && (
+                                <td className="p-1.5 border border-slate-200 bg-slate-50"></td>
+                            )}
+                        </tr>
+
+                        <tr className="bg-green-50">
+                            <td className="p-1.5 border border-slate-200 font-bold text-slate-700">
+                                💵 VENTA
+                            </td>
+                            {visibleColumns.map(col => (
+                                <td key={col.id} className="p-1.5 border border-slate-200 text-center font-mono text-green-700 font-bold">
+                                    {clp(calculateTotalSale(col.id))}
+                                </td>
+                            ))}
+                            {hasMoreColumns && !showAll && (
+                                <td className="p-1.5 border border-slate-200 bg-slate-50"></td>
+                            )}
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+
+            {hasMore && (
+                <button
+                    onClick={() => setShowAll(!showAll)}
+                    className="mt-2 text-xs text-blue-600 hover:text-blue-800 font-semibold flex items-center gap-1"
+                >
+                    {showAll ? (
+                        <>
+                            ▲ Mostrar menos
+                        </>
+                    ) : (
+                        <>
+                            ▼ Ver todo ({items.length} items × {columns.length} columnas)
+                        </>
+                    )}
+                </button>
+            )}
+        </div>
+    );
+}
+
+// ============================================
 // ✅ COMPONENTE EDITOR
 // ============================================
 interface CalculationEditorProps {
@@ -633,7 +846,6 @@ function CalculationEditor({ isOpen, calculation, onClose, onSave, saving }: Cal
         setLocalCalc(prev => ({ ...prev, [field]: value }));
     };
 
-    // ✅ Actualizar valor de celda
     const updateValue = (itemId: string, columnId: string, value: number) => {
         setLocalCalc(prev => {
             const existingIndex = prev.values.findIndex(
@@ -762,25 +974,65 @@ function CalculationEditor({ isOpen, calculation, onClose, onSave, saving }: Cal
                             <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">
                                 Origen
                             </label>
-                            <input
-                                type="text"
+                            <select
                                 value={localCalc.origin || ''}
                                 onChange={e => updateField('origin', e.target.value)}
                                 className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                                placeholder="Ej: Valparaíso"
-                            />
+                            >
+                                <option value="">Seleccionar región de origen</option>
+                                {localCalc.origin && !CHILE_REGIONS.includes(localCalc.origin) && (
+                                    <option value={localCalc.origin}>{localCalc.origin}</option>
+                                )}
+                                {CHILE_REGIONS.map(region => (
+                                    <option key={region} value={region}>{region}</option>
+                                ))}
+                            </select>
                         </div>
                         <div>
                             <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">
                                 Destino
                             </label>
-                            <input
-                                type="text"
+                            <select
                                 value={localCalc.destination || ''}
                                 onChange={e => updateField('destination', e.target.value)}
                                 className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                                placeholder="Ej: Santiago"
-                            />
+                            >
+                                <option value="">Seleccionar región de destino</option>
+                                {localCalc.destination && !CHILE_REGIONS.includes(localCalc.destination) && (
+                                    <option value={localCalc.destination}>{localCalc.destination}</option>
+                                )}
+                                {CHILE_REGIONS.map(region => (
+                                    <option key={region} value={region}>{region}</option>
+                                ))}
+                            </select>
+                        </div>
+                        <div className="md:col-span-2 flex items-end gap-2">
+                            <span className="pb-2 text-slate-400 text-lg" aria-hidden="true">→</span>
+                            <div className="flex-1">
+                                <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">
+                                    Comuna de destino
+                                </label>
+                                <input
+                                    type="text"
+                                    value={localCalc.destination_commune || ''}
+                                    onChange={e => updateField('destination_commune', e.target.value)}
+                                    className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                    placeholder="Ej: San Felipe, Alto Hospicio o Angol"
+                                />
+                            </div>
+                        </div>
+                        <div>
+                            <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">
+                                Tipo de recorrido
+                            </label>
+                            <select
+                                value={localCalc.route_type || 'one_way'}
+                                onChange={e => updateField('route_type', e.target.value as 'one_way' | 'round_trip')}
+                                className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                            >
+                                <option value="one_way">One way (solo ida)</option>
+                                <option value="round_trip">Round trip (ida y regreso)</option>
+                            </select>
                         </div>
                         <div>
                             <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">
@@ -808,11 +1060,11 @@ function CalculationEditor({ isOpen, calculation, onClose, onSave, saving }: Cal
                         </div>
                         <div className="md:col-span-2">
                             <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">
-                                Descripción / Notas
+                                Descripción del cálculo
                             </label>
                             <textarea
-                                value={localCalc.notes || ''}
-                                onChange={e => updateField('notes', e.target.value)}
+                                value={localCalc.description || ''}
+                                onChange={e => updateField('description', e.target.value)}
                                 className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
                                 rows={2}
                                 placeholder="Información adicional, condiciones, etc."

@@ -194,11 +194,14 @@ export interface Calculation {
     description: string | null;
     origin: string | null;
     destination: string | null;
+    destination_commune: string | null;
+    route_type: 'one_way' | 'round_trip';
     distance_km: number | null;
     notes: string | null;
     margin: number;
     is_active: boolean;
     created_by: string | null;
+    created_by_email: string | null;
     created_at: string;
     updated_at: string;
 }
