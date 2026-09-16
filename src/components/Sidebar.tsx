@@ -135,14 +135,11 @@ export default function Sidebar({
         className="flex items-center gap-3 px-4 h-14 flex-shrink-0"
         style={{ borderBottom: '1px solid rgba(255,255,255,0.07)' }}
       >
-        <div
-          className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0"
-          style={{ background: 'linear-gradient(135deg, #2558a0, #3a72c2)' }}
-        >
-          <svg className="w-4.5 h-4.5 text-white" style={{ width: 18, height: 18 }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.2} d="M13 10V3L4 14h7v7l9-11h-7z" />
-          </svg>
-        </div>
+        <img
+          src="/logo_empresa_VTM.png"
+          alt="VTM Logistics"
+          className="w-12 h-auto object-contain flex-shrink-0"
+        />
         {!collapsed && (
           <div className="overflow-hidden">
             <div className="text-white font-bold text-[15px] tracking-tight leading-none whitespace-nowrap">VTM Logistics</div>
