@@ -54,14 +54,47 @@ const defaultPermissions: UserPermissions = {
   can_view_calculations: false,
 };
 
+const activeViewStorageKey = 'vtm-active-view';
+const activeViews: ActiveView[] = [
+  'dashboard', 'orders', 'cargo', 'tracking', 'documents',
+  'fleet', 'providers', 'drivers', 'clients', 'calculations',
+];
+
+const getStoredActiveView = (): ActiveView | null => {
+  const storedView = sessionStorage.getItem(activeViewStorageKey);
+  return storedView && activeViews.includes(storedView as ActiveView)
+    ? storedView as ActiveView
+    : null;
+};
+
+const hasPermissionForView = (view: ActiveView, permissions: UserPermissions): boolean => {
+  const permissionByView: Record<ActiveView, keyof UserPermissions> = {
+    dashboard: 'can_view_dashboard',
+    orders: 'can_view_orders',
+    cargo: 'can_view_cargo',
+    tracking: 'can_view_tracking',
+    documents: 'can_view_documents',
+    fleet: 'can_view_fleet',
+    providers: 'can_view_providers',
+    drivers: 'can_view_drivers',
+    clients: 'can_view_clients',
+    calculations: 'can_view_calculations',
+  };
+  return permissions[permissionByView[view]];
+};
+
 export default function App() {
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
   const [isAuthorized, setIsAuthorized] = useState(false);
   const [userPermissions, setUserPermissions] = useState<UserPermissions>(defaultPermissions);
   const [userRole, setUserRole] = useState<string>('user');
-  const [activeView, setActiveView] = useState<ActiveView>('dashboard');
+  const [activeView, setActiveView] = useState<ActiveView>(() => getStoredActiveView() || 'dashboard');
   const [collapsed, setCollapsed] = useState(false);
+
+  useEffect(() => {
+    sessionStorage.setItem(activeViewStorageKey, activeView);
+  }, [activeView]);
 
   // ✅ Función para verificar autorización
   const checkAuthorization = async (email: string): Promise<{ authorized: boolean; role: string; permissions: UserPermissions }> => {
@@ -197,9 +230,12 @@ export default function App() {
           setUserPermissions(result.permissions);
           
           if (result.authorized) {
-            const firstAvailableView = getFirstAvailableView(result.permissions);
-            console.log('📌 Primera vista disponible:', firstAvailableView);
-            setActiveView(firstAvailableView);
+            const storedView = getStoredActiveView();
+            const initialView = storedView && hasPermissionForView(storedView, result.permissions)
+              ? storedView
+              : getFirstAvailableView(result.permissions);
+            console.log('📌 Vista inicial:', initialView);
+            setActiveView(initialView);
           }
         }
         setSession(initialSession);
@@ -222,10 +258,6 @@ export default function App() {
         setUserRole(result.role);
         setUserPermissions(result.permissions);
         
-        if (result.authorized) {
-          const firstAvailableView = getFirstAvailableView(result.permissions);
-          setActiveView(firstAvailableView);
-        }
       } else {
         setIsAuthorized(false);
         setUserPermissions(defaultPermissions);
