@@ -413,13 +413,6 @@ export default function OrdersModule({ onNavigate }: Props) {
             <h1 className="text-xl font-bold text-slate-900">📧 Pedidos / Correo</h1>
             <p className="text-sm text-slate-500 mt-0.5">Correos empresariales (@vtmlogistics.com)</p>
           </div>
-          <button
-            onClick={() => onNavigate('cargo')}
-            className="flex items-center gap-2 px-4 py-2 rounded text-sm font-semibold text-white transition-all hover:opacity-90"
-            style={{ background: '#1e4278' }}
-          >
-            + Nueva OT Manual
-          </button>
         </div>
 
         {/* Conexión con Outlook */}
