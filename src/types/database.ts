@@ -202,6 +202,8 @@ export interface Calculation {
     is_active: boolean;
     created_by: string | null;
     created_by_email: string | null;
+    updated_by: string | null;
+    updated_by_email: string | null;
     created_at: string;
     updated_at: string;
 }

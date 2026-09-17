@@ -22,6 +22,15 @@ const getDescriptionPreview = (description: string | null, notes: string | null)
     return words.length > 6 ? `${words.slice(0, 6).join(' ')} ....` : text;
 };
 
+const formatAuditDate = (date: string | null | undefined): string => {
+    if (!date) return 'Fecha no registrada';
+
+    return new Date(date).toLocaleString('es-CL', {
+        dateStyle: 'short',
+        timeStyle: 'short',
+    });
+};
+
 const CHILE_REGIONS = [
     'Arica y Parinacota',
     'Tarapacá',
@@ -162,6 +171,8 @@ export default function CalculationsModule() {
             is_active: true,
             created_by: null,
             created_by_email: null,
+            updated_by: null,
+            updated_by_email: null,
             created_at: new Date().toISOString(),
             updated_at: new Date().toISOString(),
             columns: [
@@ -337,6 +348,7 @@ export default function CalculationsModule() {
             const { data: { session } } = await supabase.auth.getSession();
             let calculationId = updatedCalc.id;
             const creatorEmail = session?.user?.email || null;
+            const editorId = session?.user?.id || null;
 
             if (!calculationId) {
                 calculationId = generateUUID();
@@ -374,6 +386,9 @@ export default function CalculationsModule() {
                         distance_km: updatedCalc.distance_km || null,
                         notes: updatedCalc.notes || null,
                         margin: updatedCalc.margin || 50,
+                        updated_by: editorId,
+                        updated_by_email: creatorEmail,
+                        updated_at: new Date().toISOString(),
                     })
                     .eq('id', calculationId);
 
@@ -956,6 +971,19 @@ function CalculationEditor({ isOpen, calculation, onClose, onSave, saving }: Cal
         >
             <div className="space-y-4 max-h-[80vh] overflow-y-auto pr-2">
                 {/* Info General */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
+                    <div className="bg-slate-50 border border-slate-200 rounded-lg p-3">
+                        <p className="font-bold text-slate-500 uppercase tracking-wider">Creado por</p>
+                        <p className="mt-1 text-slate-700">{calculation.created_by_email || 'Correo no registrado'}</p>
+                        <p className="mt-1 text-slate-400">{formatAuditDate(calculation.created_at)}</p>
+                    </div>
+                    <div className="bg-blue-50 border border-blue-100 rounded-lg p-3">
+                        <p className="font-bold text-blue-600 uppercase tracking-wider">Último cambio por</p>
+                        <p className="mt-1 text-slate-700">{calculation.updated_by_email || 'Aún no hay ediciones registradas'}</p>
+                        <p className="mt-1 text-slate-400">{calculation.updated_by_email ? formatAuditDate(calculation.updated_at) : 'Se registrará al guardar una edición'}</p>
+                    </div>
+                </div>
+
                 <div className="bg-slate-50 p-4 rounded-lg space-y-3">
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                         <div className="md:col-span-2">
