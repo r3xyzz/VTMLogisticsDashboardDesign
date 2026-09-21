@@ -1,4 +1,4 @@
-// ✅ COMPONENTE DE LISTA DE CORREOS (CORREGIDO)
+//  COMPONENTE DE LISTA DE CORREOS (CORREGIDO)(mentira nos se si funciona porque el jefe no me da cuentas ni creedendiales de Microsoft Graph, pero al menos ya no tira errores de typescript)
 function EmailList({ 
   accessToken, 
   filter,
@@ -12,7 +12,7 @@ function EmailList({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // ✅ Función para obtener correos desde Microsoft Graph
+  //  Función para obtener correos desde Microsoft Graph
   const fetchEmails = async () => {
     try {
       setLoading(true);

@@ -143,7 +143,7 @@ export default function Sidebar({
         {!collapsed && (
           <div className="overflow-hidden">
             <div className="text-white font-bold text-[15px] tracking-tight leading-none whitespace-nowrap">VTM Logistics</div>
-            <div className="text-blue-400/60 text-[10px] tracking-widest uppercase mt-0.5 whitespace-nowrap">TMS · Control Center</div>
+            <div className="text-blue-400/60 text-[10px] tracking-widest uppercase mt-0.5 whitespace-nowrap">VTM · Control Center</div>
           </div>
         )}
       </div>

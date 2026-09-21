@@ -1,4 +1,8 @@
 {
+  "title": "VTM-Control-Center",
+  "icons": {
+    "icon": "/logo_empresa_VTM.png"
+  },
   "description": "Streamline logistics management with a modern dashboard for real-time tracking, order processing, and fleet monitoring, tailored for transport operations.",
   "robots": {
     "index": false
