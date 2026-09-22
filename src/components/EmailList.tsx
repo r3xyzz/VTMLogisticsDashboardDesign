@@ -1,5 +1,29 @@
-//  COMPONENTE DE LISTA DE CORREOS (CORREGIDO)(mentira nos se si funciona porque el jefe no me da cuentas ni creedendiales de Microsoft Graph, pero al menos ya no tira errores de typescript)
-function EmailList({ 
+// src/components/EmailList.tsx
+import { useEffect, useState } from 'react';
+
+interface Email {
+  id: string;
+  subject?: string;
+  sender?: {
+    emailAddress?: {
+      name?: string;
+      address?: string;
+    };
+  };
+  from?: {
+    emailAddress?: {
+      name?: string;
+      address?: string;
+    };
+  };
+  receivedDateTime: string;
+  bodyPreview?: string;
+  importance?: string;
+  isRead?: boolean;
+}
+
+// ✅ export default agregado para poder importarlo desde EmailModule
+export default function EmailList({ 
   accessToken, 
   filter,
   onConvertToOT 
@@ -12,7 +36,7 @@ function EmailList({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  //  Función para obtener correos desde Microsoft Graph
+  // Función para obtener correos desde Microsoft Graph
   const fetchEmails = async () => {
     try {
       setLoading(true);
@@ -21,13 +45,14 @@ function EmailList({
       let filterQuery = '';
       switch (filter) {
         case 'carga':
-          filterQuery = `?$filter=contains(subject,'carga') or contains(subject,'envio') or contains(subject,'transporte') or contains(subject,'entrega') or contains(subject,'pack') or contains(subject,'contenedor') or contains(subject,'pallet')`;
+          filterQuery = `?$top=50&$filter=contains(subject,'carga') or contains(subject,'envio') or contains(subject,'transporte') or contains(subject,'entrega') or contains(subject,'pack') or contains(subject,'contenedor') or contains(subject,'pallet')&$orderby=receivedDateTime desc`;
           break;
         case 'cotizacion':
-          filterQuery = `?$filter=contains(subject,'cotizacion') or contains(subject,'presupuesto') or contains(subject,'oferta') or contains(subject,'precio') or contains(subject,'valor') or contains(subject,'solicitud')`;
+          filterQuery = `?$top=50&$filter=contains(subject,'cotizacion') or contains(subject,'presupuesto') or contains(subject,'oferta') or contains(subject,'precio') or contains(subject,'valor') or contains(subject,'solicitud')&$orderby=receivedDateTime desc`;
           break;
         default:
-          filterQuery = `?$top=30&$orderby=receivedDateTime desc`;
+          // ✅ Cambiado de 30 a 50 correos por defecto
+          filterQuery = `?$top=50&$orderby=receivedDateTime desc`;
           break;
       }
 
@@ -96,8 +121,8 @@ function EmailList({
     return highlighted;
   };
 
-  // ✅ Obtener el nombre del remitente de forma segura
-  const getSenderName = (email: Email) => {
+  // Obtener el nombre del remitente de forma segura
+  const getSenderName = (email: Email): string => {
     const sender = email.sender || email.from;
     
     if (sender && typeof sender === 'object' && 'emailAddress' in sender) {
@@ -108,15 +133,15 @@ function EmailList({
       return sender;
     }
     
-    if (sender && typeof sender === 'object' && 'name' in sender) {
-      return sender.name || 'Remitente';
+    if (sender && typeof sender === 'object' && 'name' in sender && typeof sender.name === 'string') {
+      return sender.name;
     }
     
     return 'Remitente';
   };
 
   // ✅ Obtener el email del remitente de forma segura
-  const getSenderEmail = (email: Email) => {
+  const getSenderEmail = (email: Email): string => {
     const sender = email.sender || email.from;
     
     if (sender && typeof sender === 'object' && 'emailAddress' in sender) {
@@ -127,8 +152,8 @@ function EmailList({
       return sender;
     }
     
-    if (sender && typeof sender === 'object' && 'address' in sender) {
-      return sender.address || '';
+    if (sender && typeof sender === 'object' && 'address' in sender && typeof sender.address === 'string') {
+      return sender.address;
     }
     
     return '';

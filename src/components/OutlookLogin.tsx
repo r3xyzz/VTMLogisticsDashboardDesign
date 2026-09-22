@@ -18,22 +18,19 @@ export default function OutlookLogin({ onLoginSuccess, onLoginError }: OutlookLo
             setLoading(true);
             setError(null);
 
-            // ✅ Iniciar sesión con Microsoft
-            const response = await instance.loginPopup(loginRequest);
-
-            console.log('✅ Login con Outlook exitoso:', response);
-
-            // Guardar el token de acceso
-            const accessToken = response.accessToken;
-            onLoginSuccess(accessToken);
+            // ✅ Usamos loginRedirect en lugar de loginPopup.
+            // Esto redirige al usuario a Microsoft y luego lo devuelve a la app.
+            await instance.loginRedirect(loginRequest);
+            
+            // Nota: El token NO se obtiene aquí. 
+            // Se obtiene en App.tsx cuando la página vuelve de Microsoft (handleRedirectPromise).
 
         } catch (err: any) {
             console.error('❌ Error al iniciar sesión con Outlook:', err);
             const errorMessage = err.errorMessage || 'Error al iniciar sesión con Outlook';
             setError(errorMessage);
             onLoginError(err);
-        } finally {
-            setLoading(false);
+            setLoading(false); // Solo quitamos loading si hay error
         }
     };
 
@@ -47,7 +44,7 @@ export default function OutlookLogin({ onLoginSuccess, onLoginError }: OutlookLo
                 {loading ? (
                     <div className="flex items-center gap-2">
                         <div className="w-5 h-5 border-2 border-slate-300 border-t-blue-600 rounded-full animate-spin" />
-                        <span>Cargando...</span>
+                        <span>Redirigiendo a Microsoft...</span>
                     </div>
                 ) : (
                     <>

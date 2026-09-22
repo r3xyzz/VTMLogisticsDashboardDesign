@@ -1,5 +1,7 @@
 // src/App.tsx
 import { useState, useEffect } from 'react';
+import { MsalProvider } from '@azure/msal-react'; // ✅ NUEVO
+import { msalInstance } from './lib/msal'; // ✅ NUEVO
 import { supabase } from './lib/supabase';
 import type { Session } from '@supabase/supabase-js';
 import Sidebar from './components/Sidebar';
@@ -14,7 +16,9 @@ import DriversModule from './components/DriversModule';
 import ClientsModule from './components/ClientsModule';
 import CalculationsModule from './components/CalculationsModule';
 import Login from './components/Login';
+import EmailModule from './components/EmailModule'; // ✅ NUEVO (lo crearemos abajo)
 
+// ✅ Agregamos 'email' a las vistas activas
 export type ActiveView = 
   | 'dashboard' 
   | 'orders' 
@@ -25,9 +29,9 @@ export type ActiveView =
   | 'providers'
   | 'drivers'
   | 'clients'
-  | 'calculations';
+  | 'calculations'
+  | 'email'; // ✅ NUEVO
 
-// ✅ Interfaz para permisos
 interface UserPermissions {
   can_view_dashboard: boolean;
   can_view_orders: boolean;
@@ -39,6 +43,7 @@ interface UserPermissions {
   can_view_providers: boolean;
   can_view_clients: boolean;
   can_view_calculations: boolean;
+  can_view_email: boolean; // ✅ NUEVO
 }
 
 const defaultPermissions: UserPermissions = {
@@ -52,12 +57,13 @@ const defaultPermissions: UserPermissions = {
   can_view_providers: false,
   can_view_clients: false,
   can_view_calculations: false,
+  can_view_email: false, // ✅ NUEVO
 };
 
 const activeViewStorageKey = 'vtm-active-view';
 const activeViews: ActiveView[] = [
   'dashboard', 'orders', 'cargo', 'tracking', 'documents',
-  'fleet', 'providers', 'drivers', 'clients', 'calculations',
+  'fleet', 'providers', 'drivers', 'clients', 'calculations', 'email', // ✅ NUEVO
 ];
 
 const getStoredActiveView = (): ActiveView | null => {
@@ -79,11 +85,22 @@ const hasPermissionForView = (view: ActiveView, permissions: UserPermissions): b
     drivers: 'can_view_drivers',
     clients: 'can_view_clients',
     calculations: 'can_view_calculations',
+    email: 'can_view_email', // ✅ NUEVO
   };
   return permissions[permissionByView[view]];
 };
 
+// ✅ Componente principal envuelto en MsalProvider
 export default function App() {
+  return (
+    <MsalProvider instance={msalInstance}>
+      <AppContent />
+    </MsalProvider>
+  );
+}
+
+// ✅ Renombramos tu App original a AppContent
+function AppContent() {
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
   const [isAuthorized, setIsAuthorized] = useState(false);
@@ -96,12 +113,10 @@ export default function App() {
     sessionStorage.setItem(activeViewStorageKey, activeView);
   }, [activeView]);
 
-  // ✅ Función para verificar autorización
   const checkAuthorization = async (email: string): Promise<{ authorized: boolean; role: string; permissions: UserPermissions }> => {
     try {
       console.log('🔍 Verificando autorización para:', email);
       
-      // 1. Verificar si el usuario está en authorized_users
       const { data: userData, error: userError } = await supabase
         .from('authorized_users')
         .select('email, role, is_active')
@@ -116,7 +131,6 @@ export default function App() {
 
       console.log('✅ Usuario encontrado:', userData);
 
-      // 2. Obtener permisos según el rol
       const { data: permissionsData, error: permError } = await supabase
         .from('role_permissions')
         .select('*')
@@ -140,6 +154,7 @@ export default function App() {
               can_view_providers: true,
               can_view_clients: true,
               can_view_calculations: true,
+              can_view_email: true, // ✅ NUEVO
             }
           };
         }
@@ -148,7 +163,6 @@ export default function App() {
 
       console.log('📊 Permisos obtenidos:', permissionsData);
 
-      // 3. Construir objeto de permisos
       const permissions: UserPermissions = {
         can_view_dashboard: permissionsData.can_view_dashboard || false,
         can_view_orders: permissionsData.can_view_orders || false,
@@ -160,6 +174,7 @@ export default function App() {
         can_view_providers: permissionsData.can_view_providers || false,
         can_view_clients: permissionsData.can_view_clients || false,
         can_view_calculations: permissionsData.can_view_calculations || false,
+        can_view_email: permissionsData.can_view_email || false, // ✅ NUEVO
       };
 
       console.log('✅ Permisos finales:', permissions);
@@ -170,7 +185,6 @@ export default function App() {
     }
   };
 
-  // ✅ Función para obtener la primera vista disponible
   const getFirstAvailableView = (permissions: UserPermissions): ActiveView => {
     if (permissions.can_view_dashboard) return 'dashboard';
     if (permissions.can_view_orders) return 'orders';
@@ -182,10 +196,10 @@ export default function App() {
     if (permissions.can_view_providers) return 'providers';
     if (permissions.can_view_clients) return 'clients';
     if (permissions.can_view_calculations) return 'calculations';
+    if (permissions.can_view_email) return 'email'; // ✅ NUEVO
     return 'dashboard';
   };
 
-  // ✅ Verificar si una vista es accesible
   const canAccessView = (view: ActiveView): boolean => {
     switch (view) {
       case 'dashboard': return userPermissions.can_view_dashboard;
@@ -198,11 +212,11 @@ export default function App() {
       case 'providers': return userPermissions.can_view_providers;
       case 'clients': return userPermissions.can_view_clients;
       case 'calculations': return userPermissions.can_view_calculations;
+      case 'email': return userPermissions.can_view_email; // ✅ NUEVO
       default: return false;
     }
   };
 
-  // ✅ Handler de navegación con verificación
   const handleNavigate = (view: ActiveView) => {
     console.log('🔍 Navegando a:', view);
     if (canAccessView(view)) {
@@ -293,9 +307,9 @@ export default function App() {
     drivers: <DriversModule />,
     clients: <ClientsModule />,
     calculations: <CalculationsModule />,
+    email: <EmailModule />, // ✅ NUEVO
   };
 
-  // ✅ Solo renderizar la vista activa si es accesible
   const currentView = canAccessView(activeView) ? activeView : getFirstAvailableView(userPermissions);
 
   return (

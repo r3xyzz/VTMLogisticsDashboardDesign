@@ -1,14 +1,12 @@
 // src/lib/msal.ts
 import { PublicClientApplication, LogLevel } from '@azure/msal-browser';
 
-// ✅ CONFIGURACIÓN PARA OUTLOOK EMPRESARIAL
 export const msalConfig = {
     auth: {
-        // ⚠️ ESTOS VALORES CAMBIARÁN CUANDO TENGAS LOS DATOS DE LA EMPRESA
-        // Por ahora usamos los de prueba, pero luego los reemplazas
         clientId: '475baba6-abc6-4c1e-92b3-9bb2787c008a',
-        authority: 'https://login.microsoftonline.com/b2eda89b-77ce-4ddd-87c5-5f43988f3d57',
-        redirectUri: window.location.origin + '/auth/callback',
+        authority: 'https://login.microsoftonline.com/05094f27-0087-498b-b620-c24992918b7d',
+        redirectUri: 'http://localhost:8443/',
+        postLogoutRedirectUri: 'http://localhost:8443/',
     },
     cache: {
         cacheLocation: 'sessionStorage',
@@ -18,9 +16,9 @@ export const msalConfig = {
         loggerOptions: {
             loggerCallback: (level: LogLevel, message: string, containsPii: boolean) => {
                 if (containsPii) return;
-                console.log(message);
+                console.log(`[MSAL] ${message}`);
             },
-            logLevel: LogLevel.Verbose,
+            logLevel: LogLevel.Warning, // ✅ Baja el nivel de log para menos ruido
             piiLoggingEnabled: false,
         },
     },
@@ -29,10 +27,6 @@ export const msalConfig = {
 export const loginRequest = {
     scopes: ['User.Read', 'Mail.Read'],
     prompt: 'select_account',
-    // ✅ Restringir al dominio vtmlogistics.com
-    extraQueryParameters: {
-        domain_hint: 'vtmlogistics.com'
-    }
 };
 
 export const msalInstance = new PublicClientApplication(msalConfig);
