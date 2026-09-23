@@ -1,13 +1,12 @@
 // src/App.tsx
 import { useState, useEffect } from 'react';
-import { MsalProvider } from '@azure/msal-react'; // ✅ NUEVO
-import { msalInstance } from './lib/msal'; // ✅ NUEVO
+import { MsalProvider } from '@azure/msal-react';
+import { msalInstance } from './lib/msal';
 import { supabase } from './lib/supabase';
 import type { Session } from '@supabase/supabase-js';
 import Sidebar from './components/Sidebar';
 import Dashboard from './components/Dashboard';
 import CargoRegistration from './components/CargoRegistration';
-import OrdersModule from './components/OrdersModule';
 import TrackingModule from './components/TrackingModule';
 import DocumentsModule from './components/DocumentsModule';
 import FleetModule from './components/FleetModule';
@@ -16,12 +15,11 @@ import DriversModule from './components/DriversModule';
 import ClientsModule from './components/ClientsModule';
 import CalculationsModule from './components/CalculationsModule';
 import Login from './components/Login';
-import EmailModule from './components/EmailModule'; // ✅ NUEVO (lo crearemos abajo)
+import EmailModule from './components/EmailModule';
 
-// ✅ Agregamos 'email' a las vistas activas
+// ✅ Vistas activas (sin 'orders')
 export type ActiveView = 
   | 'dashboard' 
-  | 'orders' 
   | 'cargo' 
   | 'tracking' 
   | 'documents' 
@@ -30,11 +28,10 @@ export type ActiveView =
   | 'drivers'
   | 'clients'
   | 'calculations'
-  | 'email'; // ✅ NUEVO
+  | 'email';
 
 interface UserPermissions {
   can_view_dashboard: boolean;
-  can_view_orders: boolean;
   can_view_cargo: boolean;
   can_view_tracking: boolean;
   can_view_documents: boolean;
@@ -43,12 +40,11 @@ interface UserPermissions {
   can_view_providers: boolean;
   can_view_clients: boolean;
   can_view_calculations: boolean;
-  can_view_email: boolean; // ✅ NUEVO
+  can_view_email: boolean;
 }
 
 const defaultPermissions: UserPermissions = {
   can_view_dashboard: false,
-  can_view_orders: false,
   can_view_cargo: false,
   can_view_tracking: false,
   can_view_documents: false,
@@ -57,13 +53,13 @@ const defaultPermissions: UserPermissions = {
   can_view_providers: false,
   can_view_clients: false,
   can_view_calculations: false,
-  can_view_email: false, // ✅ NUEVO
+  can_view_email: false,
 };
 
 const activeViewStorageKey = 'vtm-active-view';
 const activeViews: ActiveView[] = [
-  'dashboard', 'orders', 'cargo', 'tracking', 'documents',
-  'fleet', 'providers', 'drivers', 'clients', 'calculations', 'email', // ✅ NUEVO
+  'dashboard', 'cargo', 'tracking', 'documents',
+  'fleet', 'providers', 'drivers', 'clients', 'calculations', 'email',
 ];
 
 const getStoredActiveView = (): ActiveView | null => {
@@ -76,7 +72,6 @@ const getStoredActiveView = (): ActiveView | null => {
 const hasPermissionForView = (view: ActiveView, permissions: UserPermissions): boolean => {
   const permissionByView: Record<ActiveView, keyof UserPermissions> = {
     dashboard: 'can_view_dashboard',
-    orders: 'can_view_orders',
     cargo: 'can_view_cargo',
     tracking: 'can_view_tracking',
     documents: 'can_view_documents',
@@ -85,12 +80,11 @@ const hasPermissionForView = (view: ActiveView, permissions: UserPermissions): b
     drivers: 'can_view_drivers',
     clients: 'can_view_clients',
     calculations: 'can_view_calculations',
-    email: 'can_view_email', // ✅ NUEVO
+    email: 'can_view_email',
   };
   return permissions[permissionByView[view]];
 };
 
-// ✅ Componente principal envuelto en MsalProvider
 export default function App() {
   return (
     <MsalProvider instance={msalInstance}>
@@ -99,7 +93,6 @@ export default function App() {
   );
 }
 
-// ✅ Renombramos tu App original a AppContent
 function AppContent() {
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
@@ -145,7 +138,6 @@ function AppContent() {
             role: userData.role, 
             permissions: {
               can_view_dashboard: true,
-              can_view_orders: true,
               can_view_cargo: true,
               can_view_tracking: true,
               can_view_documents: true,
@@ -154,7 +146,7 @@ function AppContent() {
               can_view_providers: true,
               can_view_clients: true,
               can_view_calculations: true,
-              can_view_email: true, // ✅ NUEVO
+              can_view_email: true,
             }
           };
         }
@@ -165,7 +157,6 @@ function AppContent() {
 
       const permissions: UserPermissions = {
         can_view_dashboard: permissionsData.can_view_dashboard || false,
-        can_view_orders: permissionsData.can_view_orders || false,
         can_view_cargo: permissionsData.can_view_cargo || false,
         can_view_tracking: permissionsData.can_view_tracking || false,
         can_view_documents: permissionsData.can_view_documents || false,
@@ -174,7 +165,7 @@ function AppContent() {
         can_view_providers: permissionsData.can_view_providers || false,
         can_view_clients: permissionsData.can_view_clients || false,
         can_view_calculations: permissionsData.can_view_calculations || false,
-        can_view_email: permissionsData.can_view_email || false, // ✅ NUEVO
+        can_view_email: permissionsData.can_view_email || false,
       };
 
       console.log('✅ Permisos finales:', permissions);
@@ -187,7 +178,6 @@ function AppContent() {
 
   const getFirstAvailableView = (permissions: UserPermissions): ActiveView => {
     if (permissions.can_view_dashboard) return 'dashboard';
-    if (permissions.can_view_orders) return 'orders';
     if (permissions.can_view_cargo) return 'cargo';
     if (permissions.can_view_documents) return 'documents';
     if (permissions.can_view_tracking) return 'tracking';
@@ -196,14 +186,13 @@ function AppContent() {
     if (permissions.can_view_providers) return 'providers';
     if (permissions.can_view_clients) return 'clients';
     if (permissions.can_view_calculations) return 'calculations';
-    if (permissions.can_view_email) return 'email'; // ✅ NUEVO
+    if (permissions.can_view_email) return 'email';
     return 'dashboard';
   };
 
   const canAccessView = (view: ActiveView): boolean => {
     switch (view) {
       case 'dashboard': return userPermissions.can_view_dashboard;
-      case 'orders': return userPermissions.can_view_orders;
       case 'cargo': return userPermissions.can_view_cargo;
       case 'tracking': return userPermissions.can_view_tracking;
       case 'documents': return userPermissions.can_view_documents;
@@ -212,7 +201,7 @@ function AppContent() {
       case 'providers': return userPermissions.can_view_providers;
       case 'clients': return userPermissions.can_view_clients;
       case 'calculations': return userPermissions.can_view_calculations;
-      case 'email': return userPermissions.can_view_email; // ✅ NUEVO
+      case 'email': return userPermissions.can_view_email;
       default: return false;
     }
   };
@@ -298,7 +287,6 @@ function AppContent() {
 
   const view: Record<ActiveView, React.ReactNode> = {
     dashboard: <Dashboard onNavigate={handleNavigate} />,
-    orders: <OrdersModule onNavigate={handleNavigate} />,
     cargo: <CargoRegistration />,
     tracking: <TrackingModule />,
     documents: <DocumentsModule />,
@@ -307,7 +295,7 @@ function AppContent() {
     drivers: <DriversModule />,
     clients: <ClientsModule />,
     calculations: <CalculationsModule />,
-    email: <EmailModule />, // ✅ NUEVO
+    email: <EmailModule />,
   };
 
   const currentView = canAccessView(activeView) ? activeView : getFirstAvailableView(userPermissions);

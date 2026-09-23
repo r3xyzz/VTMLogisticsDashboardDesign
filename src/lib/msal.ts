@@ -9,7 +9,7 @@ export const msalConfig = {
         postLogoutRedirectUri: 'http://localhost:8443/',
     },
     cache: {
-        cacheLocation: 'sessionStorage',
+        cacheLocation: 'localStorage', 
         storeAuthStateInCookie: false,
     },
     system: {
@@ -18,7 +18,7 @@ export const msalConfig = {
                 if (containsPii) return;
                 console.log(`[MSAL] ${message}`);
             },
-            logLevel: LogLevel.Warning, // ✅ Baja el nivel de log para menos ruido
+            logLevel: LogLevel.Warning,
             piiLoggingEnabled: false,
         },
     },
