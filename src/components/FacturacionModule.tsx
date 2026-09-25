@@ -1,4 +1,6 @@
-import { useState, useMemo } from 'react'
+// src/components/FacturacionModule.tsx
+import { useState, useMemo, useEffect } from 'react';
+import { supabase } from '../lib/supabase';
 
 /* ─── Types ──────────────────────────────────────────────────────────────────── */
 
@@ -10,37 +12,26 @@ interface Invoice {
   cliente: string
   rut: string
   concepto: string
-  otRef: string
+  ot_ref: string
   emision: string
   vencimiento: string
   monto: number
   iva: number
   status: InvoiceStatus
   tipo: 'emitida' | 'recibida'
-  archivo?: string
+  archivo?: string | null
 }
 
-/* ─── Seed data ──────────────────────────────────────────────────────────────── */
+/* ─── Helper: fecha actual ───────────────────────────────────────────────────── */
 
-const TODAY = new Date('2026-08-18')
+const TODAY = new Date()
+TODAY.setHours(0, 0, 0, 0)
 
 function daysUntil(dateStr: string) {
   const d = new Date(dateStr)
+  d.setHours(0, 0, 0, 0)
   return Math.round((d.getTime() - TODAY.getTime()) / 86_400_000)
 }
-
-const SEED: Invoice[] = [
-  { id: '1',  numero: 'F-001842', cliente: 'Walmart Chile S.A.',      rut: '96.930.990-4', concepto: 'Transporte VAL → SCL · OT-2445', otRef: 'OT-2445', emision: '2026-07-25', vencimiento: '2026-08-20', monto: 890000,  iva: 169100, status: 'por-vencer', tipo: 'emitida' },
-  { id: '2',  numero: 'F-001843', cliente: 'Puerto Central S.A.',      rut: '76.543.210-K', concepto: 'Servicio de carga San Antonio · OT-2446', otRef: 'OT-2446', emision: '2026-07-28', vencimiento: '2026-08-27', monto: 1250000, iva: 237500, status: 'pendiente', tipo: 'emitida' },
-  { id: '3',  numero: 'F-001840', cliente: 'Cosco Shipping Chile',     rut: '77.112.340-1', concepto: 'Transporte contenedor 20" · OT-2441', otRef: 'OT-2441', emision: '2026-07-15', vencimiento: '2026-08-14', monto: 2100000, iva: 399000, status: 'vencida',   tipo: 'emitida' },
-  { id: '4',  numero: 'F-001838', cliente: 'Lider Express',            rut: '94.207.000-3', concepto: 'Distribución urbana Agosto · OT-2440', otRef: 'OT-2440', emision: '2026-07-10', vencimiento: '2026-08-09', monto: 640000,  iva: 121600, status: 'pagada',    tipo: 'emitida' },
-  { id: '5',  numero: 'F-001844', cliente: 'DHL Chile',                rut: '78.901.230-5', concepto: 'Flete express SAN → SCL · OT-2448', otRef: 'OT-2448', emision: '2026-08-01', vencimiento: '2026-09-01', monto: 980000,  iva: 186200, status: 'pendiente', tipo: 'emitida' },
-  { id: '6',  numero: 'F-001836', cliente: 'ACME Importaciones',       rut: '73.456.780-9', concepto: 'Transporte maquinaria industrial · OT-2435', otRef: 'OT-2435', emision: '2026-07-05', vencimiento: '2026-08-04', monto: 3400000, iva: 646000, status: 'pagada',    tipo: 'emitida' },
-  { id: '7',  numero: 'P-008821', cliente: 'Petrogas Distribución',    rut: '79.234.560-2', concepto: 'Suministro diésel Julio 2026',           otRef: '—',       emision: '2026-07-31', vencimiento: '2026-08-19', monto: 1870000, iva: 355300, status: 'por-vencer', tipo: 'recibida' },
-  { id: '8',  numero: 'P-008815', cliente: 'Peajes Autopista SCL',     rut: '81.000.100-7', concepto: 'Peajes Agosto 1–15 2026',               otRef: '—',       emision: '2026-08-15', vencimiento: '2026-09-15', monto: 245000,  iva: 46550, status: 'pendiente', tipo: 'recibida' },
-  { id: '9',  numero: 'F-001841', cliente: 'Walmart Chile S.A.',      rut: '96.930.990-4', concepto: 'Transporte extra fuera de contrato',     otRef: 'OT-2442', emision: '2026-07-20', vencimiento: '2026-08-19', monto: 560000,  iva: 106400, status: 'por-vencer', tipo: 'emitida' },
-  { id: '10', numero: 'P-008809', cliente: 'Lubricantes Copec',        rut: '90.100.200-8', concepto: 'Mantención flota Julio 2026',           otRef: '—',       emision: '2026-07-12', vencimiento: '2026-08-11', monto: 420000,  iva: 79800, status: 'vencida',   tipo: 'recibida' },
-]
 
 /* ─── Config ─────────────────────────────────────────────────────────────────── */
 
@@ -57,7 +48,7 @@ const STATUS_CFG: Record<InvoiceStatus, { label: string; color: string; bg: stri
 
 const EMPTY_FORM = {
   numero: '', cliente: '', rut: '', concepto: '', otRef: '',
-  emision: '2026-08-18', vencimiento: '', monto: '', iva: '',
+  emision: new Date().toISOString().split('T')[0], vencimiento: '', monto: '', iva: '',
   tipo: 'emitida' as 'emitida' | 'recibida',
 }
 
@@ -99,13 +90,47 @@ type Tab = 'lista' | 'nuevo' | 'vencimientos'
 
 export default function FacturacionModule() {
   const [tab, setTab] = useState<Tab>('lista')
-  const [invoices, setInvoices] = useState<Invoice[]>(SEED)
+  const [invoices, setInvoices] = useState<Invoice[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
   const [filter, setFilter] = useState<'todas' | InvoiceStatus | 'emitida' | 'recibida'>('todas')
   const [search, setSearch] = useState('')
   const [form, setForm] = useState(EMPTY_FORM)
   const [saved, setSaved] = useState(false)
   const [selected, setSelected] = useState<Invoice | null>(null)
   const [ivaAuto, setIvaAuto] = useState(true)
+  const [saving, setSaving] = useState(false)
+
+  // ✅ Cargar facturas desde Supabase
+  const fetchInvoices = async () => {
+    try {
+      setLoading(true)
+      setError(null)
+      const { data, error: fetchError } = await supabase
+        .from('invoices')
+        .select('*')
+        .order('created_at', { ascending: false })
+
+      if (fetchError) throw fetchError
+
+      // Convertir montos a number (vienen como string de Postgres)
+      const parsed: Invoice[] = (data || []).map((inv: any) => ({
+        ...inv,
+        monto: Number(inv.monto),
+        iva: Number(inv.iva),
+      }))
+      setInvoices(parsed)
+    } catch (err: any) {
+      console.error('❌ Error al cargar facturas:', err)
+      setError(err.message || 'Error al cargar facturas')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    fetchInvoices()
+  }, [])
 
   const setF = <K extends keyof typeof EMPTY_FORM>(k: K, v: typeof EMPTY_FORM[K]) =>
     setForm(p => {
@@ -127,7 +152,7 @@ export default function FacturacionModule() {
         inv.numero.toLowerCase().includes(q) ||
         inv.cliente.toLowerCase().includes(q) ||
         inv.concepto.toLowerCase().includes(q) ||
-        inv.otRef.toLowerCase().includes(q)
+        (inv.ot_ref || '').toLowerCase().includes(q)
       return matchFilter && matchSearch
     })
   }, [invoices, filter, search])
@@ -140,32 +165,74 @@ export default function FacturacionModule() {
     .filter(i => ['pendiente', 'por-vencer'].includes(i.status) && i.tipo === 'emitida')
     .reduce((s, i) => s + i.monto + i.iva, 0)
 
-  const handleSubmit = (e: React.FormEvent) => {
+  // ✅ Insertar nueva factura en Supabase
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    const monto = Number(form.monto)
-    const iva   = Number(form.iva)
-    const days  = daysUntil(form.vencimiento)
-    const status: InvoiceStatus = days < 0 ? 'vencida' : days <= 5 ? 'por-vencer' : 'pendiente'
-    const newInv: Invoice = {
-      id: String(Date.now()),
-      numero: form.numero || `F-${String(invoices.length + 1842).padStart(6, '0')}`,
-      cliente: form.cliente,
-      rut: form.rut,
-      concepto: form.concepto,
-      otRef: form.otRef || '—',
-      emision: form.emision,
-      vencimiento: form.vencimiento,
-      monto, iva,
-      status, tipo: form.tipo,
+    try {
+      setSaving(true)
+      setError(null)
+
+      const monto = Number(form.monto)
+      const iva = Number(form.iva)
+      const days = daysUntil(form.vencimiento)
+      const status: InvoiceStatus = days < 0 ? 'vencida' : days <= 5 ? 'por-vencer' : 'pendiente'
+
+      const newInvoice = {
+        numero: form.numero || `F-${String(invoices.length + 1842).padStart(6, '0')}`,
+        cliente: form.cliente,
+        rut: form.rut,
+        concepto: form.concepto,
+        ot_ref: form.otRef || '—',
+        emision: form.emision,
+        vencimiento: form.vencimiento,
+        monto,
+        iva,
+        status,
+        tipo: form.tipo,
+      }
+
+      const { data, error: insertError } = await supabase
+        .from('invoices')
+        .insert([newInvoice])
+        .select()
+        .single()
+
+      if (insertError) throw insertError
+
+      // Agregar al estado local
+      const parsed: Invoice = {
+        ...data,
+        monto: Number(data.monto),
+        iva: Number(data.iva),
+      }
+      setInvoices(p => [parsed, ...p])
+      setSaved(true)
+      setForm(EMPTY_FORM)
+      setTimeout(() => { setSaved(false); setTab('lista') }, 1500)
+    } catch (err: any) {
+      console.error('❌ Error al guardar factura:', err)
+      setError(err.message || 'Error al guardar factura')
+    } finally {
+      setSaving(false)
     }
-    setInvoices(p => [newInv, ...p])
-    setSaved(true)
-    setForm(EMPTY_FORM)
-    setTimeout(() => { setSaved(false); setTab('lista') }, 2000)
   }
 
-  const markPaid = (id: string) =>
-    setInvoices(p => p.map(i => i.id === id ? { ...i, status: 'pagada' } : i))
+  // ✅ Marcar como pagada en Supabase
+  const markPaid = async (id: string) => {
+    try {
+      const { error: updateError } = await supabase
+        .from('invoices')
+        .update({ status: 'pagada' })
+        .eq('id', id)
+
+      if (updateError) throw updateError
+
+      setInvoices(p => p.map(i => i.id === id ? { ...i, status: 'pagada' } : i))
+    } catch (err: any) {
+      console.error('❌ Error al marcar como pagada:', err)
+      setError(err.message || 'Error al actualizar la factura')
+    }
+  }
 
   /* ── KPI strip ── */
   const kpis = [
@@ -174,6 +241,18 @@ export default function FacturacionModule() {
     { label: 'Pendientes', value: pendientes.length, sub: 'A cobrar', color: '#1e40af', bg: '#dbeafe', icon: 'M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2' },
     { label: 'Por Cobrar', value: clp(totalPendiente), sub: 'CLP total emitidas', color: '#15803d', bg: '#f0fdf4', icon: 'M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z' },
   ]
+
+  // Estado de carga
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-96">
+        <div className="text-center">
+          <div className="w-10 h-10 border-4 border-slate-200 border-t-blue-600 rounded-full animate-spin mx-auto" />
+          <p className="mt-4 text-sm text-slate-500">Cargando facturas...</p>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="min-h-full">
@@ -199,6 +278,14 @@ export default function FacturacionModule() {
       </header>
 
       <div className="p-5 max-w-[1400px] mx-auto space-y-4">
+
+        {/* Error banner */}
+        {error && (
+          <div className="flex items-center gap-2 px-4 py-3 rounded-xl bg-red-50 border border-red-200">
+            <span className="text-[12px] font-semibold text-red-700">❌ {error}</span>
+            <button onClick={() => setError(null)} className="ml-auto text-red-400 hover:text-red-600">×</button>
+          </div>
+        )}
 
         {/* KPI strip */}
         <div className="grid grid-cols-2 xl:grid-cols-4 gap-3">
@@ -320,8 +407,8 @@ export default function FacturacionModule() {
                           </td>
                           <td className="px-4 py-3 max-w-[200px]">
                             <div className="text-[11px] text-slate-700 truncate">{inv.concepto}</div>
-                            {inv.otRef !== '—' && (
-                              <div className="text-[9px] font-mono text-blue-500 mt-0.5">{inv.otRef}</div>
+                            {inv.ot_ref !== '—' && (
+                              <div className="text-[9px] font-mono text-blue-500 mt-0.5">{inv.ot_ref}</div>
                             )}
                           </td>
                           <td className="px-4 py-3 font-mono text-[11px] text-slate-500 whitespace-nowrap">
@@ -435,13 +522,12 @@ export default function FacturacionModule() {
                 <svg className="w-4 h-4 text-green-600 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
                 </svg>
-                <span className="text-[12px] font-semibold text-green-700">Factura registrada exitosamente. Redirigiendo a lista...</span>
+                <span className="text-[12px] font-semibold text-green-700">Factura registrada exitosamente.</span>
               </div>
             )}
 
             <form onSubmit={handleSubmit}>
               <div className="bg-white rounded-xl border border-slate-200/80 overflow-hidden">
-                {/* Form header */}
                 <div className="px-6 py-4" style={{ background: 'linear-gradient(135deg,#060d1a,#102040)', borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
                   <h2 className="text-[14px] font-bold text-white">Ingresar Nueva Factura</h2>
                   <p className="text-[11px] text-blue-300/70 mt-0.5">Complete los campos para registrar una factura emitida o recibida</p>
@@ -579,10 +665,11 @@ export default function FacturacionModule() {
                   <div className="flex gap-3 pt-2">
                     <button
                       type="submit"
-                      className="flex-1 py-2.5 rounded-xl text-[13px] font-bold text-white transition-all hover:opacity-90 active:scale-[0.98]"
+                      disabled={saving}
+                      className="flex-1 py-2.5 rounded-xl text-[13px] font-bold text-white transition-all hover:opacity-90 active:scale-[0.98] disabled:opacity-50"
                       style={{ background: 'linear-gradient(135deg,#163358,#2558a0)' }}
                     >
-                      Registrar Factura
+                      {saving ? 'Guardando...' : 'Registrar Factura'}
                     </button>
                     <button
                       type="button"
@@ -681,7 +768,6 @@ function VencimientoTable({ rows, onPay, onView }: { rows: Invoice[]; onPay: (id
 
 function InvoiceDetail({ inv, onClose, onPay }: { inv: Invoice; onClose: () => void; onPay: () => void }) {
   const days = daysUntil(inv.vencimiento)
-  const clp = (n: number) => new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP', maximumFractionDigits: 0 }).format(n)
 
   return (
     <div
@@ -693,7 +779,6 @@ function InvoiceDetail({ inv, onClose, onPay }: { inv: Invoice; onClose: () => v
         className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden"
         onClick={e => e.stopPropagation()}
       >
-        {/* Modal header */}
         <div className="px-6 py-5" style={{ background: 'linear-gradient(135deg,#060d1a,#102040)' }}>
           <div className="flex items-start justify-between">
             <div>
@@ -711,7 +796,7 @@ function InvoiceDetail({ inv, onClose, onPay }: { inv: Invoice; onClose: () => v
         <div className="p-6 space-y-4">
           <Row label="RUT" value={inv.rut} />
           <Row label="Concepto" value={inv.concepto} />
-          <Row label="OT Referencia" value={inv.otRef} mono />
+          <Row label="OT Referencia" value={inv.ot_ref} mono />
           <div className="grid grid-cols-2 gap-3">
             <Row label="Fecha emisión" value={inv.emision.split('-').reverse().join('/')} mono />
             <div>
@@ -721,7 +806,6 @@ function InvoiceDetail({ inv, onClose, onPay }: { inv: Invoice; onClose: () => v
             </div>
           </div>
 
-          {/* Amount breakdown */}
           <div className="rounded-xl overflow-hidden border border-slate-100">
             <div className="flex justify-between px-4 py-2.5 bg-slate-50 text-[11px]">
               <span className="text-slate-500">Monto neto</span>
@@ -740,7 +824,6 @@ function InvoiceDetail({ inv, onClose, onPay }: { inv: Invoice; onClose: () => v
             </div>
           </div>
 
-          {/* Actions */}
           <div className="flex gap-2 pt-1">
             {(inv.status === 'pendiente' || inv.status === 'por-vencer' || inv.status === 'vencida') && (
               <button
