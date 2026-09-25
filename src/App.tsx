@@ -16,8 +16,9 @@ import ClientsModule from './components/ClientsModule';
 import CalculationsModule from './components/CalculationsModule';
 import Login from './components/Login';
 import EmailModule from './components/EmailModule';
+import FacturacionModule from './components/FacturacionModule';
 
-// ✅ Vistas activas (sin 'orders')
+// Vistas activas (sin 'orders')
 export type ActiveView = 
   | 'dashboard' 
   | 'cargo' 
@@ -28,7 +29,8 @@ export type ActiveView =
   | 'drivers'
   | 'clients'
   | 'calculations'
-  | 'email';
+  | 'email'
+  | 'facturacion';
 
 interface UserPermissions {
   can_view_dashboard: boolean;
@@ -41,6 +43,7 @@ interface UserPermissions {
   can_view_clients: boolean;
   can_view_calculations: boolean;
   can_view_email: boolean;
+  can_view_facturacion: boolean;
 }
 
 const defaultPermissions: UserPermissions = {
@@ -54,12 +57,14 @@ const defaultPermissions: UserPermissions = {
   can_view_clients: false,
   can_view_calculations: false,
   can_view_email: false,
+  can_view_facturacion: false,
 };
 
 const activeViewStorageKey = 'vtm-active-view';
 const activeViews: ActiveView[] = [
   'dashboard', 'cargo', 'tracking', 'documents',
   'fleet', 'providers', 'drivers', 'clients', 'calculations', 'email',
+  'facturacion',
 ];
 
 const getStoredActiveView = (): ActiveView | null => {
@@ -81,6 +86,7 @@ const hasPermissionForView = (view: ActiveView, permissions: UserPermissions): b
     clients: 'can_view_clients',
     calculations: 'can_view_calculations',
     email: 'can_view_email',
+    facturacion: 'can_view_facturacion',
   };
   return permissions[permissionByView[view]];
 };
@@ -147,6 +153,7 @@ function AppContent() {
               can_view_clients: true,
               can_view_calculations: true,
               can_view_email: true,
+              can_view_facturacion: true,
             }
           };
         }
@@ -166,6 +173,7 @@ function AppContent() {
         can_view_clients: permissionsData.can_view_clients || false,
         can_view_calculations: permissionsData.can_view_calculations || false,
         can_view_email: permissionsData.can_view_email || false,
+        can_view_facturacion: permissionsData.can_view_facturacion || false,
       };
 
       console.log('✅ Permisos finales:', permissions);
@@ -187,6 +195,7 @@ function AppContent() {
     if (permissions.can_view_clients) return 'clients';
     if (permissions.can_view_calculations) return 'calculations';
     if (permissions.can_view_email) return 'email';
+    if (permissions.can_view_facturacion) return 'facturacion';
     return 'dashboard';
   };
 
@@ -202,6 +211,7 @@ function AppContent() {
       case 'clients': return userPermissions.can_view_clients;
       case 'calculations': return userPermissions.can_view_calculations;
       case 'email': return userPermissions.can_view_email;
+      case 'facturacion': return userPermissions.can_view_facturacion; 
       default: return false;
     }
   };
@@ -296,6 +306,7 @@ function AppContent() {
     clients: <ClientsModule />,
     calculations: <CalculationsModule />,
     email: <EmailModule />,
+    facturacion: <FacturacionModule />,
   };
 
   const currentView = canAccessView(activeView) ? activeView : getFirstAvailableView(userPermissions);
