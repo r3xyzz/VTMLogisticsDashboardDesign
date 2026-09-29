@@ -256,6 +256,7 @@ export default function FacturacionModule() {
   const [search, setSearch] = useState("")
   const [invoiceFilter, setInvoiceFilter] = useState<"Todas" | "Clientes" | "Proveedores">("Todas")
   const [selectedInvoice, setSelectedInvoice] = useState<Invoice | null>(null)
+  const [selectedShipment, setSelectedShipment] = useState<Shipment | null>(null) // 🆕
   const [invoiceModal, setInvoiceModal] = useState(false)
   const [shipmentModal, setShipmentModal] = useState(false)
   const [uploadModal, setUploadModal] = useState(false)
@@ -336,6 +337,7 @@ export default function FacturacionModule() {
       const { error: updErr } = await supabase.from('shipments').update({ status: 'Pagado' }).eq('id', id)
       if (updErr) throw updErr
       setShipments((curr) => curr.map((s) => s.id === id ? { ...s, status: 'Pagado' } : s))
+      setSelectedShipment((curr) => curr && curr.id === id ? { ...curr, status: 'Pagado' } : curr)
       showToast("Embarque marcado como pagado")
     } catch (err: any) {
       console.error(err)
@@ -482,7 +484,13 @@ export default function FacturacionModule() {
             />
           )}
           {tab === "embarques" && (
-            <ShipmentsView shipments={shipments} onAdd={() => setShipmentModal(true)} onPay={markShipmentPaid} />
+            <ShipmentsView 
+              shipments={shipments} 
+              invoices={invoices}
+              onAdd={() => setShipmentModal(true)} 
+              onPay={markShipmentPaid}
+              onSelect={setSelectedShipment}
+            />
           )}
           {tab === "reservas" && (
             <BookingsView query={bookingQuery} setQuery={setBookingQuery} invoices={invoices} shipments={shipments} />
@@ -500,6 +508,21 @@ export default function FacturacionModule() {
           onPaid={() => markInvoicePaid(selectedInvoice.id)}
         />
       )}
+
+      {/* 🆕 Panel de detalle del embarque */}
+      {selectedShipment && (
+        <ShipmentPanel
+          shipment={selectedShipment}
+          invoices={invoices}
+          onClose={() => setSelectedShipment(null)}
+          onPay={() => markShipmentPaid(selectedShipment.id)}
+          onSelectInvoice={(inv) => {
+            setSelectedShipment(null)
+            setSelectedInvoice(inv)
+          }}
+        />
+      )}
+
       {invoiceModal && <InvoiceModal onClose={() => setInvoiceModal(false)} onSave={saveInvoice} />}
       {shipmentModal && <ShipmentModal existing={shipments} onClose={() => setShipmentModal(false)} onSave={saveShipment} />}
       {uploadModal && <UploadModal onClose={() => setUploadModal(false)} onSave={saveDocument} />}
@@ -607,13 +630,68 @@ function InvoicesTab({ invoices, totalInvoices, search, setSearch, filter, setFi
   )
 }
 
-function ShipmentsView({ shipments, onAdd, onPay }: { shipments: Shipment[]; onAdd: () => void; onPay: (id: string) => void }) {
+/* 🆕 ShipmentsView con buscador y panel de detalle */
+function ShipmentsView({ 
+  shipments, 
+  invoices,
+  onAdd, 
+  onPay,
+  onSelect,
+}: { 
+  shipments: Shipment[]
+  invoices: Invoice[]
+  onAdd: () => void
+  onPay: (id: string) => void
+  onSelect: (s: Shipment) => void
+}) {
+  const [shipmentSearch, setShipmentSearch] = useState("")
+
+  // 🆕 Filtrado por BL, DUS, contenedor o booking
+  const filteredShipments = useMemo(() => {
+    const q = shipmentSearch.trim().toLowerCase()
+    if (!q) return shipments
+    return shipments.filter((s) =>
+      [s.bl, s.dus, s.container, s.booking, s.port, s.period].join(" ").toLowerCase().includes(q)
+    )
+  }, [shipments, shipmentSearch])
+
   const duplicates = shipments.filter((s, i, arr) => arr.findIndex(x => x.container === s.container) !== i)
+
   return (
     <div className="p-5">
-      <SectionTitle title="BL, DUS y contenedores" description="Control histórico con validación de duplicidad entre periodos." action={<ActionButton onClick={onAdd}><Icon name="plus" />Registrar BL</ActionButton>} />
+      <SectionTitle 
+        title="BL, DUS y contenedores" 
+        description="Control histórico con validación de duplicidad entre periodos." 
+        action={<ActionButton onClick={onAdd}><Icon name="plus" />Registrar BL</ActionButton>} 
+      />
+
+      {/* 🆕 Buscador */}
+      <div className="mt-5 flex flex-col gap-3 sm:flex-row sm:items-center">
+        <div className="relative max-w-md flex-1">
+          <Icon name="search" className="absolute left-3 top-2.5 size-4 text-slate-400" />
+          <input
+            value={shipmentSearch}
+            onChange={(e) => setShipmentSearch(e.target.value)}
+            placeholder="Buscar por BL, DUS, contenedor o reserva..."
+            className="h-9 w-full rounded-lg border border-slate-200 bg-white pl-9 pr-3 text-xs text-slate-800 outline-none transition focus:border-slate-400 focus:ring-2 focus:ring-slate-200"
+          />
+        </div>
+        {shipmentSearch && (
+          <button
+            onClick={() => setShipmentSearch("")}
+            className="text-xs font-semibold text-slate-500 hover:text-slate-800 self-start sm:self-center"
+          >
+            Limpiar búsqueda
+          </button>
+        )}
+        <span className="ml-auto text-[11px] text-slate-400 self-start sm:self-center">
+          {filteredShipments.length} de {shipments.length} embarques
+        </span>
+      </div>
+
+      {/* Alerta de duplicados */}
       {duplicates.length > 0 && (
-        <div className="mt-5 rounded-lg border border-amber-200 bg-amber-50 p-3">
+        <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-3">
           <div className="flex gap-3">
             <Icon name="alert" className="mt-0.5 size-5 text-amber-600" />
             <div>
@@ -623,33 +701,212 @@ function ShipmentsView({ shipments, onAdd, onPay }: { shipments: Shipment[]; onA
           </div>
         </div>
       )}
+
       <div className="mt-4 overflow-x-auto rounded-lg border border-slate-200">
         <table className="w-full min-w-[850px] text-left">
           <thead className="bg-slate-50">
-            <tr>{["BL", "DUS", "Contenedor", "Reserva / Puerto", "Periodo", "Estado", "Acción"].map((h) => <th key={h} className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500">{h}</th>)}</tr>
+            <tr>{["BL", "DUS", "Contenedor", "Reserva / Puerto", "Periodo", "Estado", "Facturas", "Acción"].map((h) => <th key={h} className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500">{h}</th>)}</tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
-            {shipments.length === 0 && <tr><td colSpan={7} className="text-center py-12 text-xs text-slate-400">No hay embarques registrados.</td></tr>}
-            {shipments.map((s) => (
-              <tr key={s.id} className="hover:bg-slate-50">
-                <td className="px-4 py-3 font-mono text-xs font-semibold text-slate-700">{s.bl}</td>
-                <td className="px-4 py-3 font-mono text-xs text-slate-600">{s.dus}</td>
-                <td className="px-4 py-3 font-mono text-xs font-semibold text-slate-800">{s.container}</td>
-                <td className="px-4 py-3"><p className="text-xs font-medium text-slate-700">{s.booking}</p><p className="mt-1 text-[10px] text-slate-400">{s.port}</p></td>
-                <td className="px-4 py-3 text-xs text-slate-600">{s.period}</td>
-                <td className="px-4 py-3"><StatusPill status={s.status} /></td>
-                <td className="px-4 py-3">
-                  {s.status !== "Pagado" ? (
-                    <ActionButton variant="ghost" onClick={() => onPay(s.id)}>Marcar pagado</ActionButton>
-                  ) : (
-                    <span className="text-[11px] text-slate-400">Actualizado</span>
-                  )}
+            {filteredShipments.length === 0 && (
+              <tr>
+                <td colSpan={8} className="text-center py-12 text-xs text-slate-400">
+                  {shipmentSearch ? `No se encontraron embarques que coincidan con "${shipmentSearch}".` : "No hay embarques registrados."}
                 </td>
               </tr>
-            ))}
+            )}
+            {filteredShipments.map((s) => {
+              // 🆕 Contar facturas relacionadas (por BL, booking o contenedor)
+              const relatedInvoices = invoices.filter((inv) =>
+                (inv.bl && inv.bl === s.bl) ||
+                (inv.booking && inv.booking === s.booking) ||
+                (inv.containers && inv.containers.includes(s.container))
+              )
+              return (
+                <tr 
+                  key={s.id} 
+                  className="hover:bg-slate-50 cursor-pointer"
+                  onClick={() => onSelect(s)}
+                >
+                  <td className="px-4 py-3 font-mono text-xs font-semibold text-slate-700">{s.bl}</td>
+                  <td className="px-4 py-3 font-mono text-xs text-slate-600">{s.dus}</td>
+                  <td className="px-4 py-3 font-mono text-xs font-semibold text-slate-800">{s.container}</td>
+                  <td className="px-4 py-3">
+                    <p className="text-xs font-medium text-slate-700">{s.booking}</p>
+                    <p className="mt-1 text-[10px] text-slate-400">{s.port}</p>
+                  </td>
+                  <td className="px-4 py-3 text-xs text-slate-600">{s.period}</td>
+                  <td className="px-4 py-3"><StatusPill status={s.status} /></td>
+                  {/* 🆕 Columna de facturas vinculadas */}
+                  <td className="px-4 py-3">
+                    {relatedInvoices.length > 0 ? (
+                      <span className="inline-flex items-center gap-1 rounded-full bg-blue-50 px-2 py-0.5 text-[10px] font-bold text-blue-700 ring-1 ring-inset ring-blue-200">
+                        <Icon name="finance" className="size-3" />
+                        {relatedInvoices.length}
+                      </span>
+                    ) : (
+                      <span className="text-[10px] text-slate-300">—</span>
+                    )}
+                  </td>
+                  <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
+                    <div className="flex items-center gap-1">
+                      {s.status !== "Pagado" && (
+                        <ActionButton variant="ghost" onClick={() => onPay(s.id)}>Pagar</ActionButton>
+                      )}
+                      <button 
+                        onClick={() => onSelect(s)}
+                        className="rounded-md p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-800" 
+                        aria-label={`Ver ${s.container}`}
+                      >
+                        <Icon name="eye" />
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              )
+            })}
           </tbody>
         </table>
       </div>
+    </div>
+  )
+}
+
+/* 🆕 Panel de detalle del embarque */
+function ShipmentPanel({ 
+  shipment, 
+  invoices,
+  onClose, 
+  onPay,
+  onSelectInvoice,
+}: { 
+  shipment: Shipment
+  invoices: Invoice[]
+  onClose: () => void
+  onPay: () => void
+  onSelectInvoice: (inv: Invoice) => void
+}) {
+  // 🆕 Facturas relacionadas por BL, booking o contenedor
+  const relatedInvoices = invoices.filter((inv) =>
+    (inv.bl && inv.bl === shipment.bl) ||
+    (inv.booking && inv.booking === shipment.booking) ||
+    (inv.containers && inv.containers.includes(shipment.container))
+  )
+
+  const totalRelacionado = relatedInvoices.reduce((sum, inv) => sum + inv.total, 0)
+
+  return (
+    <div className="fixed inset-0 z-40 flex justify-end bg-slate-950/30 backdrop-blur-sm" onClick={onClose}>
+      <aside className="h-full w-full max-w-lg overflow-y-auto bg-white shadow-2xl" onClick={(e) => e.stopPropagation()}>
+        {/* Header */}
+        <div className="border-b border-slate-200 p-6">
+          <div className="flex items-start justify-between">
+            <div>
+              <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Embarque / Contenedor</p>
+              <h2 className="mt-1 font-mono text-xl font-bold text-slate-900">{shipment.container}</h2>
+              <p className="mt-1 text-xs text-slate-500">BL {shipment.bl}</p>
+            </div>
+            <button onClick={onClose} className="rounded-lg p-2 text-slate-400 hover:bg-slate-100">
+              <span className="text-lg">×</span>
+            </button>
+          </div>
+          <div className="mt-4"><StatusPill status={shipment.status} /></div>
+        </div>
+
+        <div className="space-y-6 p-6">
+          {/* Datos del embarque */}
+          <div>
+            <p className="mb-2 text-[10px] font-bold uppercase tracking-wider text-slate-400">Datos del embarque</p>
+            <div className="grid grid-cols-2 gap-4">
+              <Detail label="BL" value={shipment.bl} mono />
+              <Detail label="DUS" value={shipment.dus || '—'} mono />
+              <Detail label="Contenedor" value={shipment.container} mono />
+              <Detail label="Reserva" value={shipment.booking || '—'} mono />
+              <Detail label="Puerto" value={shipment.port || '—'} />
+              <Detail label="Periodo" value={shipment.period || '—'} />
+            </div>
+          </div>
+
+          {/* 🆕 Facturas relacionadas */}
+          <div>
+            <div className="mb-2 flex items-center justify-between">
+              <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                Facturas relacionadas ({relatedInvoices.length})
+              </p>
+              {relatedInvoices.length > 0 && (
+                <span className="font-mono text-[11px] font-bold text-slate-700">
+                  {money(totalRelacionado)}
+                </span>
+              )}
+            </div>
+            <div className="rounded-xl border border-slate-200">
+              {relatedInvoices.length === 0 ? (
+                <div className="p-6 text-center">
+                  <Icon name="finance" className="mx-auto size-8 text-slate-300" />
+                  <p className="mt-2 text-[11px] text-slate-400">
+                    No hay facturas vinculadas a este BL, reserva o contenedor.
+                  </p>
+                </div>
+              ) : (
+                relatedInvoices.map((inv) => (
+                  <button
+                    key={inv.id}
+                    onClick={() => onSelectInvoice(inv)}
+                    className="flex w-full items-center gap-3 border-b border-slate-100 p-3 text-left last:border-0 hover:bg-slate-50 transition-colors"
+                  >
+                    <span className="flex size-9 items-center justify-center rounded-lg bg-blue-50 text-blue-600 flex-shrink-0">
+                      <Icon name="finance" />
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <p className="font-mono text-xs font-bold text-slate-800">{inv.numero}</p>
+                      <p className="mt-0.5 text-[10px] text-slate-500 truncate">
+                        {inv.counterparty} · {inv.direction === "Cliente" ? "Cliente" : "Proveedor"}
+                      </p>
+                    </div>
+                    <div className="text-right flex-shrink-0">
+                      <p className="font-mono text-xs font-bold text-slate-800">{money(inv.total)}</p>
+                      <p className="mt-0.5 text-[9px] text-slate-400">{formatDate(inv.dueDate)}</p>
+                    </div>
+                  </button>
+                ))
+              )}
+            </div>
+          </div>
+
+          {/* Vínculos detectados */}
+          <div>
+            <p className="mb-2 text-[10px] font-bold uppercase tracking-wider text-slate-400">Vínculos detectados</p>
+            <div className="rounded-xl border border-slate-200">
+              <DetailList 
+                icon="link" 
+                label="Coincidencias por BL" 
+                values={relatedInvoices.filter(i => i.bl === shipment.bl).map(i => i.numero).length ? relatedInvoices.filter(i => i.bl === shipment.bl).map(i => i.numero) : ["Sin coincidencias"]} 
+              />
+              <DetailList 
+                icon="booking" 
+                label="Coincidencias por reserva" 
+                values={relatedInvoices.filter(i => i.booking === shipment.booking).map(i => i.numero).length ? relatedInvoices.filter(i => i.booking === shipment.booking).map(i => i.numero) : ["Sin coincidencias"]} 
+              />
+              <DetailList 
+                icon="box" 
+                label="Coincidencias por contenedor" 
+                values={relatedInvoices.filter(i => i.containers.includes(shipment.container)).map(i => i.numero).length ? relatedInvoices.filter(i => i.containers.includes(shipment.container)).map(i => i.numero) : ["Sin coincidencias"]} 
+              />
+            </div>
+          </div>
+
+          {/* Actions */}
+          <div className="flex gap-2 border-t border-slate-100 pt-5">
+            {shipment.status !== "Pagado" && (
+              <ActionButton onClick={onPay}>
+                <Icon name="check" />
+                Marcar como pagado
+              </ActionButton>
+            )}
+            <ActionButton variant="secondary" onClick={onClose}>Cerrar</ActionButton>
+          </div>
+        </div>
+      </aside>
     </div>
   )
 }
@@ -785,8 +1042,13 @@ function InvoicePanel({ invoice, onClose, onPaid }: { invoice: Invoice; onClose:
   )
 }
 
-function Detail({ label, value, strong }: { label: string; value: string; strong?: boolean }) {
-  return <div><p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">{label}</p><p className={`mt-1 text-sm ${strong ? "font-bold text-slate-800" : "font-semibold text-slate-700"}`}>{value}</p></div>
+function Detail({ label, value, strong, mono }: { label: string; value: string; strong?: boolean; mono?: boolean }) {
+  return (
+    <div>
+      <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">{label}</p>
+      <p className={`mt-1 text-sm ${strong ? "font-bold text-slate-800" : "font-semibold text-slate-700"} ${mono ? "font-mono" : ""}`}>{value}</p>
+    </div>
+  )
 }
 
 function DetailList({ icon, label, values }: { icon: IconName; label: string; values: string[] }) {
@@ -833,7 +1095,7 @@ function InvoiceModal({ onClose, onSave }: { onClose: () => void; onSave: (inv: 
     const data = new FormData(e.currentTarget)
     const net = Number(data.get("net"))
     const inv: Invoice = {
-      id: '', // lo asigna Supabase
+      id: '',
       numero: String(data.get("numero")),
       counterparty: String(data.get("counterparty")),
       direction: String(data.get("direction")) as Invoice["direction"],
