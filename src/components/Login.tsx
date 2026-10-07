@@ -53,11 +53,11 @@ export default function Login() {
         {/* Logo y título */}
         <div className="text-center">
           <div className="flex justify-center">
-            <div className="w-16 h-16 rounded-xl bg-gradient-to-br from-blue-600 to-blue-800 flex items-center justify-center shadow-lg">
-              <svg className="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
-              </svg>
-            </div>
+            <img
+              src="/logo_empresa_VTM.png"
+              alt="VTM Logistics"
+              className="h-20 w-auto object-contain"
+            />
           </div>
           <h2 className="mt-4 text-3xl font-bold text-slate-900">VTM Logistics</h2>
           <p className="mt-2 text-sm text-slate-500">Sistema de Gestión de Transporte</p>

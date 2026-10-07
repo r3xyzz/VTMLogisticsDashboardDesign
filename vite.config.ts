@@ -35,10 +35,28 @@ export default defineConfig(({ mode }) => {
       port: parseInt(process.env.PORT || '8443'),
       strictPort: true,
       watch: { ignored: ['**/.figma/**'] },
+      // 🆕 Proxy para Nubox API
+      proxy: {
+        '/api/nubox': {
+          target: 'https://api.test-nubox.com',
+          changeOrigin: true,
+          secure: true,
+          rewrite: (path) => path.replace(/^\/api\/nubox/, '/nbxpymapi-uat'),
+        },
+      },
     },
     preview: {
       host: '0.0.0.0',
       port: parseInt(process.env.PORT || '8443'),
+      // 🆕 Proxy también en preview
+      proxy: {
+        '/api/nubox': {
+          target: 'https://api.test-nubox.com',
+          changeOrigin: true,
+          secure: true,
+          rewrite: (path) => path.replace(/^\/api\/nubox/, '/nbxpymapi-uat'),
+        },
+      },
     },
   }
 })

@@ -1,6 +1,7 @@
 // src/components/FacturacionModule.tsx
 import { useMemo, useRef, useState, useEffect } from "react"
 import { supabase } from "../lib/supabase"
+import { fetchInvoicesByPeriod, type NuboxInvoice } from "../lib/nubox"
 
 /* ─── Iconos ─────────────────────────────────────────────────────────────────── */
 
@@ -112,6 +113,27 @@ function rowToInvoice(row: any): Invoice {
     bl: row.bl || '',
     booking: row.booking || '',
     pdf: row.pdf || row.archivo || undefined,
+  }
+}
+
+/* ─── Helper Nubox → Invoice ─────────────────────────────────────────────────── */
+
+function nuboxToInvoice(nubox: NuboxInvoice): Invoice {
+  return {
+    id: String(nubox.id),
+    numero: nubox.number,
+    counterparty: nubox.client.tradeName,
+    direction: "Cliente",
+    status: nubox.dataCl.annulled ? "Vencida" : "Pendiente",
+    issueDate: nubox.emissionDate,
+    dueDate: nubox.dueDate,
+    net: nubox.totalNetAmount,
+    total: nubox.totalAmount,
+    containers: [],
+    providerInvoices: [],
+    bl: "",
+    booking: "",
+    pdf: undefined,
   }
 }
 
@@ -291,7 +313,38 @@ export default function FacturacionModule() {
   }
 
   useEffect(() => {
-    fetchAll()
+  const fetchNuboxInvoices = async () => {
+    try {
+      setLoading(true)
+      setError(null)
+
+      // Consultar facturas de Nubox (mes actual)
+      // const now = new Date()
+      // const year = now.getFullYear()
+      // const month = String(now.getMonth() + 1).padStart(2, '0')
+      // const period = `${year}-${month}`
+      const period = '2026-08'
+
+      console.log(`🔍 Consultando Nubox para el período: ${period}`)
+      const nuboxInvoices = await fetchInvoicesByPeriod(period)
+      console.log(`✅ ${nuboxInvoices.length} facturas recibidas de Nubox`)
+
+      // Tomar solo las primeras 10 para la prueba
+      const limitedInvoices = nuboxInvoices.slice(0, 10)
+
+      // Mapear al tipo Invoice de tu módulo
+      const mappedInvoices = limitedInvoices.map(nuboxToInvoice)
+
+      setInvoices(mappedInvoices)
+    } catch (err: any) {
+      console.error('❌ Error al cargar facturas de Nubox:', err)
+      setError(err.message || 'Error al cargar facturas desde Nubox')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  fetchNuboxInvoices()
   }, [])
 
   /* ── Métricas ── */
