@@ -293,6 +293,7 @@ function rowToDoc(row: any): Doc {
 
 /* ─── Helpers de estado ──────────────────────────────────────────────────────── */
 
+/** Documentos del embarque (DUS/BL) */
 function getShipmentDocuments(shipment: Shipment, documents: Doc[]): Doc[] {
   return documents.filter(d =>
     d.fileUrl && 
@@ -301,64 +302,49 @@ function getShipmentDocuments(shipment: Shipment, documents: Doc[]): Doc[] {
   )
 }
 
-function getGenericInvoiceDocs(shipment: Shipment, documents: Doc[]): Doc[] {
+/** Facturas físicas subidas al embarque (tipo invoice) */
+function getInvoiceDocumentsForShipment(shipment: Shipment, documents: Doc[]): Doc[] {
   return documents.filter(d =>
     d.fileUrl && 
     d.linkedType === "invoice" &&
-    d.linkedId === shipment.id &&
-    !d.invoiceNumber
+    d.linkedId === shipment.id
   )
 }
 
-function getInvoiceDocuments(invoice: Invoice, documents: Doc[]): Doc[] {
-  return documents.filter(d =>
-    d.fileUrl && 
-    d.linkedType === "invoice" &&
-    d.invoiceNumber === invoice.numero
-  )
-}
+/**
+ * Estado documental del embarque:
+ * - "sin_subir"   → no tiene ni factura ni DUS/BL
+ * - "incompleto"  → tiene uno de los dos
+ * - "subido"      → tiene ambos
+ */
+type ShipmentDocStatus = "sin_subir" | "incompleto" | "subido"
 
-function invoiceHasUploadedDoc(invoice: Invoice, documents: Doc[]): boolean {
-  return getInvoiceDocuments(invoice, documents).length > 0
-}
-
-function getShipmentInvoicesStatus(
+function getShipmentDocStatus(
   shipment: Shipment,
-  invoices: Invoice[],
   documents: Doc[]
-) {
-  const relatedInvoices = invoices.filter((inv) =>
-    (inv.bl && inv.bl === shipment.bl) ||
-    (inv.booking && inv.booking === shipment.booking) ||
-    (inv.containers && inv.containers.includes(shipment.container))
-  )
+): {
+  status: ShipmentDocStatus
+  hasInvoice: boolean
+  hasShipmentDoc: boolean
+  invoiceCount: number
+  shipmentDocCount: number
+} {
+  const invoiceDocs = getInvoiceDocumentsForShipment(shipment, documents)
+  const shipmentDocs = getShipmentDocuments(shipment, documents)
+  const hasInvoice = invoiceDocs.length > 0
+  const hasShipmentDoc = shipmentDocs.length > 0
 
-  const uploadedCount = relatedInvoices.filter(inv =>
-    invoiceHasUploadedDoc(inv, documents)
-  ).length
+  let status: ShipmentDocStatus = "sin_subir"
+  if (hasInvoice && hasShipmentDoc) status = "subido"
+  else if (hasInvoice || hasShipmentDoc) status = "incompleto"
 
   return {
-    total: relatedInvoices.length,
-    uploaded: uploadedCount,
-    missing: relatedInvoices.length - uploadedCount,
-    relatedInvoices,
+    status,
+    hasInvoice,
+    hasShipmentDoc,
+    invoiceCount: invoiceDocs.length,
+    shipmentDocCount: shipmentDocs.length,
   }
-}
-
-function getDocumentsForShipments(shipments: Shipment[], documents: Doc[]): Doc[] {
-  const shipmentIds = new Set(shipments.map(s => s.id))
-  const bls = new Set(shipments.map(s => s.bl).filter(Boolean))
-  const bookings = new Set(shipments.map(s => s.booking).filter(Boolean))
-  const containers = new Set(shipments.map(s => s.container).filter(Boolean))
-
-  return documents.filter(d => {
-    if (!d.fileUrl) return false
-    if (d.linkedId && shipmentIds.has(d.linkedId)) return true
-    if (d.bl && bls.has(d.bl)) return true
-    if (d.booking && bookings.has(d.booking)) return true
-    if (d.container && containers.has(d.container)) return true
-    return false
-  })
 }
 
 /* ─── Helpers UI ─────────────────────────────────────────────────────────────── */
@@ -399,43 +385,31 @@ function StatusPill({ status }: { status: string }) {
   return <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ring-1 ring-inset ${tones[status] || 'bg-slate-100 text-slate-600 ring-slate-200'}`}>{status}</span>
 }
 
-function InvoiceStatusBadge({
-  total, uploaded, missing, size = "default",
-}: {
-  total: number
-  uploaded: number
-  missing: number
-  size?: "default" | "small"
-}) {
-  if (total === 0) {
-    return <span className="text-[10px] text-slate-300">—</span>
+/** 🆕 Pill del estado documental del embarque */
+function DocStatusPill({ status }: { status: ShipmentDocStatus }) {
+  const config: Record<ShipmentDocStatus, { label: string; classes: string; icon: IconName }> = {
+    sin_subir: {
+      label: "Sin subir",
+      classes: "bg-red-50 text-red-700 ring-red-200",
+      icon: "alert",
+    },
+    incompleto: {
+      label: "Incompleto",
+      classes: "bg-amber-50 text-amber-700 ring-amber-200",
+      icon: "clock",
+    },
+    subido: {
+      label: "Subido",
+      classes: "bg-emerald-50 text-emerald-700 ring-emerald-200",
+      icon: "check",
+    },
   }
-  const isComplete = missing === 0
-  if (size === "small") {
-    return (
-      <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-bold ring-1 ring-inset ${
-        isComplete ? "bg-emerald-50 text-emerald-700 ring-emerald-200" : "bg-amber-50 text-amber-700 ring-amber-200"
-      }`}>
-        <Icon name={isComplete ? "check" : "clock"} className="size-3" />
-        {uploaded}/{total}
-      </span>
-    )
-  }
+  const c = config[status]
   return (
-    <div className="space-y-0.5">
-      {uploaded > 0 && (
-        <div className="flex items-center gap-1 text-[10px] font-bold text-emerald-700">
-          <Icon name="check" className="size-3" />
-          {uploaded} subida{uploaded !== 1 ? "s" : ""}
-        </div>
-      )}
-      {missing > 0 && (
-        <div className="flex items-center gap-1 text-[10px] font-bold text-amber-700">
-          <Icon name="clock" className="size-3" />
-          {missing} sin subir
-        </div>
-      )}
-    </div>
+    <span className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[11px] font-semibold ring-1 ring-inset ${c.classes}`}>
+      <Icon name={c.icon} className="size-3" />
+      {c.label}
+    </span>
   )
 }
 
@@ -848,7 +822,6 @@ export default function FacturacionModule() {
           {tab === "embarques" && (
             <ShipmentsView 
               shipments={shipments} 
-              invoices={invoices}
               documents={documents}
               onSelect={setSelectedShipment}
             />
@@ -857,7 +830,6 @@ export default function FacturacionModule() {
             <BookingsView 
               query={bookingQuery} 
               setQuery={setBookingQuery} 
-              invoices={invoices} 
               shipments={shipments}
               documents={documents}
             />
@@ -878,27 +850,10 @@ export default function FacturacionModule() {
       {selectedShipment && (
         <ShipmentPanel
           shipment={selectedShipment}
-          invoices={invoices}
           documents={documents}
           uploading={uploading}
           onClose={() => setSelectedShipment(null)}
-          onSelectInvoice={(inv) => {
-            setSelectedShipment(null)
-            setSelectedInvoice(inv)
-          }}
-          onUploadForInvoice={async (file, invoice) => {
-            await uploadDocument({
-              file,
-              relation: invoice.numero || selectedShipment.bl,
-              linkedType: "invoice",
-              linkedId: invoice.id,
-              bl: selectedShipment.bl,
-              booking: selectedShipment.booking,
-              container: selectedShipment.container,
-              invoiceNumber: invoice.numero,
-            })
-          }}
-          onUploadForInvoiceGeneric={async (file) => {
+          onUploadForInvoice={async (file) => {
             await uploadDocument({
               file,
               relation: selectedShipment.bl || selectedShipment.booking || selectedShipment.container,
@@ -1107,11 +1062,11 @@ function InvoicesTab({
   )
 }
 
+/* ─── 🆕 ShipmentsView sin columna "Facturas" y con estado documental ────────── */
 function ShipmentsView({ 
-  shipments, invoices, documents, onSelect,
+  shipments, documents, onSelect,
 }: { 
   shipments: Shipment[]
-  invoices: Invoice[]
   documents: Doc[]
   onSelect: (s: Shipment) => void
 }) {
@@ -1166,18 +1121,22 @@ function ShipmentsView({
       <div className="mt-4 overflow-x-auto rounded-lg border border-slate-200">
         <table className="w-full min-w-[850px] text-left">
           <thead className="bg-slate-50">
-            <tr>{["BL", "DUS", "Contenedor", "Reserva / Puerto", "Periodo", "Estado", "Facturas", "Acción"].map((h) => <th key={h} className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500">{h}</th>)}</tr>
+            <tr>
+              {["BL", "DUS", "Contenedor", "Reserva / Puerto", "Periodo", "Estado", "Acción"].map((h) => (
+                <th key={h} className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500">{h}</th>
+              ))}
+            </tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
             {filteredShipments.length === 0 && (
               <tr>
-                <td colSpan={8} className="text-center py-12 text-xs text-slate-400">
+                <td colSpan={7} className="text-center py-12 text-xs text-slate-400">
                   {shipmentSearch ? `No se encontraron embarques que coincidan con "${shipmentSearch}".` : "No hay embarques registrados."}
                 </td>
               </tr>
             )}
             {filteredShipments.map((s) => {
-              const status = getShipmentInvoicesStatus(s, invoices, documents)
+              const docStatus = getShipmentDocStatus(s, documents)
               return (
                 <tr key={s.id} className="hover:bg-slate-50 cursor-pointer" onClick={() => onSelect(s)}>
                   <td className="px-4 py-3 font-mono text-xs font-semibold text-slate-700">{s.bl}</td>
@@ -1188,19 +1147,8 @@ function ShipmentsView({
                     <p className="mt-1 text-[10px] text-slate-400">{s.port}</p>
                   </td>
                   <td className="px-4 py-3 text-xs text-slate-600">{s.period}</td>
-                  <td className="px-4 py-3"><StatusPill status={s.status} /></td>
                   <td className="px-4 py-3">
-                    <div>
-                      <span className="inline-flex items-center gap-1 rounded-full bg-blue-50 px-2 py-0.5 text-[10px] font-bold text-blue-700 ring-1 ring-inset ring-blue-200 mb-1">
-                        <Icon name="finance" className="size-3" />
-                        {status.total}
-                      </span>
-                      <InvoiceStatusBadge 
-                        total={status.total} 
-                        uploaded={status.uploaded} 
-                        missing={status.missing} 
-                      />
-                    </div>
+                    <DocStatusPill status={docStatus.status} />
                   </td>
                   <td className="px-4 py-3">
                     <button 
@@ -1222,30 +1170,20 @@ function ShipmentsView({
 }
 
 function ShipmentPanel({ 
-  shipment, invoices, documents, uploading, onClose, onSelectInvoice,
-  onUploadForInvoice, onUploadForInvoiceGeneric, onUploadForShipment, onDeleteDocument,
+  shipment, documents, uploading, onClose,
+  onUploadForInvoice, onUploadForShipment, onDeleteDocument,
 }: { 
   shipment: Shipment
-  invoices: Invoice[]
   documents: Doc[]
   uploading: boolean
   onClose: () => void
-  onSelectInvoice: (inv: Invoice) => void
-  onUploadForInvoice: (file: File, invoice: Invoice) => Promise<void>
-  onUploadForInvoiceGeneric: (file: File) => Promise<void>
+  onUploadForInvoice: (file: File) => Promise<void>
   onUploadForShipment: (file: File) => Promise<void>
   onDeleteDocument: (doc: Doc) => void
 }) {
-  const relatedInvoices = invoices.filter((inv) =>
-    (inv.bl && inv.bl === shipment.bl) ||
-    (inv.booking && inv.booking === shipment.booking) ||
-    (inv.containers && inv.containers.includes(shipment.container))
-  )
-
+  const invoiceDocs = getInvoiceDocumentsForShipment(shipment, documents)
   const shipmentDocs = getShipmentDocuments(shipment, documents)
-  const genericInvoiceDocs = getGenericInvoiceDocs(shipment, documents)
-
-  const totalRelacionado = relatedInvoices.reduce((sum, inv) => sum + inv.total, 0)
+  const docStatus = getShipmentDocStatus(shipment, documents)
 
   return (
     <div className="fixed inset-0 z-40 flex justify-end bg-slate-950/30 backdrop-blur-sm" onClick={onClose}>
@@ -1261,7 +1199,12 @@ function ShipmentPanel({
               <span className="text-lg">×</span>
             </button>
           </div>
-          <div className="mt-4"><StatusPill status={shipment.status} /></div>
+          <div className="mt-4 flex items-center gap-2">
+            <DocStatusPill status={docStatus.status} />
+            <span className="text-[10px] text-slate-400">
+              {docStatus.hasInvoice ? "✓" : "✗"} Factura · {docStatus.hasShipmentDoc ? "✓" : "✗"} DUS/BL
+            </span>
+          </div>
         </div>
 
         <div className="space-y-6 p-6">
@@ -1277,71 +1220,41 @@ function ShipmentPanel({
             </div>
           </div>
 
+          {/* Facturas */}
           <div>
-            <div className="mb-2 flex items-center justify-between">
+            <div className="mb-2 flex items-center gap-2">
               <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
-                Facturas relacionadas ({relatedInvoices.length})
+                Facturas ({invoiceDocs.length})
               </p>
-              {relatedInvoices.length > 0 && (
-                <span className="font-mono text-[11px] font-bold text-slate-700">
-                  {money(totalRelacionado)}
+              {invoiceDocs.length > 0 && (
+                <span className="inline-flex items-center gap-0.5 rounded bg-emerald-50 px-1.5 py-0.5 text-[9px] font-bold text-emerald-700 ring-1 ring-inset ring-emerald-200">
+                  <Icon name="check" className="size-2.5" />
+                  Subida
                 </span>
               )}
             </div>
-            <div className="space-y-2">
-              {relatedInvoices.length === 0 ? (
-                <>
-                  <div className="rounded-xl border border-slate-200 p-4 text-center">
-                    <Icon name="finance" className="mx-auto size-7 text-slate-300" />
-                    <p className="mt-2 text-[11px] text-slate-400">
-                      No hay facturas vinculadas a este BL, reserva o contenedor.
-                    </p>
-                  </div>
-                  <InvoiceDropZone
-                    label="Arrastra o click para subir factura física"
-                    sublabel="Se guarda como factura del embarque"
-                    documents={genericInvoiceDocs}
-                    uploading={uploading}
-                    onUpload={onUploadForInvoiceGeneric}
-                    onDelete={onDeleteDocument}
-                  />
-                </>
-              ) : (
-                <>
-                  {relatedInvoices.map((inv) => {
-                    const invDocs = getInvoiceDocuments(inv, documents)
-                    const hasDoc = invDocs.length > 0
-                    return (
-                      <InvoiceWithDropZone
-                        key={inv.id}
-                        invoice={inv}
-                        documents={invDocs}
-                        hasDoc={hasDoc}
-                        uploading={uploading}
-                        onSelect={() => onSelectInvoice(inv)}
-                        onUpload={(file) => onUploadForInvoice(file, inv)}
-                        onDelete={onDeleteDocument}
-                      />
-                    )
-                  })}
-                  <InvoiceDropZone
-                    label="Subir otra factura"
-                    sublabel="Se guarda como factura genérica del embarque"
-                    documents={genericInvoiceDocs}
-                    uploading={uploading}
-                    onUpload={onUploadForInvoiceGeneric}
-                    onDelete={onDeleteDocument}
-                  />
-                </>
-              )}
-            </div>
+            <InvoiceDropZone
+              label="Arrastra o click para subir factura física"
+              sublabel="Se vincula a este BL y contenedor"
+              documents={invoiceDocs}
+              uploading={uploading}
+              onUpload={onUploadForInvoice}
+              onDelete={onDeleteDocument}
+            />
           </div>
 
+          {/* Documentos del embarque */}
           <div>
-            <div className="mb-2 flex items-center justify-between">
+            <div className="mb-2 flex items-center gap-2">
               <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
                 Documentos del embarque ({shipmentDocs.length})
               </p>
+              {shipmentDocs.length > 0 && (
+                <span className="inline-flex items-center gap-0.5 rounded bg-emerald-50 px-1.5 py-0.5 text-[9px] font-bold text-emerald-700 ring-1 ring-inset ring-emerald-200">
+                  <Icon name="check" className="size-2.5" />
+                  Subido
+                </span>
+              )}
             </div>
             <DocumentDropZone
               documents={shipmentDocs}
@@ -1360,7 +1273,6 @@ function ShipmentPanel({
   )
 }
 
-/* ─── 🆕 InvoiceDropZone — SIN botón de ver ──────────────────────────────────── */
 function InvoiceDropZone({
   label, sublabel, documents, uploading, onUpload, onDelete,
 }: {
@@ -1403,7 +1315,7 @@ function InvoiceDropZone({
           </div>
         ) : (
           <>
-            <Icon name="upload" className={`mx-auto size-6 ${isDragging ? "text-blue-500" : "text-slate-400"}`} />
+            <Icon name="finance" className={`mx-auto size-6 ${isDragging ? "text-blue-500" : "text-slate-400"}`} />
             <p className={`mt-1.5 text-[11px] font-semibold ${isDragging ? "text-blue-700" : "text-slate-700"}`}>
               {isDragging ? "Suelta el archivo aquí" : label}
             </p>
@@ -1452,122 +1364,6 @@ function InvoiceDropZone({
   )
 }
 
-/* ─── 🆕 InvoiceWithDropZone — SIN botón de ver ─────────────────────────────── */
-function InvoiceWithDropZone({
-  invoice, documents, hasDoc, uploading, onSelect, onUpload, onDelete,
-}: {
-  invoice: Invoice
-  documents: Doc[]
-  hasDoc: boolean
-  uploading: boolean
-  onSelect: () => void
-  onUpload: (file: File) => Promise<void>
-  onDelete: (doc: Doc) => void
-}) {
-  const [isDragging, setIsDragging] = useState(false)
-  const fileInputRef = useRef<HTMLInputElement>(null)
-
-  const handleFiles = async (files: FileList | null) => {
-    if (!files || files.length === 0) return
-    for (const file of Array.from(files)) {
-      await onUpload(file)
-    }
-  }
-
-  return (
-    <div className="rounded-xl border border-slate-200 overflow-hidden">
-      <button
-        onClick={onSelect}
-        className="flex w-full items-center gap-3 p-3 text-left hover:bg-slate-50 transition-colors"
-      >
-        <span className="flex size-9 items-center justify-center rounded-lg bg-blue-50 text-blue-600 flex-shrink-0">
-          <Icon name="finance" />
-        </span>
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-1.5">
-            <p className="font-mono text-xs font-bold text-slate-800">{invoice.numero}</p>
-            {hasDoc && (
-              <span className="inline-flex items-center gap-0.5 rounded bg-emerald-50 px-1 py-0.5 text-[8px] font-bold text-emerald-700 ring-1 ring-inset ring-emerald-200">
-                <Icon name="check" className="size-2.5" />
-                SUBIDA
-              </span>
-            )}
-          </div>
-          <p className="mt-0.5 text-[10px] text-slate-500 truncate">
-            {invoice.counterparty} · {invoice.direction === "Cliente" ? "Cliente" : "Proveedor"}
-          </p>
-        </div>
-        <div className="text-right flex-shrink-0">
-          <p className="font-mono text-xs font-bold text-slate-800">{money(invoice.total)}</p>
-          <p className="mt-0.5 text-[9px] text-slate-400">{formatDate(invoice.dueDate)}</p>
-        </div>
-      </button>
-
-      <div
-        onClick={(e) => {
-          e.stopPropagation()
-          if (!uploading) fileInputRef.current?.click()
-        }}
-        onDrop={(e) => { e.preventDefault(); setIsDragging(false); handleFiles(e.dataTransfer.files) }}
-        onDragOver={(e) => { e.preventDefault(); setIsDragging(true) }}
-        onDragLeave={(e) => { e.preventDefault(); setIsDragging(false) }}
-        className={`cursor-pointer border-t p-3 text-center transition ${
-          uploading
-            ? "border-blue-200 bg-blue-50 cursor-wait"
-            : isDragging
-            ? "border-blue-300 bg-blue-50"
-            : "border-slate-100 bg-slate-50/50 hover:bg-slate-100"
-        }`}
-      >
-        {uploading ? (
-          <div className="flex items-center justify-center gap-2">
-            <Icon name="refresh" className="size-4 text-blue-500 animate-spin" />
-            <span className="text-[10px] font-semibold text-blue-700">Subiendo...</span>
-          </div>
-        ) : (
-          <div className="flex items-center justify-center gap-2">
-            <Icon name="upload" className={`size-3.5 ${isDragging ? "text-blue-500" : "text-slate-400"}`} />
-            <span className={`text-[10px] font-semibold ${isDragging ? "text-blue-700" : "text-slate-500"}`}>
-              {isDragging ? "Suelta aquí" : hasDoc ? "Subir otro archivo" : "Arrastra o click para subir factura física"}
-            </span>
-          </div>
-        )}
-        <input
-          ref={fileInputRef}
-          type="file"
-          className="hidden"
-          accept=".pdf,.png,.jpg,.jpeg"
-          onClick={(e) => e.stopPropagation()}
-          onChange={(e) => {
-            handleFiles(e.target.files)
-            e.target.value = ""
-          }}
-        />
-      </div>
-
-      {documents.length > 0 && (
-        <div className="border-t border-slate-100 bg-white">
-          {documents.map((doc) => (
-            <div key={doc.id} className="flex items-center gap-2 border-b border-slate-50 px-3 py-2 last:border-0">
-              <Icon name="file" className="size-3 text-red-500 flex-shrink-0" />
-              <p className="truncate text-[10px] font-medium text-slate-700 flex-1">{doc.name}</p>
-              <span className="text-[9px] text-slate-400 flex-shrink-0">{doc.size}</span>
-              <button
-                onClick={(e) => { e.stopPropagation(); onDelete(doc) }}
-                className="rounded p-1 text-slate-400 hover:bg-red-50 hover:text-red-600 flex-shrink-0"
-                title="Eliminar"
-              >
-                <Icon name="trash" className="size-3" />
-              </button>
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  )
-}
-
-/* ─── 🆕 DocumentDropZone — SIN botón de ver ────────────────────────────────── */
 function DocumentDropZone({
   documents, onUpload, onDelete, uploading,
 }: {
@@ -1613,7 +1409,7 @@ function DocumentDropZone({
               {isDragging ? "Suelta el archivo aquí" : "Arrastra DUS/BL o click para subir"}
             </p>
             <p className="mt-1 text-[10px] text-slate-400">
-              Documentos propios del embarque (DUS, BL)
+              Documento propio del embarque (DUS, BL)
             </p>
           </>
         )}
@@ -1657,12 +1453,12 @@ function DocumentDropZone({
   )
 }
 
+/* ─── 🆕 BookingsView sin facturas ───────────────────────────────────────────── */
 function BookingsView({ 
-  query, setQuery, invoices, shipments, documents,
+  query, setQuery, shipments, documents,
 }: { 
   query: string
   setQuery: (v: string) => void
-  invoices: Invoice[]
   shipments: Shipment[]
   documents: Doc[]
 }) {
@@ -1674,19 +1470,33 @@ function BookingsView({
     s.container.toLowerCase() === q
   )
 
-  const matchedInvoices = invoices.filter((inv) =>
-    inv.booking.toLowerCase() === q ||
-    (inv.bl && matchedShipments.some(s => s.bl === inv.bl)) ||
-    (inv.containers && inv.containers.some(c => matchedShipments.some(s => s.container === c)))
-  )
+  // Recolectar documentos vinculados a los shipments matched
+  const matchedDocuments = documents.filter(d => {
+    if (!d.fileUrl) return false
+    return matchedShipments.some(s => 
+      d.linkedId === s.id ||
+      (d.bl && d.bl === s.bl) ||
+      (d.booking && d.booking === s.booking) ||
+      (d.container && d.container === s.container)
+    )
+  })
 
-  const matchedDocuments = getDocumentsForShipments(matchedShipments, documents)
+  // Agrupar documentos por embarque
+  const docsByShipment = matchedShipments.map(s => {
+    const docs = matchedDocuments.filter(d => 
+      d.linkedId === s.id ||
+      (d.bl && d.bl === s.bl) ||
+      (d.booking && d.booking === s.booking) ||
+      (d.container && d.container === s.container)
+    )
+    return { shipment: s, documents: docs, docStatus: getShipmentDocStatus(s, documents) }
+  })
 
-  const hasResults = matchedInvoices.length + matchedShipments.length + matchedDocuments.length > 0
+  const hasResults = matchedShipments.length > 0
 
   return (
     <div className="p-5">
-      <SectionTitle title="Consulta de reservas" description="Busca un SAI BOOK, BL o contenedor para desplegar todos sus vínculos." />
+      <SectionTitle title="Consulta de reservas" description="Busca un SAI BOOK, BL o contenedor para desplegar sus documentos." />
       <div className="mt-5 flex max-w-xl gap-2">
         <div className="relative flex-1">
           <Icon name="search" className="absolute left-3 top-2.5 size-4 text-slate-400" />
@@ -1709,133 +1519,76 @@ function BookingsView({
             <div className="flex-1 min-w-0">
               <p className="font-mono text-sm font-bold">{query}</p>
               <p className="mt-1 text-[11px] text-slate-300">
-                {matchedShipments[0]?.port ?? "Puerto por confirmar"} · {matchedShipments.length} contenedores · {matchedInvoices.length} facturas · {matchedDocuments.length} documentos
+                {matchedShipments.length} embarque{matchedShipments.length !== 1 ? "s" : ""} · {matchedDocuments.length} documento{matchedDocuments.length !== 1 ? "s" : ""}
               </p>
             </div>
           </div>
 
-          <div className="grid gap-4 lg:grid-cols-2">
-            <LinkedBlock title={`Facturas vinculadas (${matchedInvoices.length})`} icon="finance">
-              {matchedInvoices.length === 0 ? (
-                <p className="text-[11px] text-slate-400 py-2">Sin facturas vinculadas.</p>
+          {/* Por cada embarque matched */}
+          {docsByShipment.map(({ shipment, documents: sDocs, docStatus }) => (
+            <div key={shipment.id} className="rounded-xl border border-slate-200 bg-white overflow-hidden">
+              <div className="flex items-center gap-3 border-b border-slate-100 bg-slate-50 px-4 py-3">
+                <span className="flex size-9 items-center justify-center rounded-lg bg-blue-50 text-blue-600">
+                  <Icon name="box" />
+                </span>
+                <div className="flex-1 min-w-0">
+                  <p className="font-mono text-xs font-bold text-slate-800">{shipment.container}</p>
+                  <p className="mt-0.5 text-[10px] text-slate-500">
+                    BL {shipment.bl} · DUS {shipment.dus} · {shipment.booking}
+                  </p>
+                </div>
+                <DocStatusPill status={docStatus.status} />
+              </div>
+
+              {sDocs.length === 0 ? (
+                <div className="p-6 text-center">
+                  <Icon name="file" className="mx-auto size-7 text-slate-300" />
+                  <p className="mt-2 text-[11px] text-slate-400">
+                    Sin documentos subidos para este embarque.
+                  </p>
+                </div>
               ) : (
-                matchedInvoices.map((inv) => {
-                  const hasUploaded = invoiceHasUploadedDoc(inv, documents)
-                  return (
-                    <div key={inv.id} className="py-2.5 flex items-center justify-between gap-2">
-                      <div className="min-w-0">
-                        <p className="font-mono text-xs font-semibold text-slate-700">{inv.numero}</p>
-                        <p className="mt-1 text-[10px] text-slate-400 truncate">
-                          {inv.counterparty} · {money(inv.total)}
+                <div className="divide-y divide-slate-100">
+                  {sDocs.map((doc) => (
+                    <div key={doc.id} className="flex items-center gap-3 px-4 py-3 hover:bg-slate-50">
+                      <span className={`flex size-9 items-center justify-center rounded-lg flex-shrink-0 ${
+                        doc.linkedType === "invoice" 
+                          ? "bg-emerald-50 text-emerald-600" 
+                          : "bg-red-50 text-red-600"
+                      }`}>
+                        <Icon name={doc.linkedType === "invoice" ? "finance" : "file"} />
+                      </span>
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-xs font-bold text-slate-800">{doc.name}</p>
+                        <p className="mt-0.5 text-[10px] text-slate-500">
+                          {doc.linkedType === "invoice" ? "Factura física" : "Doc. embarque"}
+                          {" · "}{doc.size} · {doc.uploaded}
                         </p>
                       </div>
                       <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[9px] font-bold ring-1 ring-inset flex-shrink-0 ${
-                        hasUploaded ? "bg-emerald-50 text-emerald-700 ring-emerald-200" : "bg-amber-50 text-amber-700 ring-amber-200"
+                        doc.linkedType === "invoice"
+                          ? "bg-emerald-50 text-emerald-700 ring-emerald-200"
+                          : "bg-red-50 text-red-700 ring-red-200"
                       }`}>
-                        <Icon name={hasUploaded ? "check" : "clock"} className="size-2.5" />
-                        {hasUploaded ? "Subida" : "Sin subir"}
+                        {doc.linkedType === "invoice" ? "Factura" : "Embarque"}
                       </span>
-                    </div>
-                  )
-                })
-              )}
-            </LinkedBlock>
-
-            <LinkedBlock title={`Contenedores (${matchedShipments.length})`} icon="box">
-              {matchedShipments.length === 0 ? (
-                <p className="text-[11px] text-slate-400 py-2">Sin contenedores.</p>
-              ) : (
-                matchedShipments.map((s) => {
-                  const status = getShipmentInvoicesStatus(s, invoices, documents)
-                  return (
-                    <div key={s.id} className="py-2.5 flex items-center justify-between gap-2">
-                      <div className="min-w-0">
-                        <p className="font-mono text-xs font-semibold text-slate-700">{s.container}</p>
-                        <p className="mt-1 text-[10px] text-slate-400">
-                          {s.dus} · {s.port}
-                        </p>
-                      </div>
-                      {status.total > 0 && (
-                        <InvoiceStatusBadge 
-                          total={status.total} 
-                          uploaded={status.uploaded} 
-                          missing={status.missing}
-                          size="small"
-                        />
+                      {doc.fileUrl && (
+                        <a
+                          href={doc.fileUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="rounded-md p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-800 flex-shrink-0"
+                          title="Ver documento"
+                        >
+                          <Icon name="eye" />
+                        </a>
                       )}
                     </div>
-                  )
-                })
+                  ))}
+                </div>
               )}
-            </LinkedBlock>
-          </div>
-
-          <div className="rounded-xl border border-slate-200 bg-white">
-            <div className="flex items-center gap-2 border-b border-slate-100 px-4 py-3">
-              <Icon name="document" className="size-4 text-slate-600" />
-              <p className="text-xs font-bold text-slate-800">
-                Documentos subidos ({matchedDocuments.length})
-              </p>
             </div>
-
-            {matchedDocuments.length === 0 ? (
-              <div className="p-6 text-center">
-                <Icon name="file" className="mx-auto size-8 text-slate-300" />
-                <p className="mt-2 text-[11px] text-slate-400">
-                  No hay documentos subidos para esta reserva, BL o contenedor.
-                </p>
-              </div>
-            ) : (
-              <div className="divide-y divide-slate-100">
-                {matchedDocuments.map((doc) => (
-                  <div key={doc.id} className="flex items-center gap-3 px-4 py-3 hover:bg-slate-50">
-                    <span className={`flex size-9 items-center justify-center rounded-lg flex-shrink-0 ${
-                      doc.linkedType === "invoice" 
-                        ? "bg-emerald-50 text-emerald-600" 
-                        : "bg-red-50 text-red-600"
-                    }`}>
-                      <Icon name={doc.linkedType === "invoice" ? "finance" : "file"} />
-                    </span>
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate text-xs font-bold text-slate-800">{doc.name}</p>
-                      <p className="mt-0.5 text-[10px] text-slate-500">
-                        {doc.linkedType === "invoice" ? "Factura física" : "Doc. embarque"}
-                        {doc.invoiceNumber && ` · ${doc.invoiceNumber}`}
-                        {doc.bl && ` · ${doc.bl}`}
-                        {doc.container && ` · ${doc.container}`}
-                        {" · "}{doc.size}
-                      </p>
-                    </div>
-                    <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[9px] font-bold ring-1 ring-inset flex-shrink-0 ${
-                      doc.linkedType === "invoice"
-                        ? "bg-emerald-50 text-emerald-700 ring-emerald-200"
-                        : "bg-red-50 text-red-700 ring-red-200"
-                    }`}>
-                      {doc.linkedType === "invoice" ? "Factura" : "Embarque"}
-                    </span>
-                    {doc.fileUrl && (
-                      <a
-                        href={doc.fileUrl}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="rounded-md p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-800 flex-shrink-0"
-                        title="Ver documento"
-                      >
-                        <Icon name="eye" />
-                      </a>
-                    )}
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-
-          <LinkedBlock title={`BL asociados (${[...new Set(matchedShipments.map((s) => s.bl))].length})`} icon="document">
-            {[...new Set(matchedShipments.map((s) => s.bl))].map((bl) => (
-              <LinkedRow key={bl} primary={bl} secondary="Vínculo verificado" />
-            ))}
-            {matchedShipments.length === 0 && <p className="text-[11px] text-slate-400 py-2">Sin BL asociados.</p>}
-          </LinkedBlock>
+          ))}
         </div>
       ) : (
         <div className="mt-6 rounded-xl border border-dashed border-slate-300 p-10 text-center text-xs text-slate-500">
@@ -1859,10 +1612,8 @@ function DocumentsView({ documents, onDelete }: { documents: Doc[]; onDelete: (d
   
   const grouped = validDocs.reduce((acc, doc) => {
     let key: string
-    if (doc.linkedType === "invoice" && doc.invoiceNumber) {
-      key = `Factura · ${doc.invoiceNumber}`
-    } else if (doc.linkedType === "invoice") {
-      key = `Factura genérica · ${doc.bl || doc.booking || "Sin relación"}`
+    if (doc.linkedType === "invoice") {
+      key = `Factura · ${doc.bl || doc.booking || "Sin relación"}`
     } else if (doc.linkedType === "shipment" && doc.bl) {
       key = `Embarque · ${doc.bl}`
     } else {
