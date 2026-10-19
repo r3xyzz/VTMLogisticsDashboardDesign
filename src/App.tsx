@@ -17,6 +17,7 @@ import CalculationsModule from './components/CalculationsModule';
 import Login from './components/Login';
 import EmailModule from './components/EmailModule';
 import FacturacionModule from './components/FacturacionModule';
+import CamionerosModule from './components/Camioneros';
 
 // Vistas activas (sin 'orders')
 export type ActiveView = 
@@ -30,7 +31,8 @@ export type ActiveView =
   | 'clients'
   | 'calculations'
   | 'email'
-  | 'facturacion';
+  | 'facturacion'
+  | 'camioneros';
 
 interface UserPermissions {
   can_view_dashboard: boolean;
@@ -44,6 +46,7 @@ interface UserPermissions {
   can_view_calculations: boolean;
   can_view_email: boolean;
   can_view_facturacion: boolean;
+  can_view_camioneros: boolean;
 }
 
 const defaultPermissions: UserPermissions = {
@@ -58,13 +61,14 @@ const defaultPermissions: UserPermissions = {
   can_view_calculations: false,
   can_view_email: false,
   can_view_facturacion: false,
+  can_view_camioneros: false,
 };
 
 const activeViewStorageKey = 'vtm-active-view';
 const activeViews: ActiveView[] = [
   'dashboard', 'cargo', 'tracking', 'documents',
   'fleet', 'providers', 'drivers', 'clients', 'calculations', 'email',
-  'facturacion',
+  'facturacion', 'camioneros',
 ];
 
 const getStoredActiveView = (): ActiveView | null => {
@@ -87,6 +91,7 @@ const hasPermissionForView = (view: ActiveView, permissions: UserPermissions): b
     calculations: 'can_view_calculations',
     email: 'can_view_email',
     facturacion: 'can_view_facturacion',
+    camioneros: 'can_view_camioneros',
   };
   return permissions[permissionByView[view]];
 };
@@ -154,6 +159,7 @@ function AppContent() {
               can_view_calculations: true,
               can_view_email: true,
               can_view_facturacion: true,
+              can_view_camioneros: true,
             }
           };
         }
@@ -174,6 +180,7 @@ function AppContent() {
         can_view_calculations: permissionsData.can_view_calculations || false,
         can_view_email: permissionsData.can_view_email || false,
         can_view_facturacion: permissionsData.can_view_facturacion || false,
+        can_view_camioneros: permissionsData.can_view_camioneros || false,
       };
 
       console.log('✅ Permisos finales:', permissions);
@@ -196,6 +203,7 @@ function AppContent() {
     if (permissions.can_view_calculations) return 'calculations';
     if (permissions.can_view_email) return 'email';
     if (permissions.can_view_facturacion) return 'facturacion';
+    if (permissions.can_view_camioneros) return 'camioneros';
     return 'dashboard';
   };
 
@@ -212,6 +220,7 @@ function AppContent() {
       case 'calculations': return userPermissions.can_view_calculations;
       case 'email': return userPermissions.can_view_email;
       case 'facturacion': return userPermissions.can_view_facturacion; 
+      case 'camioneros': return userPermissions.can_view_camioneros;
       default: return false;
     }
   };
@@ -307,6 +316,7 @@ function AppContent() {
     calculations: <CalculationsModule />,
     email: <EmailModule />,
     facturacion: <FacturacionModule />,
+    camioneros: <CamionerosModule />,
   };
 
   const currentView = canAccessView(activeView) ? activeView : getFirstAvailableView(userPermissions);
