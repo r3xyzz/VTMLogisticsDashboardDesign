@@ -1,6 +1,8 @@
 // components/Camioneros.tsx
+import { useMemo, useRef, useState, useEffect } from "react"
+import { supabase } from "../lib/supabase"
 
-import { useMemo, useRef, useState } from "react"
+/* ─── Iconos ─────────────────────────────────────────────────────────────────── */
 
 type IconName =
   | "arrow"
@@ -39,11 +41,26 @@ function Icon({ name, className = "size-4" }: { name: IconName; className?: stri
   )
 }
 
+/* ─── Tipos ──────────────────────────────────────────────────────────────────── */
+
 type DocumentKey = "emptyPod" | "loadEvidence" | "completedPod" | "deliveryEvidence"
-type UploadValue = { name: string; url: string; type: string }
-type Trip = {
+
+interface UploadValue {
+    name: string
+    url: string
+    type: string
+}
+
+interface OrderDocumentStatus {
+    pod_empty_url: string | null
+    pod_final_url: string | null
+    guide_url: string | null
+    invoice_url: string | null
+}
+
+interface Trip {
   id: string
-  order: string
+  order_number: string
   company: string
   driver: string
   initials: string
@@ -52,82 +69,9 @@ type Trip = {
   origin: string
   destination: string
   appointment: string
-  status: "En carga" | "En tránsito" | "Por documentar" | "Completado"
+  status: "En carga" | "En tránsito" | "Por documentar" | "Completado" | "pending" | "in_progress" | "completed" | string
   uploads: Partial<Record<DocumentKey, UploadValue>>
 }
-
-const seededFile = (name: string, type: string): UploadValue => ({ name, type, url: "" })
-
-const tripSeed: Trip[] = [
-  {
-    id: "1",
-    order: "OT-10482",
-    company: "Transportes del Pacífico",
-    driver: "Carlos Ramírez",
-    initials: "TP",
-    truck: "JTRK-82 · Semi 45'",
-    route: "San Antonio → Santiago",
-    origin: "Puerto San Antonio",
-    destination: "CD Lo Boza, Pudahuel",
-    appointment: "Hoy · 14:30",
-    status: "En tránsito",
-    uploads: {
-      emptyPod: seededFile("POD_OT-10482_vacio.pdf", "application/pdf"),
-      loadEvidence: seededFile("evidencia_carga_10482.jpg", "image/jpeg"),
-    },
-  },
-  {
-    id: "2",
-    order: "OT-10488",
-    company: "Logística Costa Central",
-    driver: "Miguel Soto",
-    initials: "LC",
-    truck: "KLPR-19 · Rampla",
-    route: "Valparaíso → Quilicura",
-    origin: "TPS Valparaíso",
-    destination: "Bodega Noviciado",
-    appointment: "Hoy · 17:00",
-    status: "En carga",
-    uploads: { emptyPod: seededFile("POD_OT-10488_vacio.pdf", "application/pdf") },
-  },
-  {
-    id: "3",
-    order: "OT-10471",
-    company: "Transportes Andinos",
-    driver: "Alejandro Pérez",
-    initials: "TA",
-    truck: "PLRW-44 · Semi 40'",
-    route: "San Antonio → Rancagua",
-    origin: "Puerto San Antonio",
-    destination: "Centro Logístico Ruta 5",
-    appointment: "Ayer · 16:20",
-    status: "Por documentar",
-    uploads: {
-      emptyPod: seededFile("POD_OT-10471_vacio.pdf", "application/pdf"),
-      loadEvidence: seededFile("carga_10471.jpg", "image/jpeg"),
-      deliveryEvidence: seededFile("descarga_10471.jpg", "image/jpeg"),
-    },
-  },
-  {
-    id: "4",
-    order: "OT-10465",
-    company: "Carga Express Chile",
-    driver: "Rodrigo Muñoz",
-    initials: "CE",
-    truck: "HRPK-63 · Rampla",
-    route: "Valparaíso → Santiago",
-    origin: "Puerto Valparaíso",
-    destination: "CD ENEA",
-    appointment: "18 ago · 11:00",
-    status: "Completado",
-    uploads: {
-      emptyPod: seededFile("POD_OT-10465_vacio.pdf", "application/pdf"),
-      loadEvidence: seededFile("carga_10465.jpg", "image/jpeg"),
-      completedPod: seededFile("POD_OT-10465_firmado.pdf", "application/pdf"),
-      deliveryEvidence: seededFile("descarga_10465.jpg", "image/jpeg"),
-    },
-  },
-]
 
 const uploadDefinitions: { key: DocumentKey; step: number; title: string; description: string; accept: string; icon: IconName; phase: string }[] = [
   { key: "emptyPod", step: 1, title: "POD vacío", description: "Documento entregado al camionero antes de iniciar el viaje.", accept: ".pdf,image/*", icon: "document", phase: "Antes del viaje" },
@@ -136,15 +80,26 @@ const uploadDefinitions: { key: DocumentKey; step: number; title: string; descri
   { key: "deliveryEvidence", step: 4, title: "Evidencia de descarga", description: "Foto de la mercadería descargada en el lugar de entrega.", accept: "image/*", icon: "camera", phase: "En destino" },
 ]
 
-const statusStyles: Record<Trip["status"], string> = {
+// Mapeo de estados de la base de datos a visuales
+const getStatusLabel = (status: string): Trip["status"] => {
+    if (status === 'completed') return 'Completado';
+    if (status === 'in_progress') return 'En tránsito';
+    if (status === 'pending') return 'En carga';
+    return status as Trip["status"];
+}
+
+const statusStyles: Record<string, string> = {
   "En carga": "bg-orange-50 text-orange-700 ring-orange-200",
   "En tránsito": "bg-blue-50 text-blue-700 ring-blue-200",
   "Por documentar": "bg-red-50 text-red-700 ring-red-200",
-  Completado: "bg-emerald-50 text-emerald-700 ring-emerald-200",
+  "Completado": "bg-emerald-50 text-emerald-700 ring-emerald-200",
+  "pending": "bg-orange-50 text-orange-700 ring-orange-200",
+  "in_progress": "bg-blue-50 text-blue-700 ring-blue-200",
+  "completed": "bg-emerald-50 text-emerald-700 ring-emerald-200",
 }
 
 function Status({ value }: { value: Trip["status"] }) {
-  return <span className={`rounded-full px-2.5 py-1 text-[11px] font-semibold ring-1 ring-inset ${statusStyles[value]}`}>{value}</span>
+  return <span className={`rounded-full px-2.5 py-1 text-[11px] font-semibold ring-1 ring-inset ${statusStyles[value] || "bg-slate-50 text-slate-700 ring-slate-200"}`}>{value}</span>
 }
 
 function UploadCard({
@@ -213,30 +168,172 @@ function UploadCard({
   )
 }
 
-export default function DriversModule() {
-  const [trips, setTrips] = useState(tripSeed)
-  const [selectedId, setSelectedId] = useState("1")
+export default function CamionerosModule() {
+  const [trips, setTrips] = useState<Trip[]>([])
+  const [loading, setLoading] = useState(true)
+  const [selectedId, setSelectedId] = useState<string | null>(null)
   const [search, setSearch] = useState("")
   const [toast, setToast] = useState("")
-  const selected = trips.find((trip) => trip.id === selectedId) ?? trips[0]
+  const [uploading, setUploading] = useState(false)
+
+  useEffect(() => {
+    fetchTrips()
+  }, [])
+
+  async function fetchTrips() {
+    try {
+      setLoading(true)
+      // Traemos las órdenes y sus documentos asociados
+      const { data, error } = await supabase
+        .from('orders')
+        .select(`
+          id,
+          order_number,
+          origin,
+          destination,
+          service_date,
+          status,
+          client:clients (name),
+          documents (
+            pod_empty_url,
+            pod_final_url,
+            guide_url,
+            invoice_url
+          )
+        `)
+        .order('created_at', { ascending: false })
+
+      if (error) throw error
+
+      const mappedTrips: Trip[] = (data || []).map((order: any) => {
+        const doc = Array.isArray(order.documents) ? order.documents[0] : order.documents;
+        
+        const uploads: Partial<Record<DocumentKey, UploadValue>> = {};
+        
+        if (doc?.pod_empty_url) {
+            uploads.emptyPod = { name: "POD Vacío (Ver)", url: doc.pod_empty_url, type: "application/pdf" };
+        }
+        if (doc?.pod_final_url) {
+            uploads.completedPod = { name: "POD Final (Ver)", url: doc.pod_final_url, type: "application/pdf" };
+        }
+
+        return {
+          id: order.id,
+          order_number: order.order_number,
+          company: order.client?.name || "Cliente no asignado",
+          driver: "Chofer Asignado", // Aquí podrías cruzar con la tabla drivers si tuvieras el ID
+          initials: (order.client?.name || "XX").substring(0, 2).toUpperCase(),
+          truck: "Unidad VTM",
+          route: `${order.origin} → ${order.destination}`,
+          origin: order.origin,
+          destination: order.destination,
+          appointment: new Date(order.service_date).toLocaleDateString('es-CL'),
+          status: getStatusLabel(order.status),
+          uploads
+        }
+      })
+
+      setTrips(mappedTrips)
+      if (mappedTrips.length > 0 && !selectedId) {
+        setSelectedId(mappedTrips[0].id)
+      }
+    } catch (err) {
+      console.error('Error fetching trips:', err)
+      setToast("❌ Error al cargar los viajes")
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const selected = trips.find((trip) => trip.id === selectedId) || null
+
   const filteredTrips = useMemo(() => {
     const query = search.toLowerCase()
-    return trips.filter((trip) => [trip.order, trip.company, trip.driver, trip.truck, trip.route].join(" ").toLowerCase().includes(query))
+    return trips.filter((trip) => [trip.order_number, trip.company, trip.driver, trip.route].join(" ").toLowerCase().includes(query))
   }, [search, trips])
-  const completed = Object.keys(selected.uploads).length
 
-  const handleUpload = (key: DocumentKey, file: File) => {
-    const upload = { name: file.name, type: file.type, url: URL.createObjectURL(file) }
-    setTrips((current) =>
-      current.map((trip) => {
-        if (trip.id !== selected.id) return trip
-        const uploads = { ...trip.uploads, [key]: upload }
-        const uploadCount = Object.keys(uploads).length
-        return { ...trip, uploads, status: uploadCount === 4 ? "Completado" : trip.status === "Completado" ? "Por documentar" : trip.status }
-      }),
+  const completed = selected ? Object.keys(selected.uploads).length : 0
+
+  const handleUpload = async (key: DocumentKey, file: File) => {
+    if (!selected) return;
+
+    try {
+      setUploading(true);
+      
+      // 1. Subir archivo a Storage
+      const fileExt = file.name.split('.').pop();
+      const fileName = `${selected.order_number}_${key}_${Date.now()}.${fileExt}`;
+      const filePath = `orders/${selected.id}/${fileName}`;
+
+      const { error: uploadError } = await supabase.storage
+        .from('pod-documents')
+        .upload(filePath, file);
+
+      if (uploadError) throw uploadError;
+
+      const { data: urlData } = supabase.storage
+        .from('pod-documents')
+        .getPublicUrl(filePath);
+
+      const publicUrl = urlData.publicUrl;
+
+      // 2. Actualizar la tabla documents
+      const updateData: any = { order_id: selected.id, updated_at: new Date().toISOString() };
+      
+      // Mapear la llave local al campo de la base de datos
+      if (key === 'emptyPod') updateData.pod_empty_url = publicUrl;
+      else if (key === 'completedPod') updateData.pod_final_url = publicUrl;
+      else if (key === 'loadEvidence') updateData.guide_url = publicUrl; // Usamos guide_url para la evidencia de carga temporalmente
+      else if (key === 'deliveryEvidence') updateData.invoice_url = publicUrl; // Usamos invoice_url para la descarga temporalmente
+
+      // Verificar si ya existe un registro
+      const { data: existingDoc } = await supabase.from('documents').select('id').eq('order_id', selected.id).maybeSingle();
+
+      let dbError;
+      if (existingDoc) {
+        const { error } = await supabase.from('documents').update(updateData).eq('id', existingDoc.id);
+        dbError = error;
+      } else {
+        const { error } = await supabase.from('documents').insert([updateData]);
+        dbError = error;
+      }
+
+      if (dbError) throw dbError;
+
+      // 3. Si se sube el POD Final, actualizar la orden a 'completed'
+      if (key === 'completedPod') {
+        await supabase.from('orders').update({ status: 'completed' }).eq('id', selected.id);
+      } else {
+        // Si no, al menos ponerla 'in_progress' si estaba pendiente
+        if (selected.status === 'pending') {
+            await supabase.from('orders').update({ status: 'in_progress' }).eq('id', selected.id);
+        }
+      }
+
+      setToast(`${file.name} se cargó correctamente`);
+      setTimeout(() => setToast(""), 2600);
+      
+      // Recargar datos
+      await fetchTrips();
+
+    } catch (err) {
+      console.error('Error uploading:', err);
+      setToast("❌ Error al subir el archivo");
+      setTimeout(() => setToast(""), 2600);
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  if (loading && trips.length === 0) {
+    return (
+      <div className="flex h-96 items-center justify-center">
+        <div className="text-center">
+          <div className="mx-auto h-10 w-10 animate-spin rounded-full border-4 border-slate-200 border-t-blue-600" />
+          <p className="mt-4 text-sm text-slate-500">Cargando viajes...</p>
+        </div>
+      </div>
     )
-    setToast(`${file.name} se cargó correctamente`)
-    window.setTimeout(() => setToast(""), 2600)
   }
 
   return (
@@ -250,8 +347,8 @@ export default function DriversModule() {
             <h1 className="mt-1 text-xl font-bold tracking-tight text-slate-950">Camioneros y evidencias</h1>
           </div>
           <div className="hidden items-center gap-2 rounded-lg bg-emerald-50 px-3 py-2 text-xs font-semibold text-emerald-700 sm:flex">
-            <span className="size-2 rounded-full bg-emerald-500" />
-            Sincronización activa
+            <span className={`size-2 rounded-full ${uploading ? 'bg-orange-500 animate-pulse' : 'bg-emerald-500'}`} />
+            {uploading ? 'Subiendo archivo...' : 'Sincronización activa'}
           </div>
         </div>
       </header>
@@ -259,9 +356,9 @@ export default function DriversModule() {
       <main className="mx-auto max-w-screen-2xl p-6">
         <section className="mb-5 grid gap-3 sm:grid-cols-3">
           {[
-            { label: "Viajes activos", value: "8", detail: "3 en ruta", icon: "truck" as IconName, tone: "text-blue-600 bg-blue-50" },
-            { label: "POD pendientes", value: "3", detail: "Requieren gestión", icon: "clock" as IconName, tone: "text-orange-600 bg-orange-50" },
-            { label: "Completados hoy", value: "12", detail: "96% a tiempo", icon: "check" as IconName, tone: "text-emerald-600 bg-emerald-50" },
+            { label: "Viajes activos", value: trips.length.toString(), detail: "En sistema", icon: "truck" as IconName, tone: "text-blue-600 bg-blue-50" },
+            { label: "POD pendientes", value: trips.filter(t => t.status !== 'Completado').length.toString(), detail: "Requieren gestión", icon: "clock" as IconName, tone: "text-orange-600 bg-orange-50" },
+            { label: "Completados", value: trips.filter(t => t.status === 'Completado').length.toString(), detail: "Listos", icon: "check" as IconName, tone: "text-emerald-600 bg-emerald-50" },
           ].map((metric) => (
             <article key={metric.label} className="flex items-center gap-4 rounded-xl border border-slate-200 bg-white p-4">
               <div className={`flex size-10 items-center justify-center rounded-lg ${metric.tone}`}><Icon name={metric.icon} className="size-5" /></div>
@@ -274,27 +371,27 @@ export default function DriversModule() {
           <aside className="overflow-hidden rounded-xl border border-slate-200 bg-white">
             <div className="border-b border-slate-200 p-4">
               <p className="font-bold text-slate-900">Viajes asignados</p>
-              <p className="mt-1 text-xs text-slate-500">{trips.length} empresas transportistas asignadas</p>
+              <p className="mt-1 text-xs text-slate-500">{trips.length} órdenes encontradas</p>
               <label className="mt-3 flex h-9 items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 text-slate-400 focus-within:border-navy-300 focus-within:bg-white">
                 <Icon name="search" />
-                <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Buscar OT o empresa" className="w-full bg-transparent text-xs text-slate-800 outline-none placeholder:text-slate-400" />
+                <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Buscar OT o cliente" className="w-full bg-transparent text-xs text-slate-800 outline-none placeholder:text-slate-400" />
               </label>
             </div>
             <div className="max-h-[650px] divide-y divide-slate-100 overflow-y-auto">
               {filteredTrips.map((trip) => {
-                const active = trip.id === selected.id
+                const active = trip.id === selected?.id
                 return (
                   <button key={trip.id} onClick={() => setSelectedId(trip.id)} className={`w-full p-4 text-left transition-colors ${active ? "bg-navy-50" : "hover:bg-slate-50"}`}>
                     <div className="flex items-start gap-3">
                       <div className={`flex size-9 shrink-0 items-center justify-center rounded-full text-xs font-bold ${active ? "bg-navy-500 text-white" : "bg-slate-100 text-slate-600"}`}>{trip.initials}</div>
                       <div className="min-w-0 flex-1">
-                        <p className="text-[9px] font-bold uppercase tracking-wider text-slate-400">Empresa transportista</p>
+                        <p className="text-[9px] font-bold uppercase tracking-wider text-slate-400">Cliente</p>
                         <p className="mt-0.5 truncate text-sm font-bold text-slate-900">{trip.company}</p>
                         <div className="mt-2 flex items-center justify-between gap-2">
                           <Status value={trip.status} />
-                          <span className="text-[10px] font-semibold text-slate-400">{trip.order}</span>
+                          <span className="text-[10px] font-semibold text-slate-400">{trip.order_number}</span>
                         </div>
-                        <p className="mt-2 truncate text-[11px] text-slate-500">{trip.driver} · {trip.route}</p>
+                        <p className="mt-2 truncate text-[11px] text-slate-500">{trip.route}</p>
                         <p className="mt-1 text-[10px] text-slate-400">{Object.keys(trip.uploads).length}/4 documentos cargados</p>
                       </div>
                     </div>
@@ -304,7 +401,7 @@ export default function DriversModule() {
               {filteredTrips.length === 0 && (
                 <div className="px-5 py-10 text-center">
                   <div className="mx-auto flex size-10 items-center justify-center rounded-full bg-slate-100 text-slate-400"><Icon name="truck" /></div>
-                  <p className="mt-3 text-xs font-semibold text-slate-700">No hay empresas asignadas</p>
+                  <p className="mt-3 text-xs font-semibold text-slate-700">No hay viajes asignados</p>
                   <p className="mt-1 text-[11px] text-slate-400">Prueba con otra búsqueda.</p>
                 </div>
               )}
@@ -312,43 +409,51 @@ export default function DriversModule() {
           </aside>
 
           <section className="min-w-0 space-y-5">
-            <article className="overflow-hidden rounded-xl border border-slate-200 bg-white">
-              <div className="bg-navy-800 p-5 text-white">
-                <div className="flex flex-wrap items-start justify-between gap-4">
-                  <div className="flex items-center gap-3">
-                    <div className="flex size-11 items-center justify-center rounded-full bg-white/10 text-sm font-bold">{selected.initials}</div>
-                    <div><p className="text-base font-bold">{selected.company}</p><p className="mt-0.5 text-xs text-blue-200">{selected.driver} · {selected.truck}</p></div>
+            {selected ? (
+              <>
+                <article className="overflow-hidden rounded-xl border border-slate-200 bg-white">
+                  <div className="bg-navy-800 p-5 text-white">
+                    <div className="flex flex-wrap items-start justify-between gap-4">
+                      <div className="flex items-center gap-3">
+                        <div className="flex size-11 items-center justify-center rounded-full bg-white/10 text-sm font-bold">{selected.initials}</div>
+                        <div><p className="text-base font-bold">{selected.company}</p><p className="mt-0.5 text-xs text-blue-200">{selected.driver} · {selected.truck}</p></div>
+                      </div>
+                      <div className="rounded-lg bg-white/10 px-3 py-2 text-right"><p className="text-[10px] uppercase tracking-wider text-blue-200">Orden de transporte</p><p className="mt-0.5 text-sm font-bold">{selected.order_number}</p></div>
+                    </div>
                   </div>
-                  <div className="rounded-lg bg-white/10 px-3 py-2 text-right"><p className="text-[10px] uppercase tracking-wider text-blue-200">Orden de transporte</p><p className="mt-0.5 text-sm font-bold">{selected.order}</p></div>
-                </div>
-              </div>
-              <div className="grid gap-4 p-5 sm:grid-cols-[1fr_auto_1fr] sm:items-center">
-                <div><p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Retiro</p><p className="mt-1 text-sm font-semibold text-slate-900">{selected.origin}</p></div>
-                <div className="hidden items-center gap-2 text-slate-300 sm:flex"><span className="h-px w-8 bg-slate-200" /><Icon name="arrow" /><span className="h-px w-8 bg-slate-200" /></div>
-                <div className="sm:text-right"><p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Entrega · {selected.appointment}</p><p className="mt-1 text-sm font-semibold text-slate-900">{selected.destination}</p></div>
-              </div>
-            </article>
+                  <div className="grid gap-4 p-5 sm:grid-cols-[1fr_auto_1fr] sm:items-center">
+                    <div><p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Retiro</p><p className="mt-1 text-sm font-semibold text-slate-900">{selected.origin}</p></div>
+                    <div className="hidden items-center gap-2 text-slate-300 sm:flex"><span className="h-px w-8 bg-slate-200" /><Icon name="arrow" /><span className="h-px w-8 bg-slate-200" /></div>
+                    <div className="sm:text-right"><p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Entrega · {selected.appointment}</p><p className="mt-1 text-sm font-semibold text-slate-900">{selected.destination}</p></div>
+                  </div>
+                </article>
 
-            <article className="rounded-xl border border-slate-200 bg-white p-5">
-              <div className="flex flex-wrap items-start justify-between gap-4">
-                <div><p className="text-base font-bold text-slate-950">Expediente de entrega</p><p className="mt-1 text-xs text-slate-500">Carga los documentos y fotografías requeridos para cerrar la orden.</p></div>
-                <div className="min-w-40">
-                  <div className="flex justify-between text-[11px] font-semibold"><span className="text-slate-500">Progreso</span><span className={completed === 4 ? "text-emerald-600" : "text-navy-600"}>{completed} de 4</span></div>
-                  <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-slate-100"><div className={`h-full rounded-full ${completed === 4 ? "bg-emerald-500" : "bg-navy-500"}`} style={{ width: `${completed * 25}%` }} /></div>
-                </div>
+                <article className="rounded-xl border border-slate-200 bg-white p-5">
+                  <div className="flex flex-wrap items-start justify-between gap-4">
+                    <div><p className="text-base font-bold text-slate-950">Expediente de entrega</p><p className="mt-1 text-xs text-slate-500">Carga los documentos y fotografías requeridos para cerrar la orden.</p></div>
+                    <div className="min-w-40">
+                      <div className="flex justify-between text-[11px] font-semibold"><span className="text-slate-500">Progreso</span><span className={completed === 4 ? "text-emerald-600" : "text-navy-600"}>{completed} de 4</span></div>
+                      <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-slate-100"><div className={`h-full rounded-full ${completed === 4 ? "bg-emerald-500" : "bg-navy-500"}`} style={{ width: `${completed * 25}%` }} /></div>
+                    </div>
+                  </div>
+                  <div className="mt-5 grid gap-4 lg:grid-cols-2">
+                    {uploadDefinitions.map((definition) => (
+                      <UploadCard key={definition.key} definition={definition} value={selected.uploads[definition.key]} onUpload={(file) => handleUpload(definition.key, file)} />
+                    ))}
+                  </div>
+                  {completed === 4 && (
+                    <div className="mt-4 flex items-center gap-3 rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-emerald-800">
+                      <div className="flex size-8 shrink-0 items-center justify-center rounded-full bg-emerald-100"><Icon name="check" /></div>
+                      <div><p className="text-xs font-bold">Expediente completo</p><p className="mt-0.5 text-[11px] text-emerald-700">La orden está lista para revisión y cierre administrativo.</p></div>
+                    </div>
+                  )}
+                </article>
+              </>
+            ) : (
+              <div className="flex h-64 items-center justify-center rounded-xl border border-dashed border-slate-300 bg-slate-50">
+                <p className="text-sm text-slate-500">Selecciona un viaje de la lista para ver los documentos.</p>
               </div>
-              <div className="mt-5 grid gap-4 lg:grid-cols-2">
-                {uploadDefinitions.map((definition) => (
-                  <UploadCard key={definition.key} definition={definition} value={selected.uploads[definition.key]} onUpload={(file) => handleUpload(definition.key, file)} />
-                ))}
-              </div>
-              {completed === 4 && (
-                <div className="mt-4 flex items-center gap-3 rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-emerald-800">
-                  <div className="flex size-8 shrink-0 items-center justify-center rounded-full bg-emerald-100"><Icon name="check" /></div>
-                  <div><p className="text-xs font-bold">Expediente completo</p><p className="mt-0.5 text-[11px] text-emerald-700">La orden está lista para revisión y cierre administrativo.</p></div>
-                </div>
-              )}
-            </article>
+            )}
           </section>
         </div>
       </main>

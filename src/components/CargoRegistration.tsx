@@ -153,6 +153,7 @@ export default function CargoRegistration() {
   const [clients, setClients] = useState<Client[]>([]);
   const [loadingClients, setLoadingClients] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [savingDraft, setSavingDraft] = useState(false);
   const [success, setSuccess] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -249,56 +250,46 @@ export default function CargoRegistration() {
   const subTotal = subBase + margin20;
 
   // ─── GUARDAR EN SUPABASE ──────────────────────────────────────────────
-  const handle = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setSaving(true);
+  const saveOrder = async (status: 'pending' | 'draft') => {
     setError(null);
     setSuccess(false);
+    
+    // Validaciones solo si NO es borrador
+    if (status === 'pending') {
+      if (!f.clientId) throw new Error('Por favor selecciona un cliente');
+      if (!f.origin || !f.destination) throw new Error('Por favor selecciona origen y destino');
+      if (!f.qty || parseInt(f.qty) <= 0) throw new Error('Por favor ingresa la cantidad de bultos');
+      if (!f.kg || parseFloat(f.kg) <= 0) throw new Error('Por favor ingresa el peso total');
+    }
 
     try {
-      if (!f.clientId) {
-        throw new Error('Por favor selecciona un cliente');
-      }
-      if (!f.origin || !f.destination) {
-        throw new Error('Por favor selecciona origen y destino');
-      }
-      if (!f.qty || parseInt(f.qty) <= 0) {
-        throw new Error('Por favor ingresa la cantidad de bultos');
-      }
-      if (!f.kg || parseFloat(f.kg) <= 0) {
-        throw new Error('Por favor ingresa el peso total');
-      }
-
-      // ✅ OBTENER EL USUARIO ACTUAL
       const { data: { session } } = await supabase.auth.getSession();
 
-      // 2. Construir el objeto de la orden
+      // Construir el objeto de la orden (usando valores por defecto si es borrador)
       const orderData = {
         order_number: `OT-${Date.now()}`,
-        client_id: f.clientId,
+        client_id: f.clientId || null, // Permitimos nulo en borrador
         client_contact: f.contact || null,
-        service_type: `${f.origin}/${f.destination}`,
+        service_type: `${f.origin || 'Sin origen'}/${f.destination || 'Sin destino'}`,
         service_date: new Date().toISOString().split('T')[0],
         quantity: parseInt(f.qty) || 0,
-        package_type: f.pkg,
+        package_type: f.pkg || null,
         weight_kg: parseFloat(f.kg) || 0,
-        volume_cbm: vol * qty || 0,
+        volume_cbm: (vol * qty) || 0,
         container_number: null,
         description: f.notes || null,
-        origin: f.origin,
-        destination: f.destination,
+        origin: f.origin || null,
+        destination: f.destination || null,
         is_inside_triangle: true,
-        sold_value: f.mode === 'propia' ? revenue : subTotal,
-        purchased_value: f.mode === 'sub' ? subBase : 0,
-        profit: f.mode === 'propia' ? grossMargin : margin20,
-        status: 'pending',
+        sold_value: f.mode === 'propia' ? (revenue || 0) : (subTotal || 0),
+        purchased_value: f.mode === 'sub' ? (subBase || 0) : 0,
+        profit: f.mode === 'propia' ? (grossMargin || 0) : (margin20 || 0),
+        status: status, // ✅ 'pending' o 'draft'
         priority: f.priority,
-        // ✅ NUEVO: Guardar quién creó la orden
         created_by: session?.user?.id || null,
       };
 
-      console.log('📝 Datos a guardar:', orderData);
-      console.log('👤 Creado por:', session?.user?.email || 'Usuario desconocido');
+      console.log(`📝 Guardando orden como ${status}:`, orderData);
 
       const { data, error } = await supabase
         .from('orders')
@@ -310,33 +301,37 @@ export default function CargoRegistration() {
       console.log('✅ Orden creada:', data);
       setSuccess(true);
       
+      // Limpiar formulario
       setF({
-        clientId: '',
-        clientCode: '',
-        contact: '',
-        origin: '',
-        destination: '',
-        routeIdx: 0,
-        truckIdx: 0,
-        pkg: 'Cajas',
-        qty: '',
-        kg: '',
-        l: '',
-        a: '',
-        h: '',
-        mode: 'propia',
-        subCost: '',
-        notes: '',
-        priority: 'normal',
+        clientId: '', clientCode: '', contact: '', origin: '', destination: '',
+        routeIdx: 0, truckIdx: 0, pkg: 'Cajas', qty: '', kg: '', l: '', a: '', h: '',
+        mode: 'propia', subCost: '', notes: '', priority: 'normal',
       });
 
       setTimeout(() => setSuccess(false), 5000);
 
     } catch (err) {
-      console.error('❌ Error al guardar:', err);
+      console.error(`❌ Error al guardar como ${status}:`, err);
       setError(err instanceof Error ? err.message : 'Error al guardar la orden');
+    }
+  };
+
+  const handle = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSaving(true);
+    try {
+      await saveOrder('pending');
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleSaveDraft = async () => {
+    setSavingDraft(true);
+    try {
+      await saveOrder('draft');
+    } finally {
+      setSavingDraft(false);
     }
   };
 
@@ -412,7 +407,7 @@ export default function CargoRegistration() {
                         set('clientId', clientId);
                         set('clientCode', client?.code || '');
                       }}
-                      required
+                      required={!savingDraft}
                     >
                       <option value="">Seleccionar cliente...</option>
                       {loadingClients ? (
@@ -468,7 +463,7 @@ export default function CargoRegistration() {
                           set('destination', '');
                         }
                       }} 
-                      required
+                      required={!savingDraft}
                     >
                       <option value="">Seleccionar ciudad...</option>
                       {CITIES.map(c => <option key={c} value={c}>{c}</option>)}
@@ -480,7 +475,7 @@ export default function CargoRegistration() {
                       className={inp} 
                       value={f.destination} 
                       onChange={e => set('destination', e.target.value)} 
-                      required
+                      required={!savingDraft}
                     >
                       <option value="">Seleccionar ciudad...</option>
                       {CITIES
@@ -546,12 +541,12 @@ export default function CargoRegistration() {
                   </div>
                   <div>
                     <Lbl req>Cantidad (unidades)</Lbl>
-                    <input type="number" min="1" className={inp} placeholder="0" value={f.qty} onChange={e => set('qty', e.target.value)} required />
+                    <input type="number" min="1" className={inp} placeholder="0" value={f.qty} onChange={e => set('qty', e.target.value)} required={!savingDraft} />
                   </div>
                   <div>
                     <Lbl req>Peso total (kg)</Lbl>
                     <div className="relative">
-                      <input type="number" min="1" className={inp + (overweight && f.kg ? ' border-red-300 focus:border-red-400 focus:ring-red-300/30' : '')} placeholder="0" value={f.kg} onChange={e => set('kg', e.target.value)} required />
+                      <input type="number" min="1" className={inp + (overweight && f.kg ? ' border-red-300 focus:border-red-400 focus:ring-red-300/30' : '')} placeholder="0" value={f.kg} onChange={e => set('kg', e.target.value)} required={!savingDraft} />
                       <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] text-slate-400 font-mono">kg</span>
                     </div>
                     {overweight && f.kg && (
@@ -725,17 +720,19 @@ export default function CargoRegistration() {
                   <div className="px-5 pb-5 space-y-2">
                     <button
                       type="submit"
-                      disabled={saving}
+                      disabled={saving || savingDraft}
                       className="w-full py-2.5 rounded-xl text-[13px] font-bold text-white transition-all hover:opacity-90 active:scale-[0.98] disabled:opacity-50"
                       style={{ background: 'linear-gradient(135deg,#163358,#2558a0)' }}
                     >
-                      {saving ? '⏳ Guardando...' : '💾 Registrar OT y Cotizar'}
+                      {saving ? '⏳ Registrando...' : '💾 Registrar OT y Cotizar'}
                     </button>
                     <button
                       type="button"
-                      className="w-full py-2 rounded-xl text-[12px] font-semibold text-slate-600 border border-slate-200 bg-white hover:bg-slate-50 transition-colors"
+                      onClick={handleSaveDraft}
+                      disabled={saving || savingDraft}
+                      className="w-full py-2 rounded-xl text-[12px] font-semibold text-slate-600 border border-slate-200 bg-white hover:bg-slate-50 transition-colors disabled:opacity-50"
                     >
-                      Guardar borrador
+                      {savingDraft ? '⏳ Guardando borrador...' : 'Guardar borrador'}
                     </button>
                     <button
                       type="button"
