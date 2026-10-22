@@ -135,6 +135,19 @@ function AppContent() {
 
       console.log('✅ Usuario encontrado:', userData);
 
+      // ✅ MANEJO ESPECIAL PARA CAMIONEROS (DRIVERS)
+      if (userData.role === 'driver') {
+        console.log('🚛 Usuario identificado como Chofer');
+        return {
+          authorized: true,
+          role: 'driver',
+          permissions: {
+            ...defaultPermissions,
+            can_view_camioneros: true, // Solo le damos acceso a esta vista
+          }
+        };
+      }
+
       const { data: permissionsData, error: permError } = await supabase
         .from('role_permissions')
         .select('*')

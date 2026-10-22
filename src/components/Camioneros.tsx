@@ -1,21 +1,8 @@
-// components/Camioneros.tsx
+// src/components/Camioneros.tsx
 import { useMemo, useRef, useState, useEffect } from "react"
 import { supabase } from "../lib/supabase"
 
-/* ─── Iconos ─────────────────────────────────────────────────────────────────── */
-
-type IconName =
-  | "arrow"
-  | "camera"
-  | "check"
-  | "clock"
-  | "document"
-  | "download"
-  | "map"
-  | "search"
-  | "truck"
-  | "upload"
-  | "user"
+type IconName = "arrow" | "camera" | "check" | "clock" | "document" | "download" | "map" | "search" | "truck" | "upload" | "user"
 
 const paths: Record<IconName, string[]> = {
   arrow: ["M5 12h14", "m13 6 6 6-6 6"],
@@ -34,42 +21,16 @@ const paths: Record<IconName, string[]> = {
 function Icon({ name, className = "size-4" }: { name: IconName; className?: string }) {
   return (
     <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
-      {paths[name].map((path, index) => (
-        <path key={index} d={path} strokeLinecap="round" strokeLinejoin="round" />
-      ))}
+      {paths[name].map((path, index) => <path key={index} d={path} strokeLinecap="round" strokeLinejoin="round" />)}
     </svg>
   )
 }
 
-/* ─── Tipos ──────────────────────────────────────────────────────────────────── */
-
 type DocumentKey = "emptyPod" | "loadEvidence" | "completedPod" | "deliveryEvidence"
-
-interface UploadValue {
-    name: string
-    url: string
-    type: string
-}
-
-interface OrderDocumentStatus {
-    pod_empty_url: string | null
-    pod_final_url: string | null
-    guide_url: string | null
-    invoice_url: string | null
-}
-
+interface UploadValue { name: string; url: string; type: string }
 interface Trip {
-  id: string
-  order_number: string
-  company: string
-  driver: string
-  initials: string
-  truck: string
-  route: string
-  origin: string
-  destination: string
-  appointment: string
-  status: "En carga" | "En tránsito" | "Por documentar" | "Completado" | "pending" | "in_progress" | "completed" | string
+  id: string; order_number: string; company: string; driver: string; initials: string; truck: string; route: string;
+  origin: string; destination: string; appointment: string; status: string;
   uploads: Partial<Record<DocumentKey, UploadValue>>
 }
 
@@ -80,37 +41,27 @@ const uploadDefinitions: { key: DocumentKey; step: number; title: string; descri
   { key: "deliveryEvidence", step: 4, title: "Evidencia de descarga", description: "Foto de la mercadería descargada en el lugar de entrega.", accept: "image/*", icon: "camera", phase: "En destino" },
 ]
 
-// Mapeo de estados de la base de datos a visuales
-const getStatusLabel = (status: string): Trip["status"] => {
+const getStatusLabel = (status: string) => {
     if (status === 'completed') return 'Completado';
     if (status === 'in_progress') return 'En tránsito';
     if (status === 'pending') return 'En carga';
-    return status as Trip["status"];
+    return status;
 }
 
 const statusStyles: Record<string, string> = {
   "En carga": "bg-orange-50 text-orange-700 ring-orange-200",
   "En tránsito": "bg-blue-50 text-blue-700 ring-blue-200",
-  "Por documentar": "bg-red-50 text-red-700 ring-red-200",
   "Completado": "bg-emerald-50 text-emerald-700 ring-emerald-200",
   "pending": "bg-orange-50 text-orange-700 ring-orange-200",
   "in_progress": "bg-blue-50 text-blue-700 ring-blue-200",
   "completed": "bg-emerald-50 text-emerald-700 ring-emerald-200",
 }
 
-function Status({ value }: { value: Trip["status"] }) {
+function Status({ value }: { value: string }) {
   return <span className={`rounded-full px-2.5 py-1 text-[11px] font-semibold ring-1 ring-inset ${statusStyles[value] || "bg-slate-50 text-slate-700 ring-slate-200"}`}>{value}</span>
 }
 
-function UploadCard({
-  definition,
-  value,
-  onUpload,
-}: {
-  definition: (typeof uploadDefinitions)[number]
-  value?: UploadValue
-  onUpload: (file: File) => void
-}) {
+function UploadCard({ definition, value, onUpload }: { definition: (typeof uploadDefinitions)[number]; value?: UploadValue; onUpload: (file: File) => void }) {
   const inputRef = useRef<HTMLInputElement>(null)
   const isImage = value?.type.startsWith("image/")
 
@@ -123,10 +74,7 @@ function UploadCard({
         </div>
         <div className="min-w-0 flex-1">
           <div className="flex items-center justify-between gap-3">
-            <div>
-              <p className="text-[10px] font-bold uppercase tracking-wider text-navy-500">Paso {definition.step}</p>
-              <p className="mt-0.5 font-semibold text-slate-900">{definition.title}</p>
-            </div>
+            <div><p className="text-[10px] font-bold uppercase tracking-wider text-navy-500">Paso {definition.step}</p><p className="mt-0.5 font-semibold text-slate-900">{definition.title}</p></div>
             <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">{definition.phase}</span>
           </div>
           <p className="mt-1 text-xs leading-5 text-slate-500">{definition.description}</p>
@@ -139,31 +87,16 @@ function UploadCard({
           <div className="flex items-center gap-2 p-3">
             <Icon name={isImage ? "camera" : "document"} className="size-4 shrink-0 text-emerald-600" />
             <span className="min-w-0 flex-1 truncate text-xs font-medium text-slate-700">{value.name}</span>
-            {value.url && (
-              <a href={value.url} download={value.name} className="rounded-md p-1.5 text-slate-400 hover:bg-white hover:text-navy-600" title="Descargar archivo">
-                <Icon name="download" />
-              </a>
-            )}
+            {value.url && <a href={value.url} download={value.name} className="rounded-md p-1.5 text-slate-400 hover:bg-white hover:text-navy-600" title="Descargar archivo"><Icon name="download" /></a>}
             <button onClick={() => inputRef.current?.click()} className="text-xs font-semibold text-navy-500 hover:text-navy-700">Reemplazar</button>
           </div>
         </div>
       ) : (
         <button onClick={() => inputRef.current?.click()} className="mx-4 mb-4 flex w-[calc(100%-2rem)] items-center justify-center gap-2 rounded-lg border border-dashed border-slate-300 bg-slate-50 py-4 text-xs font-semibold text-slate-600 transition-colors hover:border-navy-300 hover:bg-navy-50 hover:text-navy-600">
-          <Icon name="upload" />
-          Seleccionar archivo
+          <Icon name="upload" /> Seleccionar archivo
         </button>
       )}
-      <input
-        ref={inputRef}
-        type="file"
-        accept={definition.accept}
-        className="hidden"
-        onChange={(event) => {
-          const file = event.target.files?.[0]
-          if (file) onUpload(file)
-          event.target.value = ""
-        }}
-      />
+      <input ref={inputRef} type="file" accept={definition.accept} className="hidden" onChange={(event) => { const file = event.target.files?.[0]; if (file) onUpload(file); event.target.value = ""; }} />
     </article>
   )
 }
@@ -175,78 +108,97 @@ export default function CamionerosModule() {
   const [search, setSearch] = useState("")
   const [toast, setToast] = useState("")
   const [uploading, setUploading] = useState(false)
+  const [userEmail, setUserEmail] = useState<string | null>(null)
 
   useEffect(() => {
-    fetchTrips()
+    initModule();
   }, [])
 
-  async function fetchTrips() {
+  async function initModule() {
     try {
-      setLoading(true)
-      // Traemos las órdenes y sus documentos asociados
-      const { data, error } = await supabase
+      setLoading(true);
+      
+      // 1. Obtener el email y rol del usuario logueado
+      const { data: { session } } = await supabase.auth.getSession();
+      const email = session?.user?.email || null;
+      setUserEmail(email);
+
+      // 2. Verificar el rol en authorized_users
+      let isDriver = false;
+      let driverId = null;
+
+      if (email) {
+        const { data: authData } = await supabase
+          .from('authorized_users')
+          .select('role')
+          .eq('email', email)
+          .single();
+        
+        if (authData?.role === 'driver') {
+          isDriver = true;
+        }
+
+        // 3. Si es chofer, obtener su ID de la tabla drivers
+        if (isDriver) {
+          const { data: driverData } = await supabase
+            .from('drivers')
+            .select('id')
+            .eq('email', email)
+            .maybeSingle();
+          
+          if (driverData) {
+            driverId = driverData.id;
+          }
+        }
+      }
+
+      // 4. Traer las órdenes
+      let query = supabase
         .from('orders')
         .select(`
-          id,
-          order_number,
-          origin,
-          destination,
-          service_date,
-          status,
+          id, order_number, origin, destination, service_date, status,
           client:clients (name),
-          documents (
-            pod_empty_url,
-            pod_final_url,
-            guide_url,
-            invoice_url
-          )
+          documents (pod_empty_url, pod_final_url, load_evidence_url, delivery_evidence_url)
         `)
-        .order('created_at', { ascending: false })
+        .order('created_at', { ascending: false });
 
-      if (error) throw error
+      // ✅ FILTRO: Si es un chofer, solo traemos sus viajes. Si es admin, todos.
+      if (isDriver && driverId) {
+        query = query.eq('driver_id', driverId);
+      }
 
+      const { data, error } = await query;
+      if (error) throw error;
+
+      // 5. Mapear los datos a la interfaz
       const mappedTrips: Trip[] = (data || []).map((order: any) => {
         const doc = Array.isArray(order.documents) ? order.documents[0] : order.documents;
-        
         const uploads: Partial<Record<DocumentKey, UploadValue>> = {};
         
-        if (doc?.pod_empty_url) {
-            uploads.emptyPod = { name: "POD Vacío (Ver)", url: doc.pod_empty_url, type: "application/pdf" };
-        }
-        if (doc?.pod_final_url) {
-            uploads.completedPod = { name: "POD Final (Ver)", url: doc.pod_final_url, type: "application/pdf" };
-        }
+        if (doc?.pod_empty_url) uploads.emptyPod = { name: "POD Vacío", url: doc.pod_empty_url, type: "application/pdf" };
+        if (doc?.load_evidence_url) uploads.loadEvidence = { name: "Evidencia Carga", url: doc.load_evidence_url, type: "image/jpeg" };
+        if (doc?.pod_final_url) uploads.completedPod = { name: "POD Final", url: doc.pod_final_url, type: "application/pdf" };
+        if (doc?.delivery_evidence_url) uploads.deliveryEvidence = { name: "Evidencia Descarga", url: doc.delivery_evidence_url, type: "image/jpeg" };
 
         return {
-          id: order.id,
-          order_number: order.order_number,
-          company: order.client?.name || "Cliente no asignado",
-          driver: "Chofer Asignado", // Aquí podrías cruzar con la tabla drivers si tuvieras el ID
-          initials: (order.client?.name || "XX").substring(0, 2).toUpperCase(),
-          truck: "Unidad VTM",
-          route: `${order.origin} → ${order.destination}`,
-          origin: order.origin,
-          destination: order.destination,
-          appointment: new Date(order.service_date).toLocaleDateString('es-CL'),
-          status: getStatusLabel(order.status),
-          uploads
+          id: order.id, order_number: order.order_number, company: order.client?.name || "Cliente no asignado",
+          driver: "Chofer Asignado", initials: (order.client?.name || "XX").substring(0, 2).toUpperCase(),
+          truck: "Unidad VTM", route: `${order.origin} → ${order.destination}`, origin: order.origin, destination: order.destination,
+          appointment: new Date(order.service_date).toLocaleDateString('es-CL'), status: getStatusLabel(order.status), uploads
         }
-      })
+      });
 
-      setTrips(mappedTrips)
-      if (mappedTrips.length > 0 && !selectedId) {
-        setSelectedId(mappedTrips[0].id)
-      }
+      setTrips(mappedTrips);
+      if (mappedTrips.length > 0 && !selectedId) setSelectedId(mappedTrips[0].id);
     } catch (err) {
-      console.error('Error fetching trips:', err)
-      setToast("❌ Error al cargar los viajes")
+      console.error('Error fetching trips:', err);
+      setToast("❌ Error al cargar los viajes");
     } finally {
-      setLoading(false)
+      setLoading(false);
     }
   }
 
   const selected = trips.find((trip) => trip.id === selectedId) || null
-
   const filteredTrips = useMemo(() => {
     const query = search.toLowerCase()
     return trips.filter((trip) => [trip.order_number, trip.company, trip.driver, trip.route].join(" ").toLowerCase().includes(query))
@@ -256,37 +208,26 @@ export default function CamionerosModule() {
 
   const handleUpload = async (key: DocumentKey, file: File) => {
     if (!selected) return;
-
     try {
       setUploading(true);
       
-      // 1. Subir archivo a Storage
       const fileExt = file.name.split('.').pop();
       const fileName = `${selected.order_number}_${key}_${Date.now()}.${fileExt}`;
       const filePath = `orders/${selected.id}/${fileName}`;
 
-      const { error: uploadError } = await supabase.storage
-        .from('pod-documents')
-        .upload(filePath, file);
-
+      const { error: uploadError } = await supabase.storage.from('pod-documents').upload(filePath, file);
       if (uploadError) throw uploadError;
 
-      const { data: urlData } = supabase.storage
-        .from('pod-documents')
-        .getPublicUrl(filePath);
-
+      const { data: urlData } = supabase.storage.from('pod-documents').getPublicUrl(filePath);
       const publicUrl = urlData.publicUrl;
 
-      // 2. Actualizar la tabla documents
       const updateData: any = { order_id: selected.id, updated_at: new Date().toISOString() };
       
-      // Mapear la llave local al campo de la base de datos
       if (key === 'emptyPod') updateData.pod_empty_url = publicUrl;
+      else if (key === 'loadEvidence') updateData.load_evidence_url = publicUrl;
       else if (key === 'completedPod') updateData.pod_final_url = publicUrl;
-      else if (key === 'loadEvidence') updateData.guide_url = publicUrl; // Usamos guide_url para la evidencia de carga temporalmente
-      else if (key === 'deliveryEvidence') updateData.invoice_url = publicUrl; // Usamos invoice_url para la descarga temporalmente
+      else if (key === 'deliveryEvidence') updateData.delivery_evidence_url = publicUrl;
 
-      // Verificar si ya existe un registro
       const { data: existingDoc } = await supabase.from('documents').select('id').eq('order_id', selected.id).maybeSingle();
 
       let dbError;
@@ -297,32 +238,24 @@ export default function CamionerosModule() {
         const { error } = await supabase.from('documents').insert([updateData]);
         dbError = error;
       }
-
       if (dbError) throw dbError;
 
-      // 3. Si se sube el POD Final, actualizar la orden a 'completed'
-      if (key === 'completedPod') {
+      // Si ya subió las 4 cosas, marcamos la orden como completada automáticamente
+      const newUploadsCount = Object.keys(selected.uploads).length + 1;
+      if (key === 'completedPod' || newUploadsCount === 4) {
         await supabase.from('orders').update({ status: 'completed' }).eq('id', selected.id);
-      } else {
-        // Si no, al menos ponerla 'in_progress' si estaba pendiente
-        if (selected.status === 'pending') {
-            await supabase.from('orders').update({ status: 'in_progress' }).eq('id', selected.id);
-        }
+      } else if (selected.status === 'pending') {
+        await supabase.from('orders').update({ status: 'in_progress' }).eq('id', selected.id);
       }
 
       setToast(`${file.name} se cargó correctamente`);
       setTimeout(() => setToast(""), 2600);
-      
-      // Recargar datos
-      await fetchTrips();
-
+      await initModule(); // Recargar la lista
     } catch (err) {
-      console.error('Error uploading:', err);
+      console.error(err);
       setToast("❌ Error al subir el archivo");
       setTimeout(() => setToast(""), 2600);
-    } finally {
-      setUploading(false);
-    }
+    } finally { setUploading(false); }
   };
 
   if (loading && trips.length === 0) {
@@ -330,7 +263,7 @@ export default function CamionerosModule() {
       <div className="flex h-96 items-center justify-center">
         <div className="text-center">
           <div className="mx-auto h-10 w-10 animate-spin rounded-full border-4 border-slate-200 border-t-blue-600" />
-          <p className="mt-4 text-sm text-slate-500">Cargando viajes...</p>
+          <p className="mt-4 text-sm text-slate-500">Cargando tus viajes...</p>
         </div>
       </div>
     )
@@ -341,10 +274,8 @@ export default function CamionerosModule() {
       <header className="sticky top-0 z-20 border-b border-slate-200 bg-white/95 px-6 py-4 backdrop-blur">
         <div className="mx-auto flex max-w-screen-2xl items-center justify-between gap-4">
           <div>
-            <div className="flex items-center gap-2 text-xs font-semibold text-navy-500">
-              <span>Operaciones</span><span className="text-slate-300">/</span><span>Última milla</span>
-            </div>
-            <h1 className="mt-1 text-xl font-bold tracking-tight text-slate-950">Camioneros y evidencias</h1>
+            <div className="flex items-center gap-2 text-xs font-semibold text-navy-500"><span>Operaciones</span><span className="text-slate-300">/</span><span>Última milla</span></div>
+            <h1 className="mt-1 text-xl font-bold tracking-tight text-slate-950">Mis Viajes Asignados</h1>
           </div>
           <div className="hidden items-center gap-2 rounded-lg bg-emerald-50 px-3 py-2 text-xs font-semibold text-emerald-700 sm:flex">
             <span className={`size-2 rounded-full ${uploading ? 'bg-orange-500 animate-pulse' : 'bg-emerald-500'}`} />
@@ -354,24 +285,10 @@ export default function CamionerosModule() {
       </header>
 
       <main className="mx-auto max-w-screen-2xl p-6">
-        <section className="mb-5 grid gap-3 sm:grid-cols-3">
-          {[
-            { label: "Viajes activos", value: trips.length.toString(), detail: "En sistema", icon: "truck" as IconName, tone: "text-blue-600 bg-blue-50" },
-            { label: "POD pendientes", value: trips.filter(t => t.status !== 'Completado').length.toString(), detail: "Requieren gestión", icon: "clock" as IconName, tone: "text-orange-600 bg-orange-50" },
-            { label: "Completados", value: trips.filter(t => t.status === 'Completado').length.toString(), detail: "Listos", icon: "check" as IconName, tone: "text-emerald-600 bg-emerald-50" },
-          ].map((metric) => (
-            <article key={metric.label} className="flex items-center gap-4 rounded-xl border border-slate-200 bg-white p-4">
-              <div className={`flex size-10 items-center justify-center rounded-lg ${metric.tone}`}><Icon name={metric.icon} className="size-5" /></div>
-              <div><p className="text-xs font-medium text-slate-500">{metric.label}</p><div className="mt-0.5 flex items-baseline gap-2"><strong className="text-xl text-slate-950">{metric.value}</strong><span className="text-[11px] text-slate-400">{metric.detail}</span></div></div>
-            </article>
-          ))}
-        </section>
-
         <div className="grid gap-5 xl:grid-cols-[320px_minmax(0,1fr)]">
           <aside className="overflow-hidden rounded-xl border border-slate-200 bg-white">
             <div className="border-b border-slate-200 p-4">
-              <p className="font-bold text-slate-900">Viajes asignados</p>
-              <p className="mt-1 text-xs text-slate-500">{trips.length} órdenes encontradas</p>
+              <p className="font-bold text-slate-900">Viajes disponibles</p>
               <label className="mt-3 flex h-9 items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 text-slate-400 focus-within:border-navy-300 focus-within:bg-white">
                 <Icon name="search" />
                 <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Buscar OT o cliente" className="w-full bg-transparent text-xs text-slate-800 outline-none placeholder:text-slate-400" />
@@ -401,7 +318,7 @@ export default function CamionerosModule() {
               {filteredTrips.length === 0 && (
                 <div className="px-5 py-10 text-center">
                   <div className="mx-auto flex size-10 items-center justify-center rounded-full bg-slate-100 text-slate-400"><Icon name="truck" /></div>
-                  <p className="mt-3 text-xs font-semibold text-slate-700">No hay viajes asignados</p>
+                  <p className="mt-3 text-xs font-semibold text-slate-700">No tienes viajes asignados</p>
                   <p className="mt-1 text-[11px] text-slate-400">Prueba con otra búsqueda.</p>
                 </div>
               )}
@@ -437,9 +354,7 @@ export default function CamionerosModule() {
                     </div>
                   </div>
                   <div className="mt-5 grid gap-4 lg:grid-cols-2">
-                    {uploadDefinitions.map((definition) => (
-                      <UploadCard key={definition.key} definition={definition} value={selected.uploads[definition.key]} onUpload={(file) => handleUpload(definition.key, file)} />
-                    ))}
+                    {uploadDefinitions.map((definition) => <UploadCard key={definition.key} definition={definition} value={selected.uploads[definition.key]} onUpload={(file) => handleUpload(definition.key, file)} />)}
                   </div>
                   {completed === 4 && (
                     <div className="mt-4 flex items-center gap-3 rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-emerald-800">
@@ -450,9 +365,7 @@ export default function CamionerosModule() {
                 </article>
               </>
             ) : (
-              <div className="flex h-64 items-center justify-center rounded-xl border border-dashed border-slate-300 bg-slate-50">
-                <p className="text-sm text-slate-500">Selecciona un viaje de la lista para ver los documentos.</p>
-              </div>
+              <div className="flex h-64 items-center justify-center rounded-xl border border-dashed border-slate-300 bg-slate-50"><p className="text-sm text-slate-500">No tienes un viaje seleccionado.</p></div>
             )}
           </section>
         </div>

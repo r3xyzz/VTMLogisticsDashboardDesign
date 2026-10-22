@@ -149,8 +149,16 @@ interface Client {
     contact_name: string | null;
 }
 
+// 🆕 Interface para los choferes
+interface Driver {
+    id: string;
+    full_name: string;
+    rut: string;
+}
+
 export default function CargoRegistration() {
   const [clients, setClients] = useState<Client[]>([]);
+  const [drivers, setDrivers] = useState<Driver[]>([]); // 🆕 Estado para choferes
   const [loadingClients, setLoadingClients] = useState(true);
   const [saving, setSaving] = useState(false);
   const [savingDraft, setSavingDraft] = useState(false);
@@ -169,6 +177,7 @@ export default function CargoRegistration() {
     destination: '',
     routeIdx: 0,
     truckIdx: 0,
+    driverId: '', // 🆕 Campo para el chofer
     pkg: 'Cajas',
     qty: '',
     kg: '',
@@ -181,9 +190,10 @@ export default function CargoRegistration() {
     priority: 'normal' as 'normal' | 'urgente',
   });
 
-  // ✅ Cargar clientes y precio del diésel al montar el componente
+  // ✅ Cargar clientes, choferes y precio del diésel al montar el componente
   useEffect(() => {
     fetchClients();
+    fetchDrivers(); // 🆕 Cargar choferes
     loadDieselPrice();
   }, []);
 
@@ -202,6 +212,22 @@ export default function CargoRegistration() {
       setError('Error al cargar la lista de clientes');
     } finally {
       setLoadingClients(false);
+    }
+  }
+
+  // 🆕 Función para cargar choferes activos
+  async function fetchDrivers() {
+    try {
+      const { data, error } = await supabase
+        .from('drivers')
+        .select('id, full_name, rut')
+        .eq('is_active', true)
+        .order('full_name');
+      
+      if (error) throw error;
+      setDrivers(data || []);
+    } catch (err) {
+      console.error('Error al cargar choferes:', err);
     }
   }
 
@@ -260,6 +286,8 @@ export default function CargoRegistration() {
       if (!f.origin || !f.destination) throw new Error('Por favor selecciona origen y destino');
       if (!f.qty || parseInt(f.qty) <= 0) throw new Error('Por favor ingresa la cantidad de bultos');
       if (!f.kg || parseFloat(f.kg) <= 0) throw new Error('Por favor ingresa el peso total');
+      // 🆕 Validar que se asigne un chofer si es flota propia
+      if (f.mode === 'propia' && !f.driverId) throw new Error('Por favor asigna un chofer para el viaje');
     }
 
     try {
@@ -287,6 +315,7 @@ export default function CargoRegistration() {
         status: status, // ✅ 'pending' o 'draft'
         priority: f.priority,
         created_by: session?.user?.id || null,
+        driver_id: f.mode === 'propia' ? (f.driverId || null) : null, // 🆕 Guardar el chofer
       };
 
       console.log(`📝 Guardando orden como ${status}:`, orderData);
@@ -304,7 +333,7 @@ export default function CargoRegistration() {
       // Limpiar formulario
       setF({
         clientId: '', clientCode: '', contact: '', origin: '', destination: '',
-        routeIdx: 0, truckIdx: 0, pkg: 'Cajas', qty: '', kg: '', l: '', a: '', h: '',
+        routeIdx: 0, truckIdx: 0, driverId: '', pkg: 'Cajas', qty: '', kg: '', l: '', a: '', h: '',
         mode: 'propia', subCost: '', notes: '', priority: 'normal',
       });
 
@@ -609,19 +638,38 @@ export default function CargoRegistration() {
                 </div>
 
                 {f.mode === 'propia' ? (
-                  <div>
-                    <Lbl>Tipo de camión</Lbl>
-                    <select className={inp} value={f.truckIdx} onChange={e => set('truckIdx', +e.target.value)}>
-                      {TRUCKS.map((t, i) => (
-                        <option key={i} value={i}>{t.label} — Tarifa {clp(t.rate)}</option>
-                      ))}
-                    </select>
-                    <p className="text-[10px] text-slate-400 mt-1.5">
-                      Capacidad: <span className="font-mono font-semibold text-slate-600">{truck.cap.toLocaleString()} kg</span>
-                      {f.kg && !overweight && (
-                        <span className="ml-2 text-green-600 font-semibold">✓ Dentro del límite</span>
-                      )}
-                    </p>
+                  <div className="space-y-3">
+                    <div>
+                      <Lbl>Tipo de camión</Lbl>
+                      <select className={inp} value={f.truckIdx} onChange={e => set('truckIdx', +e.target.value)}>
+                        {TRUCKS.map((t, i) => (
+                          <option key={i} value={i}>{t.label} — Tarifa {clp(t.rate)}</option>
+                        ))}
+                      </select>
+                      <p className="text-[10px] text-slate-400 mt-1.5">
+                        Capacidad: <span className="font-mono font-semibold text-slate-600">{truck.cap.toLocaleString()} kg</span>
+                        {f.kg && !overweight && (
+                          <span className="ml-2 text-green-600 font-semibold">✓ Dentro del límite</span>
+                        )}
+                      </p>
+                    </div>
+
+                    {/* 🆕 SELECTOR DE CHOFER */}
+                    <div>
+                      <Lbl req>Chofer Asignado</Lbl>
+                      <select 
+                        className={inp} 
+                        value={f.driverId} 
+                        onChange={e => set('driverId', e.target.value)}
+                        required={f.mode === 'propia' && !savingDraft}
+                      >
+                        <option value="">Seleccionar chofer...</option>
+                        {drivers.map(d => (
+                          <option key={d.id} value={d.id}>{d.full_name} ({d.rut})</option>
+                        ))}
+                      </select>
+                      <p className="text-[10px] text-slate-400 mt-1.5">El viaje aparecerá en la cuenta del chofer seleccionado.</p>
+                    </div>
                   </div>
                 ) : (
                   <div>
