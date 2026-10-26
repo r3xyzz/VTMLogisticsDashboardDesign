@@ -1,5 +1,5 @@
 // src/App.tsx
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import { MsalProvider } from '@azure/msal-react';
 import { msalInstance } from './lib/msal';
 import { supabase } from './lib/supabase';
@@ -18,6 +18,7 @@ import Login from './components/Login';
 import EmailModule from './components/EmailModule';
 import FacturacionModule from './components/FacturacionModule';
 import CamionerosModule from './components/Camioneros';
+import CoordinationBoard from './components/TablaCoordinacion'; 
 
 // Vistas activas (sin 'orders')
 export type ActiveView = 
@@ -32,7 +33,8 @@ export type ActiveView =
   | 'calculations'
   | 'email'
   | 'facturacion'
-  | 'camioneros';
+  | 'camioneros'
+  | 'coordination';
 
 interface UserPermissions {
   can_view_dashboard: boolean;
@@ -47,6 +49,7 @@ interface UserPermissions {
   can_view_email: boolean;
   can_view_facturacion: boolean;
   can_view_camioneros: boolean;
+  can_view_coordination: boolean;
 }
 
 const defaultPermissions: UserPermissions = {
@@ -62,13 +65,14 @@ const defaultPermissions: UserPermissions = {
   can_view_email: false,
   can_view_facturacion: false,
   can_view_camioneros: false,
+  can_view_coordination: false,
 };
 
 const activeViewStorageKey = 'vtm-active-view';
 const activeViews: ActiveView[] = [
   'dashboard', 'cargo', 'tracking', 'documents',
   'fleet', 'providers', 'drivers', 'clients', 'calculations', 'email',
-  'facturacion', 'camioneros',
+  'facturacion', 'camioneros', 'coordination',
 ];
 
 const getStoredActiveView = (): ActiveView | null => {
@@ -92,6 +96,7 @@ const hasPermissionForView = (view: ActiveView, permissions: UserPermissions): b
     email: 'can_view_email',
     facturacion: 'can_view_facturacion',
     camioneros: 'can_view_camioneros',
+    coordination: 'can_view_coordination',
   };
   return permissions[permissionByView[view]];
 };
@@ -173,6 +178,7 @@ function AppContent() {
               can_view_email: true,
               can_view_facturacion: true,
               can_view_camioneros: true,
+              can_view_coordination: true,
             }
           };
         }
@@ -194,6 +200,7 @@ function AppContent() {
         can_view_email: permissionsData.can_view_email || false,
         can_view_facturacion: permissionsData.can_view_facturacion || false,
         can_view_camioneros: permissionsData.can_view_camioneros || false,
+        can_view_coordination: permissionsData.can_view_coordination || false,
       };
 
       console.log('✅ Permisos finales:', permissions);
@@ -216,6 +223,7 @@ function AppContent() {
     if (permissions.can_view_calculations) return 'calculations';
     if (permissions.can_view_email) return 'email';
     if (permissions.can_view_facturacion) return 'facturacion';
+    if (permissions.can_view_coordination) return 'coordination';
     if (permissions.can_view_camioneros) return 'camioneros';
     return 'dashboard';
   };
@@ -234,11 +242,14 @@ function AppContent() {
       case 'email': return userPermissions.can_view_email;
       case 'facturacion': return userPermissions.can_view_facturacion; 
       case 'camioneros': return userPermissions.can_view_camioneros;
+      case 'coordination': return userPermissions.can_view_coordination;
       default: return false;
     }
   };
 
-  const handleNavigate = (view: ActiveView) => {
+  // ✅ FIX: memoizar handleNavigate para que no cambie de identidad en cada render.
+  // Depende de userPermissions porque canAccessView y getFirstAvailableView lo usan.
+  const handleNavigate = useCallback((view: ActiveView) => {
     console.log('🔍 Navegando a:', view);
     if (canAccessView(view)) {
       console.log('✅ Acceso permitido');
@@ -249,7 +260,8 @@ function AppContent() {
       console.log('📌 Redirigiendo a:', firstAvailable);
       setActiveView(firstAvailable);
     }
-  };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [userPermissions]);
 
   useEffect(() => {
     const initializeAuth = async () => {
@@ -302,6 +314,25 @@ function AppContent() {
     return () => subscription?.unsubscribe();
   }, []);
 
+  // ✅ FIX: memoizar el objeto `view` para que React NO desmonte/monte los módulos
+  // en cada re-render de AppContent. Solo se recrea si cambia handleNavigate
+  // (es decir, si cambian los permisos).
+  const view = useMemo<Record<ActiveView, React.ReactNode>>(() => ({
+    dashboard: <Dashboard onNavigate={handleNavigate} />,
+    cargo: <CargoRegistration />,
+    tracking: <TrackingModule />,
+    documents: <DocumentsModule />,
+    fleet: <FleetModule />,
+    providers: <ProvidersModule />,
+    drivers: <DriversModule />,
+    clients: <ClientsModule />,
+    calculations: <CalculationsModule />,
+    email: <EmailModule />,
+    facturacion: <FacturacionModule />,
+    coordination: <CoordinationBoard />,
+    camioneros: <CamionerosModule />,
+  }), [handleNavigate]);
+
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-slate-50">
@@ -316,21 +347,6 @@ function AppContent() {
   if (!session || !isAuthorized) {
     return <Login />;
   }
-
-  const view: Record<ActiveView, React.ReactNode> = {
-    dashboard: <Dashboard onNavigate={handleNavigate} />,
-    cargo: <CargoRegistration />,
-    tracking: <TrackingModule />,
-    documents: <DocumentsModule />,
-    fleet: <FleetModule />,
-    providers: <ProvidersModule />,
-    drivers: <DriversModule />,
-    clients: <ClientsModule />,
-    calculations: <CalculationsModule />,
-    email: <EmailModule />,
-    facturacion: <FacturacionModule />,
-    camioneros: <CamionerosModule />,
-  };
 
   const currentView = canAccessView(activeView) ? activeView : getFirstAvailableView(userPermissions);
 

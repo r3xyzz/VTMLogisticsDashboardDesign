@@ -17,6 +17,7 @@ interface UserPermissions {
   can_view_email: boolean;
   can_view_facturacion: boolean;
   can_view_camioneros: boolean;
+  can_view_coordination: boolean;
 }
 
 interface Props {
@@ -48,6 +49,7 @@ const navItems: NavItem[] = [
   { id: 'providers', label: 'Proveedores', badge: 3, requiredPermission: 'can_view_providers' },
   { id: 'calculations', label: 'Cálculo', requiredPermission: 'can_view_calculations' },
   { id: 'camioneros', label: 'Camioneros', requiredPermission: 'can_view_camioneros' },
+  { id: 'coordination', label: 'Coordinación', requiredPermission: 'can_view_coordination' },
 ];
 
 function NavIcon({ id }: { id: ActiveView }) {
@@ -64,6 +66,7 @@ function NavIcon({ id }: { id: ActiveView }) {
     clients: 'M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4',
     calculations: 'M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 11h.01M12 11h.01M15 11h.01M4 20h16a2 2 0 002-2V6a2 2 0 00-2-2H4a2 2 0 00-2 2v12a2 2 0 002 2z',
     camioneros: ['M3 6h11v10H3zM14 9h4l3 3v4h-7z', 'M7 20a2 2 0 1 0 0-4 2 2 0 0 0 0 4zM18 20a2 2 0 1 0 0-4 2 2 0 0 0 0 4z'],
+    coordination: ['M5 4h14a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z', 'M8 2v4m8-4v4M3 9h18'],
   };
   const paths = Array.isArray(d[id]) ? (d[id] as string[]) : [d[id] as string];
   return (
