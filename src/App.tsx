@@ -19,6 +19,7 @@ import EmailModule from './components/EmailModule';
 import FacturacionModule from './components/FacturacionModule';
 import CamionerosModule from './components/Camioneros';
 import CoordinationBoard from './components/TablaCoordinacion'; 
+import ImportExportModule from './components/ImportExportModule';
 
 // Vistas activas (sin 'orders')
 export type ActiveView = 
@@ -34,7 +35,8 @@ export type ActiveView =
   | 'email'
   | 'facturacion'
   | 'camioneros'
-  | 'coordination';
+  | 'coordination'
+  | 'importexport';
 
 interface UserPermissions {
   can_view_dashboard: boolean;
@@ -50,6 +52,7 @@ interface UserPermissions {
   can_view_facturacion: boolean;
   can_view_camioneros: boolean;
   can_view_coordination: boolean;
+  can_view_importexport: boolean;
 }
 
 const defaultPermissions: UserPermissions = {
@@ -66,13 +69,14 @@ const defaultPermissions: UserPermissions = {
   can_view_facturacion: false,
   can_view_camioneros: false,
   can_view_coordination: false,
+  can_view_importexport: false,
 };
 
 const activeViewStorageKey = 'vtm-active-view';
 const activeViews: ActiveView[] = [
   'dashboard', 'cargo', 'tracking', 'documents',
   'fleet', 'providers', 'drivers', 'clients', 'calculations', 'email',
-  'facturacion', 'camioneros', 'coordination',
+  'facturacion', 'camioneros', 'coordination', 'importexport',
 ];
 
 const getStoredActiveView = (): ActiveView | null => {
@@ -97,6 +101,7 @@ const hasPermissionForView = (view: ActiveView, permissions: UserPermissions): b
     facturacion: 'can_view_facturacion',
     camioneros: 'can_view_camioneros',
     coordination: 'can_view_coordination',
+    importexport: 'can_view_importexport',
   };
   return permissions[permissionByView[view]];
 };
@@ -140,7 +145,7 @@ function AppContent() {
 
       console.log('✅ Usuario encontrado:', userData);
 
-      // ✅ MANEJO ESPECIAL PARA CAMIONEROS (DRIVERS)
+      //  MANEJO ESPECIAL PARA CAMIONEROS (DRIVERS)
       if (userData.role === 'driver') {
         console.log('🚛 Usuario identificado como Chofer');
         return {
@@ -179,6 +184,7 @@ function AppContent() {
               can_view_facturacion: true,
               can_view_camioneros: true,
               can_view_coordination: true,
+              can_view_importexport: true,
             }
           };
         }
@@ -201,6 +207,7 @@ function AppContent() {
         can_view_facturacion: permissionsData.can_view_facturacion || false,
         can_view_camioneros: permissionsData.can_view_camioneros || false,
         can_view_coordination: permissionsData.can_view_coordination || false,
+        can_view_importexport: permissionsData.can_view_importexport || false,
       };
 
       console.log('✅ Permisos finales:', permissions);
@@ -225,6 +232,7 @@ function AppContent() {
     if (permissions.can_view_facturacion) return 'facturacion';
     if (permissions.can_view_coordination) return 'coordination';
     if (permissions.can_view_camioneros) return 'camioneros';
+    if (permissions.can_view_importexport) return 'importexport';
     return 'dashboard';
   };
 
@@ -243,11 +251,12 @@ function AppContent() {
       case 'facturacion': return userPermissions.can_view_facturacion; 
       case 'camioneros': return userPermissions.can_view_camioneros;
       case 'coordination': return userPermissions.can_view_coordination;
+      case 'importexport': return userPermissions.can_view_importexport;
       default: return false;
     }
   };
 
-  // ✅ FIX: memoizar handleNavigate para que no cambie de identidad en cada render.
+  // memoizar handleNavigate para que no cambie de identidad en cada render.
   // Depende de userPermissions porque canAccessView y getFirstAvailableView lo usan.
   const handleNavigate = useCallback((view: ActiveView) => {
     console.log('🔍 Navegando a:', view);
@@ -331,6 +340,7 @@ function AppContent() {
     facturacion: <FacturacionModule />,
     coordination: <CoordinationBoard />,
     camioneros: <CamionerosModule />,
+    importexport: <ImportExportModule />,
   }), [handleNavigate]);
 
   if (loading) {
