@@ -184,14 +184,14 @@ function OrderDetailModal({ order, isOpen, onClose, onRefresh }: OrderDetailProp
     const clp = (n: number) =>
         new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP', maximumFractionDigits: 0 }).format(n);
 
-    // ✅ HOOKS PRIMERO
+    //  HOOKS PRIMERO
     useEffect(() => {
         if (isOpen && order) {
             fetchDocuments();
         }
     }, [isOpen, order]);
 
-    // ✅ VALIDACIÓN DESPUÉS DE LOS HOOKS
+    //  VALIDACIÓN DESPUÉS DE LOS HOOKS
     if (!order) return null;
 
     async function fetchDocuments() {
