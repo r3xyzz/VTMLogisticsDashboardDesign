@@ -141,7 +141,6 @@ export default function DriversModule() {
                         .update({
                             driver_name: driverData.full_name,
                             driver_phone: driverData.phone || null,
-                            status: 'in_route'
                         })
                         .eq('id', fleetId);
 

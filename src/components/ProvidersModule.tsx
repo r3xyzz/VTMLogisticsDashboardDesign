@@ -29,8 +29,31 @@ interface ProviderFormData {
     notes: string; // ✅ NUEVO CAMPO
 }
 
+// OT subcontratadas a un proveedor, con su estado de POD
+interface ProviderOrder {
+    id: string;
+    order_number: string;
+    status: string;
+    origin: string | null;
+    destination: string | null;
+    purchased_value: number | null;
+    service_date: string | null;
+    provider_id: string;
+    documents: { pod_final_url: string | null }[] | { pod_final_url: string | null } | null;
+}
+
+const hasFinalPod = (order: ProviderOrder) => {
+    const doc = Array.isArray(order.documents) ? order.documents[0] : order.documents;
+    return !!doc?.pod_final_url;
+};
+
+const ORDER_STATUS_LABEL: Record<string, string> = {
+    draft: 'Borrador', pending: 'Pendiente', in_progress: 'En tránsito', completed: 'Completado',
+};
+
 export default function ProvidersModule() {
     const [providers, setProviders] = useState<Provider[]>([]);
+    const [ordersByProvider, setOrdersByProvider] = useState<Record<string, ProviderOrder[]>>({});
     const [loading, setLoading] = useState(true);
     const [filterActive, setFilterActive] = useState<string>('all');
     const [isModalOpen, setIsModalOpen] = useState(false);
@@ -79,6 +102,27 @@ export default function ProvidersModule() {
             const { data, error } = await query;
             if (error) throw error;
             setProviders(data || []);
+
+            // OT asignadas a estos proveedores (desde Nueva OT en modo subcontrato)
+            const ids = (data || []).map(p => p.id);
+            if (ids.length > 0) {
+                const { data: orders, error: ordersError } = await supabase
+                    .from('orders')
+                    .select('id, order_number, status, origin, destination, purchased_value, service_date, provider_id, documents (pod_final_url)')
+                    .in('provider_id', ids)
+                    .order('created_at', { ascending: false });
+                if (ordersError) {
+                    console.error('Error fetching provider orders:', ordersError);
+                } else {
+                    const grouped: Record<string, ProviderOrder[]> = {};
+                    for (const order of (orders || []) as ProviderOrder[]) {
+                        (grouped[order.provider_id] ||= []).push(order);
+                    }
+                    setOrdersByProvider(grouped);
+                }
+            } else {
+                setOrdersByProvider({});
+            }
         } catch (error) {
             console.error('Error fetching providers:', error);
             addToast('Error al cargar proveedores', 'error');
@@ -370,6 +414,40 @@ export default function ProvidersModule() {
                                         </p>
                                     </div>
                                 )}
+
+                                {/* Viajes subcontratados (OT) y estado de POD */}
+                                {(() => {
+                                    const orders = (ordersByProvider[provider.id] || []).filter(o => o.status !== 'draft');
+                                    const active = orders.filter(o => o.status !== 'completed').length;
+                                    const podPending = orders.filter(o => !hasFinalPod(o)).length;
+                                    const toPay = orders.reduce((sum, o) => sum + (o.purchased_value || 0), 0);
+                                    return (
+                                        <div className="pt-3 border-t border-slate-100">
+                                            <p className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Viajes (OT)</p>
+                                            <div className="grid grid-cols-4 gap-2 text-center text-xs">
+                                                <div className="rounded-lg bg-slate-50 p-2"><p className="text-slate-400 text-[10px]">Total</p><p className="font-bold text-slate-800">{orders.length}</p></div>
+                                                <div className="rounded-lg bg-blue-50 p-2"><p className="text-blue-500 text-[10px]">Activas</p><p className="font-bold text-blue-700">{active}</p></div>
+                                                <div className="rounded-lg bg-amber-50 p-2"><p className="text-amber-600 text-[10px]">POD pend.</p><p className="font-bold text-amber-700">{podPending}</p></div>
+                                                <div className="rounded-lg bg-emerald-50 p-2"><p className="text-emerald-600 text-[10px]">Costo</p><p className="font-bold text-emerald-700">${toPay.toLocaleString('es-CL')}</p></div>
+                                            </div>
+                                            {orders.length === 0 ? (
+                                                <p className="mt-2 text-xs text-slate-400">Sin OT asignadas. Se asignan en Nueva OT → Subcontrato.</p>
+                                            ) : (
+                                                <ul className="mt-2 space-y-1">
+                                                    {orders.slice(0, 3).map(o => (
+                                                        <li key={o.id} className="flex items-center justify-between gap-2 text-xs">
+                                                            <span className="font-mono font-semibold text-slate-700">{o.order_number}</span>
+                                                            <span className="truncate text-slate-500">{o.origin} → {o.destination}</span>
+                                                            <span className="shrink-0 text-slate-500">{ORDER_STATUS_LABEL[o.status] || o.status}</span>
+                                                            <span className={`shrink-0 font-semibold ${hasFinalPod(o) ? 'text-green-600' : 'text-amber-600'}`}>{hasFinalPod(o) ? '✅ POD' : '⏳ POD'}</span>
+                                                        </li>
+                                                    ))}
+                                                    {orders.length > 3 && <li className="text-[10px] text-slate-400">+{orders.length - 3} más en Documentos</li>}
+                                                </ul>
+                                            )}
+                                        </div>
+                                    );
+                                })()}
 
                                 {/* Documentos */}
                                 <div className="pt-3 border-t border-slate-100">

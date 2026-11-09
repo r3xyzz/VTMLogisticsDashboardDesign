@@ -12,7 +12,7 @@ export interface OutlookEmailForIE {
   hasAttachments?: boolean;
 }
 
-const TARGET_EMAIL = 'supervisores.patio@vtmlogistics.com'; 
+const MAX_PAGES = 5;
 
 export function useOutlookForImportExport() {
   const { instance, accounts } = useMsal();
@@ -52,32 +52,34 @@ export function useOutlookForImportExport() {
       setError(null);
 
       const select = 'id,subject,from,receivedDateTime,body,hasAttachments';
-      
       const params = new URLSearchParams({
         $top: '100',
         $select: select,
         $orderby: 'receivedDateTime desc',
       });
 
-      const response = await fetch(
-        `https://graph.microsoft.com/v1.0/users/${TARGET_EMAIL}/messages?${params.toString()}`,
-        { 
-          headers: { 
+      // /me = buzón de quien inició sesión. Se siguen las páginas (@odata.nextLink) hasta MAX_PAGES.
+      // shortcut: tope de MAX_PAGES*100 correos más recientes; si hace falta más historial, filtrar por fecha en Graph.
+      const all: OutlookEmailForIE[] = [];
+      let url: string | undefined = `https://graph.microsoft.com/v1.0/me/messages?${params.toString()}`;
+      for (let i = 0; url && i < MAX_PAGES; i++) {
+        const response: Response = await fetch(url, {
+          headers: {
             Authorization: `Bearer ${accessToken}`,
-            'Content-Type': 'application/json'
-          } 
+            'Content-Type': 'application/json',
+          },
+        });
+        if (!response.ok) {
+          const errorData = await response.text();
+          throw new Error(`Error de Microsoft Graph (${response.status}): ${errorData}`);
         }
-      );
-
-      if (!response.ok) {
-        const errorData = await response.text();
-        throw new Error(`Error de Microsoft Graph (${response.status}): ${errorData}`);
+        const page: { value?: OutlookEmailForIE[]; '@odata.nextLink'?: string } = await response.json();
+        all.push(...(page.value || []));
+        url = page['@odata.nextLink'];
       }
 
-      const data = await response.json();
-      
       // ✅ Traemos TODOS los correos (sin filtro). El Parser hace el resto.
-      setEmails(data.value || []);
+      setEmails(all);
       
     } catch (err) {
       console.error('❌ [ImportExport] Error al obtener correos:', err);

@@ -154,11 +154,30 @@ interface Driver {
     id: string;
     full_name: string;
     rut: string;
+    current_fleet_id: string | null;
+}
+
+interface ProviderOption {
+    id: string;
+    name: string;
+    rut: string | null;
+    vehicle_plate: string | null;
+}
+
+interface FleetVehicle {
+    id: string;
+    plate: string;
+    brand: string | null;
+    model: string | null;
+    capacity_kg: number | null;
+    status: string | null;
 }
 
 export default function CargoRegistration() {
   const [clients, setClients] = useState<Client[]>([]);
   const [drivers, setDrivers] = useState<Driver[]>([]); // 🆕 Estado para choferes
+  const [vehicles, setVehicles] = useState<FleetVehicle[]>([]);
+  const [providers, setProviders] = useState<ProviderOption[]>([]);
   const [loadingClients, setLoadingClients] = useState(true);
   const [saving, setSaving] = useState(false);
   const [savingDraft, setSavingDraft] = useState(false);
@@ -178,6 +197,8 @@ export default function CargoRegistration() {
     routeIdx: 0,
     truckIdx: 0,
     driverId: '', // 🆕 Campo para el chofer
+    fleetId: '', // Vehículo real de la flota asignado al viaje
+    providerId: '', // Transportista tercero (modo subcontrato)
     pkg: 'Cajas',
     qty: '',
     kg: '',
@@ -194,6 +215,8 @@ export default function CargoRegistration() {
   useEffect(() => {
     fetchClients();
     fetchDrivers(); // 🆕 Cargar choferes
+    fetchVehicles();
+    fetchProviders();
     loadDieselPrice();
   }, []);
 
@@ -220,7 +243,7 @@ export default function CargoRegistration() {
     try {
       const { data, error } = await supabase
         .from('drivers')
-        .select('id, full_name, rut')
+        .select('id, full_name, rut, current_fleet_id')
         .eq('is_active', true)
         .order('full_name');
       
@@ -230,6 +253,40 @@ export default function CargoRegistration() {
       console.error('Error al cargar choferes:', err);
     }
   }
+
+  async function fetchVehicles() {
+    const { data, error } = await supabase
+      .from('fleet')
+      .select('id, plate, brand, model, capacity_kg, status')
+      .order('plate');
+    if (error) console.error('Error al cargar flota:', error);
+    else setVehicles(data || []);
+  }
+
+  async function fetchProviders() {
+    const { data, error } = await supabase
+      .from('providers')
+      .select('id, name, rut, vehicle_plate')
+      .eq('is_active', true)
+      .order('name');
+    if (error) console.error('Error al cargar proveedores:', error);
+    else setProviders(data || []);
+  }
+
+  // Al elegir un vehículo, la tarifa usa la categoría de camión que cubre su capacidad
+  const selectVehicle = (fleetId: string) => {
+    const vehicle = vehicles.find(v => v.id === fleetId);
+    const cap = vehicle?.capacity_kg ?? 0;
+    const idx = TRUCKS.findIndex(t => t.cap >= cap);
+    setF(p => ({ ...p, fleetId, truckIdx: vehicle && cap > 0 ? (idx === -1 ? TRUCKS.length - 1 : idx) : p.truckIdx }));
+  };
+
+  // Al elegir un chofer, se propone el vehículo que tiene asignado en Flota
+  const selectDriver = (driverId: string) => {
+    const driver = drivers.find(d => d.id === driverId);
+    setF(p => ({ ...p, driverId }));
+    if (driver?.current_fleet_id) selectVehicle(driver.current_fleet_id);
+  };
 
   // ✅ FUNCIÓN PARA CARGAR EL PRECIO DEL DIÉSEL
   async function loadDieselPrice() {
@@ -288,6 +345,9 @@ export default function CargoRegistration() {
       if (!f.kg || parseFloat(f.kg) <= 0) throw new Error('Por favor ingresa el peso total');
       // 🆕 Validar que se asigne un chofer si es flota propia
       if (f.mode === 'propia' && !f.driverId) throw new Error('Por favor asigna un chofer para el viaje');
+      if (f.mode === 'propia' && !f.fleetId) throw new Error('Por favor asigna un vehículo de la flota');
+      if (f.mode === 'sub' && !f.providerId) throw new Error('Por favor selecciona el proveedor subcontratado');
+      if (f.mode === 'sub' && !(parseFloat(f.subCost) > 0)) throw new Error('Por favor ingresa el costo del proveedor');
     }
 
     try {
@@ -316,6 +376,8 @@ export default function CargoRegistration() {
         priority: f.priority,
         created_by: session?.user?.id || null,
         driver_id: f.mode === 'propia' ? (f.driverId || null) : null, // 🆕 Guardar el chofer
+        fleet_id: f.mode === 'propia' ? (f.fleetId || null) : null,
+        provider_id: f.mode === 'sub' ? (f.providerId || null) : null,
       };
 
       console.log(`📝 Guardando orden como ${status}:`, orderData);
@@ -327,13 +389,20 @@ export default function CargoRegistration() {
 
       if (error) throw error;
 
+      // Una OT confirmada deja el vehículo "en ruta" en Flota (se libera al subir el POD final)
+      if (status === 'pending' && orderData.fleet_id) {
+        const { error: fleetError } = await supabase.from('fleet').update({ status: 'in_route' }).eq('id', orderData.fleet_id);
+        if (fleetError) console.error('Error actualizando estado del vehículo:', fleetError);
+        await fetchVehicles();
+      }
+
       console.log('✅ Orden creada:', data);
       setSuccess(true);
       
       // Limpiar formulario
       setF({
         clientId: '', clientCode: '', contact: '', origin: '', destination: '',
-        routeIdx: 0, truckIdx: 0, driverId: '', pkg: 'Cajas', qty: '', kg: '', l: '', a: '', h: '',
+        routeIdx: 0, truckIdx: 0, driverId: '', fleetId: '', providerId: '', pkg: 'Cajas', qty: '', kg: '', l: '', a: '', h: '',
         mode: 'propia', subCost: '', notes: '', priority: 'normal',
       });
 
@@ -660,7 +729,7 @@ export default function CargoRegistration() {
                       <select 
                         className={inp} 
                         value={f.driverId} 
-                        onChange={e => set('driverId', e.target.value)}
+                        onChange={e => selectDriver(e.target.value)}
                         required={f.mode === 'propia' && !savingDraft}
                       >
                         <option value="">Seleccionar chofer...</option>
@@ -670,8 +739,47 @@ export default function CargoRegistration() {
                       </select>
                       <p className="text-[10px] text-slate-400 mt-1.5">El viaje aparecerá en la cuenta del chofer seleccionado.</p>
                     </div>
+
+                    <div>
+                      <Lbl req>Vehículo de la flota</Lbl>
+                      <select
+                        className={inp}
+                        value={f.fleetId}
+                        onChange={e => selectVehicle(e.target.value)}
+                        required={f.mode === 'propia' && !savingDraft}
+                      >
+                        <option value="">Seleccionar vehículo...</option>
+                        {vehicles.map(v => (
+                          <option key={v.id} value={v.id}>
+                            {v.plate} — {[v.brand, v.model].filter(Boolean).join(' ') || 'Sin modelo'}
+                            {v.capacity_kg ? ` · ${v.capacity_kg.toLocaleString()} kg` : ''}
+                            {v.status && v.status !== 'available' ? ` (${v.status === 'in_route' ? 'en ruta' : v.status})` : ''}
+                          </option>
+                        ))}
+                      </select>
+                      <p className="text-[10px] text-slate-400 mt-1.5">Al confirmar la OT el vehículo queda "en ruta" en Flota.</p>
+                    </div>
                   </div>
                 ) : (
+                  <div className="space-y-3">
+                  <div>
+                    <Lbl req>Proveedor subcontratado</Lbl>
+                    <select
+                      className={inp}
+                      value={f.providerId}
+                      onChange={e => set('providerId', e.target.value)}
+                    >
+                      <option value="">Seleccionar proveedor...</option>
+                      {providers.map(p => (
+                        <option key={p.id} value={p.id}>
+                          {p.name}{p.rut ? ` (${p.rut})` : ''}{p.vehicle_plate ? ` · ${p.vehicle_plate}` : ''}
+                        </option>
+                      ))}
+                    </select>
+                    {providers.length === 0 && (
+                      <p className="text-[10px] text-amber-600 mt-1.5">No hay proveedores activos. Regístralos en Proveedores.</p>
+                    )}
+                  </div>
                   <div>
                     <Lbl req>Costo del proveedor (CLP, neto)</Lbl>
                     <div className="relative">
@@ -687,6 +795,7 @@ export default function CargoRegistration() {
                     <p className="text-[10px] text-slate-400 mt-1.5">
                       Margen VTM del <span className="font-semibold text-blue-600">20%</span> aplicado automáticamente.
                     </p>
+                  </div>
                   </div>
                 )}
               </Card>

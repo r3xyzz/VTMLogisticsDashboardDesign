@@ -18,6 +18,8 @@ export interface Client {
 
 export interface Order {
     id: string;
+    driver_id?: string | null;
+    fleet_id?: string | null;
     order_number: string;
     client_id: string;
     client_contact: string | null;

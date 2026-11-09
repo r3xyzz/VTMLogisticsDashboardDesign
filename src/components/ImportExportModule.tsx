@@ -1,5 +1,5 @@
 // src/components/ImportExportModule.tsx
-import { useMemo, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { useOutlookForImportExport } from "../hooks/useOutlookForImportExport"
 import { parseTableFromEmail, mapEmailToOperation, type Operation } from "../lib/outlookParser"
 
@@ -37,6 +37,37 @@ const statusStyles: Record<OperationStatus, string> = {
   "Full / Cargado": "bg-violet-50 text-violet-700 ring-violet-200",
   "En tránsito": "bg-orange-50 text-orange-700 ring-orange-200",
   Entregado: "bg-emerald-50 text-emerald-700 ring-emerald-200",
+}
+
+// --- EDITOR DE CAMPOS (todas las propiedades editables de una operación) ---
+type TextKey = "client" | "owner" | "reference" | "container" | "size" | "weight" | "seal" | "booking" | "shippingLine" | "eta" | "port" | "origin" | "destination" | "depot" | "depotCity" | "driver" | "plate" | "truckType" | "gateOut" | "loadingAt" | "stackingAt" | "deadline" | "provider"
+type NumberKey = "weightKg" | "truckCapacityKg" | "assistants" | "freeDays" | "countdown"
+
+const TEXT_FIELDS: [TextKey, string][] = [
+  ["client", "Cliente"], ["owner", "Dueño / D-AGA"], ["reference", "Referencia"], ["container", "N° Contenedor"],
+  ["booking", "Booking / BL"], ["shippingLine", "Naviera"], ["size", "Tipo / Tamaño"], ["weight", "Peso carga"],
+  ["seal", "Sello naviera"], ["eta", "ETA / Disponible"], ["port", "Puerto / Nave"], ["origin", "Origen"],
+  ["destination", "Destino"], ["depot", "Depósito / Bodega"], ["depotCity", "Ciudad depósito"], ["gateOut", "Pick up / Gate-out"],
+  ["loadingAt", "Hora presentación"], ["stackingAt", "Stacking"], ["deadline", "Plazo"], ["driver", "Conductor"],
+  ["plate", "Patente"], ["truckType", "Tipo camión"], ["provider", "Proveedor"],
+]
+const NUMBER_FIELDS: [NumberKey, string][] = [
+  ["weightKg", "Kilos"], ["truckCapacityKg", "Capacidad camión (kg)"], ["assistants", "Peonetas"], ["freeDays", "Días libres"], ["countdown", "Cuenta regresiva (días)"],
+]
+const STATUSES: OperationStatus[] = ["Standby", "Vacío", "Full / Cargado", "En tránsito", "Entregado"]
+
+function OperationEditor({ operation, onUpdate }: { operation: Operation; onUpdate: (operation: Operation) => void }) {
+  const inputClass = "w-full rounded-md border border-slate-200 bg-white px-2.5 py-2 text-[10px] font-semibold text-slate-700 outline-none focus:border-navy-300 focus:ring-2 focus:ring-navy-100"
+  const labelClass = "mb-1 block text-[8px] font-bold uppercase tracking-wider text-slate-400"
+  return (
+    <div className="grid grid-cols-2 gap-2">
+      <label><span className={labelClass}>Tipo</span><select className={inputClass} value={operation.type} onChange={(event) => onUpdate({ ...operation, type: event.target.value as OperationType })}><option value="impo">Importación</option><option value="expo">Exportación</option></select></label>
+      <label><span className={labelClass}>Estado</span><select className={inputClass} value={operation.status} onChange={(event) => onUpdate({ ...operation, status: event.target.value as OperationStatus })}>{STATUSES.map((status) => <option key={status}>{status}</option>)}</select></label>
+      <label><span className={labelClass}>Clase contenedor</span><select className={inputClass} value={operation.containerClass ?? ""} onChange={(event) => onUpdate({ ...operation, containerClass: (event.target.value || undefined) as Operation["containerClass"] })}><option value="">—</option><option>Clase A</option><option>Clase M</option></select></label>
+      {TEXT_FIELDS.map(([key, label]) => <label key={key}><span className={labelClass}>{label}</span><input className={inputClass} value={operation[key] ?? ""} onChange={(event) => onUpdate({ ...operation, [key]: event.target.value })} /></label>)}
+      {NUMBER_FIELDS.map(([key, label]) => <label key={key}><span className={labelClass}>{label}</span><input type="number" className={inputClass} value={operation[key] ?? ""} onChange={(event) => onUpdate({ ...operation, [key]: event.target.value === "" ? undefined : Number(event.target.value) })} /></label>)}
+    </div>
+  )
 }
 
 // --- COMPONENTE EXPORT BOARD ---
@@ -145,9 +176,9 @@ function ExportBoard({
               </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-3">
-              <div className="rounded-lg border border-slate-200 p-3"><p className="text-[8px] font-bold uppercase tracking-wider text-slate-400">Contenedor y depósito</p><div className="mt-2 space-y-1.5 text-[10px]"><p><span className="text-slate-400">Retiro:</span> <strong className="text-slate-700">{selected.depot}</strong></p><p><span className="text-slate-400">Clase:</span> <strong className="text-slate-700">{selected.containerClass}</strong></p><p><span className="text-slate-400">Equipo:</span> <strong className="text-slate-700">{selected.size}</strong></p></div></div>
-              <div className="rounded-lg border border-slate-200 p-3"><p className="text-[8px] font-bold uppercase tracking-wider text-slate-400">Asignación logística</p><div className="mt-2 space-y-1.5 text-[10px]"><p><span className="text-slate-400">Conductor:</span> <strong className="text-slate-700">{selected.driver}</strong></p><p><span className="text-slate-400">Camión:</span> <strong className="text-slate-700">{selected.plate}</strong></p><p><span className="text-slate-400">Peonetas:</span> <strong className="text-slate-700">{selected.assistants}</strong></p><p><span className="text-slate-400">Equipo:</span> <strong className="text-slate-700">{selected.truckType}</strong></p></div></div>
+            <div>
+              <p className="mb-2 text-[9px] font-bold uppercase tracking-wider text-slate-400">Todos los campos · edición</p>
+              <OperationEditor operation={selected} onUpdate={onUpdate} />
             </div>
           </div>
         </section>
@@ -157,6 +188,8 @@ function ExportBoard({
 }
 
 // --- COMPONENTE PRINCIPAL ---
+const EDITS_KEY = "vtm-import-export-edits"
+
 export default function ImportExportModule() {
   const { 
     emails: outlookEmails, 
@@ -169,10 +202,19 @@ export default function ImportExportModule() {
   } = useOutlookForImportExport()
 
   // Convertimos los correos a operaciones reales
+  // Ediciones del usuario: viven en sessionStorage (se borran al cerrar la pestaña), nunca en la BD.
+  const [edits, setEdits] = useState<Record<string, Operation>>(() => {
+    try { return JSON.parse(sessionStorage.getItem(EDITS_KEY) || "{}") } catch { return {} }
+  })
+  useEffect(() => {
+    try { sessionStorage.setItem(EDITS_KEY, JSON.stringify(edits)) } catch { /* almacenamiento no disponible */ }
+  }, [edits])
+  const updateOperation = (operation: Operation) => setEdits((current) => ({ ...current, [operation.id]: operation }))
+
   const allOperations = useMemo(() => {
     if (!outlookEmails) return []
-    return outlookEmails.map(mapEmailToOperation).filter(Boolean) as Operation[]
-  }, [outlookEmails])
+    return (outlookEmails.map(mapEmailToOperation).filter(Boolean) as Operation[]).map((operation) => edits[operation.id] ?? operation)
+  }, [outlookEmails, edits])
 
   // Estados locales
   const [section, setSection] = useState<Section>("operations")
@@ -190,7 +232,8 @@ export default function ImportExportModule() {
       && [operation.client, operation.owner, operation.reference, operation.container, operation.port].join(" ").toLowerCase().includes(query)
   }), [typeFilter, clientFilter, search, allOperations])
 
-  const selected = allOperations.find((operation) => operation.id === selectedId) ?? filtered[0] ?? allOperations[0]
+  // Solo se muestra una ficha que pertenezca al filtro actual (si no, el panel queda vacío)
+  const selected = filtered.find((operation) => operation.id === selectedId) ?? filtered[0]
   const urgent = allOperations.filter((operation) => operation.countdown <= 2).length
 
   return (
@@ -254,7 +297,7 @@ export default function ImportExportModule() {
                 operations={allOperations}
                 selectedId={selectedId}
                 onSelect={setSelectedId}
-                onUpdate={() => {}} // Solo visual
+                onUpdate={updateOperation}
               />
             ) : (
             <div className="grid gap-4 xl:grid-cols-[minmax(0,1.45fr)_minmax(360px,0.75fr)]">
@@ -286,8 +329,8 @@ export default function ImportExportModule() {
                 <aside className="self-start overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm xl:sticky xl:top-20">
                   <div className={`p-4 text-white ${selected.type === "expo" ? "bg-red-500" : "bg-slate-950"}`}><div className="flex items-start justify-between gap-3"><div><p className="text-[9px] font-bold uppercase tracking-widest text-white/60">Ficha de contenedor</p><p className="mt-1 font-mono text-sm font-bold">{selected.container}</p><p className="mt-1 text-[10px] text-white/70">{selected.client} · {selected.owner}</p></div><div className="rounded-lg bg-white/10 px-2.5 py-2 text-right"><p className="text-[8px] uppercase text-white/60">Cuenta regresiva</p><p className="mt-0.5 text-lg font-bold">{selected.countdown === 0 ? "HOY" : `${selected.countdown} días`}</p></div></div></div>
                   <div className="p-4">
-                    <div className="grid grid-cols-2 gap-3">
-                      {[["Tipo / Tamaño", selected.size], ["Peso carga", selected.weight], ["Sello naviera", selected.seal], [selected.type === "expo" ? "Booking" : "BL", selected.booking ?? selected.reference]].map(([label, value]) => <div key={label} className="rounded-lg bg-slate-50 p-2.5"><p className="text-[8px] font-bold uppercase tracking-wider text-slate-400">{label}</p><p className="mt-1 truncate text-[10px] font-bold text-slate-700">{value}</p></div>)}
+                    <div className="max-h-[560px] overflow-y-auto pr-1">
+                      <OperationEditor operation={selected} onUpdate={updateOperation} />
                     </div>
                     <div className="mt-4 border-t border-slate-100 pt-4"><div className="flex items-center justify-between"><p className="text-[9px] font-bold uppercase tracking-wider text-slate-400">Documentación</p></div><div className="mt-2 space-y-2">{selected.documents.length === 0 ? <p className="text-[9px] text-slate-400">Sin documentos adjuntos</p> : selected.documents.map((document) => <div key={document} className="flex items-center gap-2 rounded-lg border border-slate-100 p-2"><Icon name="document" className="size-3.5 text-red-500" /><span className="min-w-0 flex-1 truncate text-[9px] font-semibold text-slate-600">{document}</span></div>)}</div></div>
                   </div>

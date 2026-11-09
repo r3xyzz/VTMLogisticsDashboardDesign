@@ -15,6 +15,9 @@ interface OrderDocumentStatus {
 
 interface OrderWithClient {
     id: string;
+    fleet_id?: string | null;
+    provider_id?: string | null;
+    provider?: { name: string; rut: string | null; vehicle_plate: string | null; contact_phone: string | null } | null;
     order_number: string;
     client_id: string;
     client_contact: string | null;
@@ -528,6 +531,11 @@ function OrderDetailModal({ order, isOpen, onClose, onRefresh }: OrderDetailProp
                     .eq('id', order!.id);
                 
                 if (statusError) console.error('Error actualizando estado:', statusError);
+                // Viaje terminado: el vehículo vuelve a estar disponible en Flota
+                if (order!.fleet_id) {
+                    const { error: fleetError } = await supabase.from('fleet').update({ status: 'available' }).eq('id', order!.fleet_id);
+                    if (fleetError) console.error('Error liberando vehículo:', fleetError);
+                }
             }
 
             await fetchDocuments();
@@ -603,6 +611,11 @@ function OrderDetailModal({ order, isOpen, onClose, onRefresh }: OrderDetailProp
                         <p className="text-xs text-slate-500 mt-1">Tipo de servicio: {order.service_type || 'N/A'}</p>
                         <p className="text-xs text-slate-500">Fecha servicio: {new Date(order.service_date).toLocaleDateString('es-CL')}</p>
                         <p className="text-xs text-slate-500">Triángulo logístico: {order.is_inside_triangle ? '✅ Sí' : '❌ No'}</p>
+                        <p className="text-xs text-slate-500 mt-1">
+                            Transporte: {order.provider
+                                ? <strong className="text-slate-700">Subcontrato · {order.provider.name}{order.provider.vehicle_plate ? ` (${order.provider.vehicle_plate})` : ''}{order.provider.contact_phone ? ` · ${order.provider.contact_phone}` : ''}</strong>
+                                : <strong className="text-slate-700">Flota propia</strong>}
+                        </p>
                     </div>
                 </div>
 
@@ -718,6 +731,16 @@ export default function DocumentsModule() {
         fetchOrders();
     }, [filterStatus, refreshKey]);
 
+    // Tiempo real: lo que sube el camionero aparece sin recargar (requiere Realtime activo en Supabase)
+    useEffect(() => {
+        const channel = supabase
+            .channel('documents-sync')
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'orders' }, () => setRefreshKey(k => k + 1))
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'documents' }, () => setRefreshKey(k => k + 1))
+            .subscribe();
+        return () => { supabase.removeChannel(channel); };
+    }, []);
+
     async function fetchOrders() {
         try {
             setLoading(true);
@@ -738,6 +761,12 @@ export default function DocumentsModule() {
                         pod_final_url,
                         load_evidence_url,
                         delivery_evidence_url
+                    ),
+                    provider:providers (
+                        name,
+                        rut,
+                        vehicle_plate,
+                        contact_phone
                     )
                 `)
                 .order('created_at', { ascending: false });
@@ -881,7 +910,7 @@ export default function DocumentsModule() {
                                     return (
                                         <tr key={order.id} className="hover:bg-slate-50/70 transition-colors">
                                             <td className="px-4 py-3 font-mono text-xs font-bold text-slate-800">{order.order_number}</td>
-                                            <td className="px-4 py-3 text-xs font-medium text-slate-700">{order.client?.name || order.client_contact || 'Sin cliente'}</td>
+                                            <td className="px-4 py-3 text-xs font-medium text-slate-700">{order.client?.name || order.client_contact || 'Sin cliente'}{order.provider && <span className="block text-[10px] font-normal text-amber-600">Subcontrato: {order.provider.name}</span>}</td>
                                             <td className="px-4 py-3 text-xs text-slate-500">{order.origin} → {order.destination}</td>
                                             <td className="px-4 py-3 text-xs text-slate-500">{formatDate(order.created_at)}</td>
                                             <td className="px-4 py-3 text-xs text-slate-500">{order.creator?.full_name || order.creator?.email || 'Sistema'}</td>

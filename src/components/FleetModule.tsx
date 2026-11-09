@@ -188,9 +188,9 @@ export default function FleetModule() {
             }
 
             // Guardar el driver_id anterior para la sincronización
-            const previousDriverId = editingId 
-                ? (fleet.find(f => f.id === editingId)?.driver_name ? 
-                    drivers.find(d => d.full_name === fleet.find(f => f.id === editingId)?.driver_name)?.id || null : null)
+            // Enlace por id (drivers.current_fleet_id), no por nombre
+            const previousDriverId = editingId
+                ? drivers.find(d => d.current_fleet_id === editingId)?.id || null
                 : null;
 
             const selectedDriver = drivers.find(d => d.id === formData.driver_id);
@@ -203,7 +203,7 @@ export default function FleetModule() {
                 vehicle_type: formData.vehicle_type,
                 capacity_kg: formData.capacity_kg || null,
                 capacity_cbm: formData.capacity_cbm || null,
-                status: formData.driver_id ? 'in_route' : formData.status,
+                status: formData.status, // "en ruta" lo marca la OT; asignar chofer no cambia el estado
                 driver_name: selectedDriver?.full_name || null,
                 driver_phone: selectedDriver?.phone || null,
                 driver_license: null,
@@ -283,20 +283,12 @@ export default function FleetModule() {
                 .eq('id', id)
                 .single();
 
-            // Si tenía un conductor asignado, desasignarlo
+            // Si tenía un conductor asignado, desasignarlo (por id, no por nombre)
             if (fleetData?.driver_name) {
-                const { data: driverData } = await supabase
+                await supabase
                     .from('drivers')
-                    .select('id')
-                    .eq('full_name', fleetData.driver_name)
-                    .maybeSingle();
-
-                if (driverData) {
-                    await supabase
-                        .from('drivers')
-                        .update({ current_fleet_id: null })
-                        .eq('id', driverData.id);
-                }
+                    .update({ current_fleet_id: null })
+                    .eq('current_fleet_id', id);
             }
 
             const { error } = await supabase
@@ -317,8 +309,8 @@ export default function FleetModule() {
 
     async function handleStatusChange(id: string, newStatus: string) {
         try {
-            // Si el vehículo pasa a available o inactive, desasignar el conductor
-            const shouldUnassignDriver = newStatus === 'available' || newStatus === 'inactive';
+            // Solo "inactivo" desasigna el conductor ("disponible" = libre para un viaje, conserva su chofer)
+            const shouldUnassignDriver = newStatus === 'inactive';
             
             // Primero obtener el vehículo actual
             const { data: fleetData } = await supabase
@@ -334,19 +326,10 @@ export default function FleetModule() {
                 updateData.driver_name = null;
                 updateData.driver_phone = null;
                 
-                // Buscar el conductor por nombre y actualizar su current_fleet_id
-                const { data: driverData } = await supabase
+                await supabase
                     .from('drivers')
-                    .select('id')
-                    .eq('full_name', fleetData.driver_name)
-                    .maybeSingle();
-
-                if (driverData) {
-                    await supabase
-                        .from('drivers')
-                        .update({ current_fleet_id: null })
-                        .eq('id', driverData.id);
-                }
+                    .update({ current_fleet_id: null })
+                    .eq('current_fleet_id', id);
             }
 
             const { error } = await supabase
@@ -367,7 +350,7 @@ export default function FleetModule() {
 
     function openEditModal(vehicle: Fleet) {
         setEditingId(vehicle.id);
-        const selectedDriver = drivers.find(d => d.full_name === vehicle.driver_name);
+        const selectedDriver = drivers.find(d => d.current_fleet_id === vehicle.id);
         
         setFormData({
             plate: vehicle.plate,

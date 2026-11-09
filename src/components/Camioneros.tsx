@@ -31,6 +31,7 @@ interface UploadValue { name: string; url: string; type: string }
 interface Trip {
   id: string; order_number: string; company: string; driver: string; initials: string; truck: string; route: string;
   origin: string; destination: string; appointment: string; status: string;
+  rawStatus: string; fleetId: string | null;
   uploads: Partial<Record<DocumentKey, UploadValue>>
 }
 
@@ -112,6 +113,13 @@ export default function CamionerosModule() {
 
   useEffect(() => {
     initModule();
+    // Tiempo real: recarga cuando cambian órdenes o documentos (requiere Realtime activo en Supabase)
+    const channel = supabase
+      .channel('camioneros-sync')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'orders' }, () => initModule())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'documents' }, () => initModule())
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
   }, [])
 
   async function initModule() {
@@ -152,11 +160,18 @@ export default function CamionerosModule() {
         }
       }
 
-      // 4. Traer las órdenes
+      // Un usuario con rol chofer sin ficha en Conductores (email) no debe ver los viajes de otros
+      if (isDriver && !driverId) {
+        setTrips([]);
+        setToast("⚠️ Tu email no está vinculado a ningún conductor. Pide que lo registren en Conductores.");
+        return;
+      }
+
+      // 4. Traer las órdenes (* para no fallar si aún no existe la columna fleet_id)
       let query = supabase
         .from('orders')
         .select(`
-          id, order_number, origin, destination, service_date, status,
+          *,
           client:clients (name),
           documents (pod_empty_url, pod_final_url, load_evidence_url, delivery_evidence_url)
         `)
@@ -164,11 +179,25 @@ export default function CamionerosModule() {
 
       // ✅ FILTRO: Si es un chofer, solo traemos sus viajes. Si es admin, todos.
       if (isDriver && driverId) {
-        query = query.eq('driver_id', driverId);
+        query = query.eq('driver_id', driverId).neq('status', 'draft');
       }
 
       const { data, error } = await query;
       if (error) throw error;
+
+      // Nombres reales de chofer y vehículo
+      const rows = data || [];
+      const driverIds = [...new Set(rows.map((o: any) => o.driver_id).filter(Boolean))];
+      const fleetIds = [...new Set(rows.map((o: any) => o.fleet_id).filter(Boolean))];
+      const providerIds = [...new Set(rows.map((o: any) => o.provider_id).filter(Boolean))];
+      const [{ data: driverRows }, { data: fleetRows }, { data: providerRows }] = await Promise.all([
+        driverIds.length ? supabase.from('drivers').select('id, full_name').in('id', driverIds) : Promise.resolve({ data: [] as any[] }),
+        fleetIds.length ? supabase.from('fleet').select('id, plate, brand, model').in('id', fleetIds) : Promise.resolve({ data: [] as any[] }),
+        providerIds.length ? supabase.from('providers').select('id, name, vehicle_plate').in('id', providerIds) : Promise.resolve({ data: [] as any[] }),
+      ]);
+      const providerById = new Map((providerRows || []).map((p: any) => [p.id, p]));
+      const driverName = new Map((driverRows || []).map((d: any) => [d.id, d.full_name as string]));
+      const truckName = new Map((fleetRows || []).map((v: any) => [v.id, [v.plate, v.brand, v.model].filter(Boolean).join(' · ')]));
 
       // 5. Mapear los datos a la interfaz
       const mappedTrips: Trip[] = (data || []).map((order: any) => {
@@ -182,9 +211,10 @@ export default function CamionerosModule() {
 
         return {
           id: order.id, order_number: order.order_number, company: order.client?.name || "Cliente no asignado",
-          driver: "Chofer Asignado", initials: (order.client?.name || "XX").substring(0, 2).toUpperCase(),
-          truck: "Unidad VTM", route: `${order.origin} → ${order.destination}`, origin: order.origin, destination: order.destination,
-          appointment: new Date(order.service_date).toLocaleDateString('es-CL'), status: getStatusLabel(order.status), uploads
+          // OT subcontratada: el transportista es el proveedor
+          driver: driverName.get(order.driver_id) || (providerById.get(order.provider_id) ? `Proveedor: ${providerById.get(order.provider_id).name}` : "Sin chofer asignado"), initials: (order.client?.name || "XX").substring(0, 2).toUpperCase(),
+          truck: truckName.get(order.fleet_id) || providerById.get(order.provider_id)?.vehicle_plate || "Sin vehículo asignado", route: `${order.origin} → ${order.destination}`, origin: order.origin, destination: order.destination,
+          appointment: new Date(order.service_date).toLocaleDateString('es-CL'), status: getStatusLabel(order.status), rawStatus: order.status, fleetId: order.fleet_id ?? null, uploads
         }
       });
 
@@ -241,10 +271,13 @@ export default function CamionerosModule() {
       if (dbError) throw dbError;
 
       // Si ya subió las 4 cosas, marcamos la orden como completada automáticamente
-      const newUploadsCount = Object.keys(selected.uploads).length + 1;
+      // Set: volver a subir un documento existente no cuenta doble
+      const newUploadsCount = new Set([...Object.keys(selected.uploads), key]).size;
       if (key === 'completedPod' || newUploadsCount === 4) {
         await supabase.from('orders').update({ status: 'completed' }).eq('id', selected.id);
-      } else if (selected.status === 'pending') {
+        // Viaje terminado: el vehículo vuelve a estar disponible en Flota
+        if (selected.fleetId) await supabase.from('fleet').update({ status: 'available' }).eq('id', selected.fleetId);
+      } else if (selected.rawStatus === 'pending') {
         await supabase.from('orders').update({ status: 'in_progress' }).eq('id', selected.id);
       }
 
