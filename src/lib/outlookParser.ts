@@ -223,3 +223,45 @@ export function mapEmailToOperation(email: OutlookEmailForIE): Operation | null 
       : ["Folio / Booking", "Retiro vacío", "Carga cliente", "Sello naviera", "Ingreso puerto"],
   };
 }
+
+// --- FECHA Y HORA DE CARGUÍO ---
+const MONTHS = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"];
+
+// "06/11/2026", "06-11", "6 de Noviembre", "12 Nov" -> Date (sin año: año de `ref`, o el siguiente si quedó muy atrás)
+export function parseLoadingDate(text: string | undefined, ref: Date): Date | null {
+  if (!text) return null;
+  text = text.replace(/\d{1,2}:\d{2}/g, " "); // quita horas ("08:00-12:00") para no leerlas como fecha
+  const t = normalize(text);
+  let day: number, month: number, year: number | undefined;
+  const numeric = text.match(/\b(\d{1,2})[/-](\d{1,2})(?:[/-](\d{2,4}))?\b/);
+  const named = t.match(/\b(\d{1,2}) (?:de )?(ene|feb|mar|abr|may|jun|jul|ago|sep|set|oct|nov|dic)[a-z]*(?: (?:de )?(\d{4}))?/);
+  if (numeric) {
+    [day, month] = [Number(numeric[1]), Number(numeric[2])];
+    if (numeric[3]) year = Number(numeric[3].length === 2 ? `20${numeric[3]}` : numeric[3]);
+  } else if (named) {
+    day = Number(named[1]);
+    month = MONTHS.indexOf(named[2] === "set" ? "sep" : named[2]) + 1;
+    if (named[3]) year = Number(named[3]);
+  } else return null;
+  if (month < 1 || month > 12 || day < 1 || day > 31) return null;
+  const date = new Date(year ?? ref.getFullYear(), month - 1, day);
+  // Fin de año: un "05/01" leído en diciembre es del año siguiente
+  if (year === undefined && ref.getTime() - date.getTime() > 180 * 86_400_000) date.setFullYear(date.getFullYear() + 1);
+  return date;
+}
+
+// "08:00", "8:30 hrs", "12.00 Hrs" -> "08:00"
+export function parseLoadingTime(text: string | undefined): string | null {
+  const m = text?.match(/\b([01]?\d|2[0-3]):([0-5]\d)\b/) ?? text?.match(/\b([01]?\d|2[0-3])\.([0-5]\d)\s*h/i);
+  return m ? `${m[1].padStart(2, "0")}:${m[2]}` : null;
+}
+
+export const dayKey = (date: Date) =>
+  `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+
+// Día del carguío: hora de presentación, si no Pick up, si no fecha de retiro/ETA. Hora: de la presentación.
+export function loadingSchedule(op: Operation, ref: Date): { key: string | null; date: Date | null; time: string | null } {
+  const date = parseLoadingDate(op.loadingAt, ref) ?? parseLoadingDate(op.gateOut, ref) ?? parseLoadingDate(op.eta, ref);
+  const time = parseLoadingTime(op.loadingAt) ?? parseLoadingTime(op.gateOut);
+  return { key: date ? dayKey(date) : null, date, time };
+}

@@ -1,7 +1,7 @@
 // src/components/ImportExportModule.tsx
 import { useEffect, useMemo, useState } from "react"
 import { useOutlookForImportExport } from "../hooks/useOutlookForImportExport"
-import { parseTableFromEmail, mapEmailToOperation, type Operation } from "../lib/outlookParser"
+import { parseTableFromEmail, mapEmailToOperation, loadingSchedule, dayKey, type Operation } from "../lib/outlookParser"
 
 type OperationType = "impo" | "expo"
 type OperationStatus = "Standby" | "Vacío" | "Full / Cargado" | "En tránsito" | "Entregado"
@@ -70,6 +70,104 @@ function OperationEditor({ operation, onUpdate }: { operation: Operation; onUpda
   )
 }
 
+const NO_DATE = "sin-fecha"
+// "mar 11/11"
+const formatDay = (date: Date) => date.toLocaleDateString("es-CL", { weekday: "short", day: "2-digit", month: "2-digit" }).replace(",", "")
+
+// Fecha/hora de carguío (expo) o retiro (impo) por operación, ordenadas cronológicamente
+function scheduleTools(operations: Operation[]) {
+  const now = new Date()
+  const todayKey = dayKey(now)
+  const schedules = new Map(operations.map((operation) => [operation.id, loadingSchedule(operation, now)]))
+  const keyOf = (operation: Operation) => schedules.get(operation.id)?.key ?? NO_DATE
+  // Sin fecha al final
+  const sortKey = (operation: Operation) => `${schedules.get(operation.id)?.key ?? "9999"} ${schedules.get(operation.id)?.time ?? "99:99"}`
+  const sorted = [...operations].sort((a, b) => sortKey(a).localeCompare(sortKey(b)))
+  const whenLabel = (operation: Operation) => {
+    const schedule = schedules.get(operation.id)
+    return schedule?.date ? `${formatDay(schedule.date)} · ${schedule.time ?? "sin hora"}` : (operation.loadingAt || "Sin fecha")
+  }
+  return { now, todayKey, schedules, keyOf, sorted, whenLabel }
+}
+
+const DAY_THEME = {
+  expo: { title: "Próximos días con trabajo de exportación", today: "Cargas de hoy", verb: "Carguío", one: "carguío", many: "carguíos", border: "border-red-200", head: "border-red-100 bg-red-50", text: "text-red-600", sub: "text-red-500", pill: "bg-red-500", on: "border-red-500 bg-red-500 text-white shadow-sm", off: "border-red-100 bg-red-50/50 text-red-700 hover:border-red-300", box: "border-red-100", boxTitle: "text-red-600/70" },
+  impo: { title: "Próximos días con trabajo de importación", today: "Retiros de hoy", verb: "Retiro", one: "retiro", many: "retiros", border: "border-slate-300", head: "border-slate-200 bg-slate-100", text: "text-slate-900", sub: "text-slate-500", pill: "bg-slate-900", on: "border-slate-900 bg-slate-900 text-white shadow-sm", off: "border-slate-200 bg-slate-50 text-slate-700 hover:border-slate-400", box: "border-slate-200", boxTitle: "text-slate-500" },
+} as const
+
+// Panel: resumen de días activos, trabajos de hoy y próximas fechas (siempre con día y hora)
+function DaySummary({ operations, type, activeDay, onSelectDay }: { operations: Operation[]; type: OperationType; activeDay: string; onSelectDay: (day: string) => void }) {
+  const theme = DAY_THEME[type]
+  const { now, todayKey, schedules, keyOf, sorted, whenLabel } = scheduleTools(operations)
+  const todayOps = sorted.filter((operation) => keyOf(operation) === todayKey)
+  const upcomingDays = Array.from(new Set(sorted.map(keyOf).filter((key) => key !== NO_DATE && key > todayKey)))
+  const undated = sorted.filter((operation) => keyOf(operation) === NO_DATE)
+  const activeDays = new Set(sorted.map(keyOf).filter((key) => key !== NO_DATE)).size
+  const opLabel = (operation: Operation) => operation.booking || operation.reference || operation.container
+  const tileClass = (active: boolean) => `rounded-lg border p-3 text-left transition-all ${active ? theme.on : theme.off}`
+
+  return (
+    <section className={`overflow-hidden rounded-xl border ${theme.border} bg-white shadow-sm`}>
+      <div className={`flex flex-wrap items-center justify-between gap-3 border-b ${theme.head} px-5 py-4`}>
+        <div>
+          <div className={`flex items-center gap-2 ${theme.text}`}><Icon name="alert" /><p className="text-xs font-bold">{theme.title}</p></div>
+          <p className={`mt-1 text-[10px] ${theme.sub}`}>Extraído automáticamente desde Outlook.</p>
+        </div>
+        <p className={`rounded-full ${theme.pill} px-3 py-1.5 text-[9px] font-bold uppercase tracking-wider text-white`}>{operations.length} servicios vigentes</p>
+      </div>
+      <div className="grid gap-3 p-4 lg:grid-cols-[minmax(0,0.8fr)_minmax(0,1fr)_minmax(0,1.4fr)]">
+        {/* 1. Resumen */}
+        <button onClick={() => onSelectDay("Todos")} className={`self-start ${tileClass(activeDay === "Todos")}`}>
+          <p className="text-[9px] font-bold uppercase tracking-wider opacity-70">Resumen</p>
+          <p className="mt-1 text-xs font-bold">Todos los días activos</p>
+          <p className="mt-1 text-[9px] opacity-70">{operations.length} {operations.length === 1 ? "operación" : "operaciones"} · {activeDays} {activeDays === 1 ? "día" : "días"}</p>
+        </button>
+
+        {/* 2. Hoy */}
+        <button onClick={() => onSelectDay(todayKey)} className={`self-start ${tileClass(activeDay === todayKey)}`}>
+          <p className="text-[9px] font-bold uppercase tracking-wider opacity-70">{theme.today}</p>
+          <p className="mt-1 text-xs font-bold capitalize">{formatDay(now)}</p>
+          {todayOps.length === 0 ? (
+            <p className="mt-1 text-[9px] opacity-70">Sin {theme.many} programados hoy</p>
+          ) : (
+            <ul className="mt-1.5 space-y-0.5 text-[10px]">
+              {todayOps.map((operation) => <li key={operation.id} className="truncate"><strong>{schedules.get(operation.id)?.time ?? "sin hora"}</strong> · {opLabel(operation)} · {operation.client}</li>)}
+            </ul>
+          )}
+        </button>
+
+        {/* 3. Próximas fechas (con día y hora para no confundir) */}
+        <div className={`rounded-lg border ${theme.box} bg-white p-3`}>
+          <p className={`text-[9px] font-bold uppercase tracking-wider ${theme.boxTitle}`}>Próximas fechas</p>
+          {upcomingDays.length === 0 && undated.length === 0 ? (
+            <p className="mt-1 text-[10px] text-slate-400">No hay {theme.many} en los próximos días</p>
+          ) : (
+            <div className="mt-2 space-y-1.5">
+              {upcomingDays.map((key) => {
+                const dayOps = sorted.filter((operation) => keyOf(operation) === key)
+                return (
+                  <button key={key} onClick={() => onSelectDay(key)} className={`w-full ${tileClass(activeDay === key)} p-2`}>
+                    <p className="text-[10px] font-bold capitalize">{formatDay(schedules.get(dayOps[0].id)!.date!)} · {dayOps.length} {dayOps.length === 1 ? theme.one : theme.many}</p>
+                    <ul className="mt-0.5 space-y-0.5 text-[10px] opacity-80">
+                      {dayOps.map((operation) => <li key={operation.id} className="truncate">{theme.verb}: <strong className="capitalize">{whenLabel(operation)}</strong> · {opLabel(operation)} · {operation.client}</li>)}
+                    </ul>
+                  </button>
+                )
+              })}
+              {undated.length > 0 && (
+                <button onClick={() => onSelectDay(NO_DATE)} className={`w-full ${tileClass(activeDay === NO_DATE)} p-2`}>
+                  <p className="text-[10px] font-bold">Sin fecha de {theme.one} · {undated.length}</p>
+                  <p className="mt-0.5 text-[9px] opacity-70">Completa la fecha en la ficha para ordenarlas</p>
+                </button>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+    </section>
+  )
+}
+
 // --- COMPONENTE EXPORT BOARD ---
 function ExportBoard({
   operations,
@@ -83,9 +181,9 @@ function ExportBoard({
   onUpdate: (operation: Operation) => void
 }) {
   const [activeDay, setActiveDay] = useState("Todos")
-  const expo = operations.filter((operation) => operation.type === "expo")
-  const days = Array.from(new Set(expo.map((operation) => operation.loadingAt?.split(" · ")[0] ?? "Sin fecha")))
-  const visible = activeDay === "Todos" ? expo : expo.filter((operation) => operation.loadingAt?.startsWith(activeDay))
+  const { sorted, keyOf, whenLabel } = scheduleTools(operations.filter((operation) => operation.type === "expo"))
+  const expo = sorted
+  const visible = activeDay === "Todos" ? expo : expo.filter((operation) => keyOf(operation) === activeDay)
   const selected = expo.find((operation) => operation.id === selectedId) ?? visible[0] ?? expo[0]
 
   if (!selected) {
@@ -102,22 +200,7 @@ function ExportBoard({
 
   return (
     <div className="space-y-4">
-      <section className="overflow-hidden rounded-xl border border-red-200 bg-white shadow-sm">
-        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-red-100 bg-red-50 px-5 py-4">
-          <div>
-            <div className="flex items-center gap-2 text-red-600"><Icon name="alert" /><p className="text-xs font-bold">Próximos días con trabajo de exportación</p></div>
-            <p className="mt-1 text-[10px] text-red-500">Extraído automáticamente desde Outlook.</p>
-          </div>
-          <p className="rounded-full bg-red-500 px-3 py-1.5 text-[9px] font-bold uppercase tracking-wider text-white">{expo.length} servicios vigentes</p>
-        </div>
-        <div className="flex flex-wrap gap-2 p-4">
-          <button onClick={() => setActiveDay("Todos")} className={`rounded-lg border px-4 py-3 text-left transition-all ${activeDay === "Todos" ? "border-red-500 bg-red-500 text-white shadow-sm" : "border-slate-200 bg-white text-slate-600 hover:border-red-200"}`}><p className="text-[9px] font-bold uppercase tracking-wider opacity-70">Resumen</p><p className="mt-1 text-xs font-bold">Todos los días activos</p></button>
-          {days.map((day) => {
-            const count = expo.filter((operation) => operation.loadingAt?.startsWith(day)).length
-            return <button key={day} onClick={() => setActiveDay(day)} className={`min-w-32 rounded-lg border px-4 py-3 text-left transition-all ${activeDay === day ? "border-red-500 bg-red-500 text-white shadow-sm" : "border-red-100 bg-red-50/50 text-red-700 hover:border-red-300"}`}><p className="text-[9px] font-bold uppercase tracking-wider opacity-65">Carguíos</p><p className="mt-1 text-sm font-bold">{day}</p><p className="mt-0.5 text-[9px] opacity-70">{count} {count === 1 ? "operación" : "operaciones"}</p></button>
-          })}
-        </div>
-      </section>
+      <DaySummary operations={expo} type="expo" activeDay={activeDay} onSelectDay={setActiveDay} />
 
       <div className="grid gap-4 xl:grid-cols-[minmax(0,0.9fr)_minmax(520px,1.35fr)]">
         <section className="space-y-3">
@@ -129,7 +212,7 @@ function ExportBoard({
                 <div className="p-4">
                   <div className="flex items-start justify-between gap-3">
                     <div><div className="flex items-center gap-2"><span className="rounded bg-red-50 px-2 py-1 text-[8px] font-bold uppercase tracking-wider text-red-600">Exportación</span><span className={`rounded px-2 py-1 text-[8px] font-bold ${operation.bookingStatus === "Vigente" ? "bg-emerald-50 text-emerald-700" : "bg-orange-50 text-orange-700"}`}>{operation.bookingStatus}</span></div><p className="mt-2 text-sm font-bold text-slate-950">{operation.client} <span className="font-medium text-slate-400">/ {operation.owner}</span></p><p className="mt-1 font-mono text-[10px] font-semibold text-slate-500">{operation.booking} · {operation.shippingLine}</p></div>
-                    <div className="text-right"><p className="text-[9px] font-bold uppercase tracking-wider text-slate-400">Carguío</p><p className="mt-1 text-xs font-bold text-red-600">{operation.loadingAt}</p>{alerts > 0 && <span className="mt-2 inline-flex items-center gap-1 rounded-full bg-red-50 px-2 py-1 text-[8px] font-bold text-red-600"><Icon name="alert" className="size-3" />{alerts} alertas</span>}</div>
+                    <div className="text-right"><p className="text-[9px] font-bold uppercase tracking-wider text-slate-400">Carguío</p><p className="mt-1 text-xs font-bold capitalize text-red-600">{whenLabel(operation)}</p>{alerts > 0 && <span className="mt-2 inline-flex items-center gap-1 rounded-full bg-red-50 px-2 py-1 text-[8px] font-bold text-red-600"><Icon name="alert" className="size-3" />{alerts} alertas</span>}</div>
                   </div>
                   <div className="mt-3 grid grid-cols-3 gap-2 border-t border-slate-100 pt-3">
                     <div><p className="text-[8px] font-bold uppercase tracking-wider text-slate-400">Depósito</p><p className="mt-1 truncate text-[9px] font-semibold text-slate-700">{operation.depot} · {operation.containerClass}</p></div>
@@ -232,8 +315,15 @@ export default function ImportExportModule() {
       && [operation.client, operation.owner, operation.reference, operation.container, operation.port].join(" ").toLowerCase().includes(query)
   }), [typeFilter, clientFilter, search, allOperations])
 
+  // Importaciones: orden por fecha/hora de retiro y filtro por día (mismo panel que exportación)
+  const [impoDay, setImpoDay] = useState("Todos")
+  const impoTools = scheduleTools(filtered)
+  const listed = typeFilter !== "impo" ? filtered
+    : impoDay === "Todos" ? impoTools.sorted
+    : impoTools.sorted.filter((operation) => impoTools.keyOf(operation) === impoDay)
+
   // Solo se muestra una ficha que pertenezca al filtro actual (si no, el panel queda vacío)
-  const selected = filtered.find((operation) => operation.id === selectedId) ?? filtered[0]
+  const selected = listed.find((operation) => operation.id === selectedId) ?? listed[0]
   const urgent = allOperations.filter((operation) => operation.countdown <= 2).length
 
   return (
@@ -292,6 +382,8 @@ export default function ImportExportModule() {
               </div>
             </section>
 
+            {typeFilter === "impo" && <DaySummary operations={impoTools.sorted} type="impo" activeDay={impoDay} onSelectDay={setImpoDay} />}
+
             {typeFilter === "expo" ? (
               <ExportBoard
                 operations={allOperations}
@@ -302,14 +394,14 @@ export default function ImportExportModule() {
             ) : (
             <div className="grid gap-4 xl:grid-cols-[minmax(0,1.45fr)_minmax(360px,0.75fr)]">
               <section className="space-y-3">
-                {filtered.map((operation) => (
+                {listed.map((operation) => (
                   <button key={operation.id} onClick={() => setSelectedId(operation.id)} className={`w-full overflow-hidden rounded-xl border bg-white text-left transition-all ${selected?.id === operation.id ? "border-navy-300 shadow-md ring-1 ring-navy-100" : "border-slate-200 hover:border-slate-300 hover:shadow-sm"}`}>
                     <div className="flex">
                       <div className={`w-1.5 shrink-0 ${operation.type === "expo" ? "bg-red-500" : "bg-slate-950"}`} />
                       <div className="min-w-0 flex-1 p-4">
                         <div className="flex flex-wrap items-start justify-between gap-3">
                           <div className="flex items-start gap-3"><div className={`flex size-10 items-center justify-center rounded-lg ${operation.type === "expo" ? "bg-red-50 text-red-600" : "bg-slate-100 text-slate-900"}`}><Icon name={operation.type === "expo" ? "ship" : "anchor"} className="size-5" /></div><div><div className="flex items-center gap-2"><span className={`text-[8px] font-bold uppercase tracking-widest ${operation.type === "expo" ? "text-red-600" : "text-slate-600"}`}>{operation.type === "expo" ? "Exportación" : "Importación"}</span><span className="text-[9px] text-slate-300">•</span><span className="font-mono text-[10px] font-bold text-slate-500">{operation.reference}</span></div><p className="mt-1 text-sm font-bold text-slate-950">{operation.client} <span className="font-medium text-slate-400">/ {operation.owner}</span></p><p className="mt-1 font-mono text-[10px] text-slate-500">{operation.container} · {operation.size}</p></div></div>
-                          <div className="text-right"><span className={`inline-flex rounded-full px-2.5 py-1 text-[9px] font-bold ring-1 ring-inset ${statusStyles[operation.status]}`}>{operation.status}</span><p className={`mt-2 text-[10px] font-bold ${operation.countdown <= 2 ? "text-red-600" : "text-slate-500"}`}>{operation.deadline}</p></div>
+                          <div className="text-right"><span className={`inline-flex rounded-full px-2.5 py-1 text-[9px] font-bold ring-1 ring-inset ${statusStyles[operation.status]}`}>{operation.status}</span><p className={`mt-2 text-[10px] font-bold ${operation.countdown <= 2 ? "text-red-600" : "text-slate-500"}`}>{operation.deadline}</p>{operation.type === "impo" && <p className="mt-1 text-[10px] font-bold capitalize text-slate-700">Retiro: {impoTools.whenLabel(operation)}</p>}</div>
                         </div>
                         <div className="mt-4 grid grid-cols-[1fr_auto_1fr_auto] items-center gap-3 border-t border-slate-100 pt-3">
                           <div><p className="text-[8px] font-bold uppercase tracking-wider text-slate-400">{operation.type === "impo" ? "ETA / Puerto" : "Origen / Retiro"}</p><p className="mt-1 truncate text-[10px] font-semibold text-slate-700">{operation.type === "impo" ? `${operation.eta} · ${operation.port}` : operation.origin}</p></div><Icon name="arrow" className="size-3.5 text-slate-300" /><div><p className="text-[8px] font-bold uppercase tracking-wider text-slate-400">Destino</p><p className="mt-1 truncate text-[10px] font-semibold text-slate-700">{operation.destination}</p></div><div className="border-l border-slate-100 pl-4"><p className="text-[8px] font-bold uppercase tracking-wider text-slate-400">Conductor</p><p className="mt-1 whitespace-nowrap text-[10px] font-semibold text-slate-700">{operation.driver}</p></div>
@@ -318,7 +410,7 @@ export default function ImportExportModule() {
                     </div>
                   </button>
                 ))}
-                {filtered.length === 0 && (
+                {listed.length === 0 && (
                   <div className="p-10 text-center text-sm text-slate-500 bg-white rounded-xl border border-slate-200">
                     No se encontraron operaciones de Outlook.
                   </div>
