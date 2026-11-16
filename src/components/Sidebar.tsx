@@ -19,6 +19,7 @@ interface UserPermissions {
   can_view_camioneros: boolean;
   can_view_coordination: boolean;
   can_view_importexport: boolean;
+  can_view_patio: boolean;
 }
 
 interface Props {
@@ -46,6 +47,7 @@ const navItems: NavItem[] = [
   { id: 'documents', label: 'POD · Documentos', requiredPermission: 'can_view_documents' },
   { id: 'fleet', label: 'Flota · Vehículos', requiredPermission: 'can_view_fleet' },
   { id: 'drivers', label: 'Conductores', requiredPermission: 'can_view_drivers' },
+  { id: 'patio', label: 'Jefatura de Patio', requiredPermission: 'can_view_patio' },
   { id: 'clients', label: 'Clientes', requiredPermission: 'can_view_clients' },
   { id: 'providers', label: 'Proveedores', badge: 3, requiredPermission: 'can_view_providers' },
   { id: 'calculations', label: 'Cálculo', requiredPermission: 'can_view_calculations' },
@@ -70,6 +72,7 @@ function NavIcon({ id }: { id: ActiveView }) {
     camioneros: ['M3 6h11v10H3zM14 9h4l3 3v4h-7z', 'M7 20a2 2 0 1 0 0-4 2 2 0 0 0 0 4zM18 20a2 2 0 1 0 0-4 2 2 0 0 0 0 4z'],
     coordination: ['M5 4h14a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z', 'M8 2v4m8-4v4M3 9h18'],
     importexport: ['M3 18c3 2 6 2 9 0 3 2 6 2 9 0', 'M5 15 3 8h18l-2 7M8 8V4h8v4'],
+    patio: ['M4 21V8h16v13M8 21V8m8 13V8M2 8h20M6 4h12v4'],
   };
   const paths = Array.isArray(d[id]) ? (d[id] as string[]) : [d[id] as string];
   return (
@@ -141,19 +144,20 @@ export default function Sidebar({
         borderRight: '1px solid rgba(255,255,255,0.06)',
       }}
     >
+      {/* Logo arriba; nombre de la empresa y del sistema debajo (colapsado: solo logo) */}
       <div
-        className="flex items-center gap-3 px-4 h-14 flex-shrink-0"
+        className={`flex flex-col items-center justify-center flex-shrink-0 text-center ${collapsed ? 'h-14 px-2' : 'px-4 pt-5 pb-4'}`}
         style={{ borderBottom: '1px solid rgba(255,255,255,0.07)' }}
       >
         <img
           src="/logo_empresa_VTM.png"
           alt="VTM Logistics"
-          className="w-12 h-auto object-contain flex-shrink-0"
+          className={`${collapsed ? 'w-11' : 'w-36'} h-auto object-contain flex-shrink-0`}
         />
         {!collapsed && (
-          <div className="overflow-hidden">
+          <div className="mt-2.5 overflow-hidden">
             <div className="text-white font-bold text-[15px] tracking-tight leading-none whitespace-nowrap">VTM Logistics</div>
-            <div className="text-blue-400/60 text-[10px] tracking-widest uppercase mt-0.5 whitespace-nowrap">VTM · Control Center</div>
+            <div className="text-blue-400/60 text-[10px] tracking-widest uppercase mt-1 whitespace-nowrap">VTM · Control Center</div>
           </div>
         )}
       </div>

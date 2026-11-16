@@ -69,6 +69,17 @@ export interface Fleet {
     current_location: string | null;
     last_maintenance: string | null;
     next_maintenance: string | null;
+    // Patio (migración 20261116_patio_fleet_driver_fields.sql)
+    internal_code?: string | null;
+    engine_number?: string | null;
+    chassis_number?: string | null;
+    photo_path?: string | null;
+    current_km?: number | null;
+    technical_review_done?: string | null;
+    permit_expiry?: string | null;
+    gases_expiry?: string | null;
+    vehicle_insurance_expiry?: string | null;
+    extinguisher_expiry?: string | null;
     created_at: string;
     updated_at: string;
 }
@@ -89,6 +100,9 @@ export interface Driver {
     hire_date: string | null;
     current_fleet_id: string | null;
     is_active: boolean | null;
+    // Patio (migración 20261116_patio_fleet_driver_fields.sql)
+    emergency_contact_name?: string | null;
+    emergency_contact_phone?: string | null;
     created_at: string;
     updated_at: string;
 }

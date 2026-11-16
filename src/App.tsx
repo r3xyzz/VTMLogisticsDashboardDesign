@@ -20,6 +20,7 @@ import FacturacionModule from './components/FacturacionModule';
 import CamionerosModule from './components/Camioneros';
 import CoordinationBoard from './components/TablaCoordinacion'; 
 import ImportExportModule from './components/ImportExportModule';
+import PatioModule from './components/Patio';
 
 // Vistas activas (sin 'orders')
 export type ActiveView = 
@@ -36,7 +37,8 @@ export type ActiveView =
   | 'facturacion'
   | 'camioneros'
   | 'coordination'
-  | 'importexport';
+  | 'importexport'
+  | 'patio';
 
 interface UserPermissions {
   can_view_dashboard: boolean;
@@ -53,6 +55,7 @@ interface UserPermissions {
   can_view_camioneros: boolean;
   can_view_coordination: boolean;
   can_view_importexport: boolean;
+  can_view_patio: boolean;
 }
 
 const defaultPermissions: UserPermissions = {
@@ -70,13 +73,14 @@ const defaultPermissions: UserPermissions = {
   can_view_camioneros: false,
   can_view_coordination: false,
   can_view_importexport: false,
+  can_view_patio: false,
 };
 
 const activeViewStorageKey = 'vtm-active-view';
 const activeViews: ActiveView[] = [
   'dashboard', 'cargo', 'tracking', 'documents',
   'fleet', 'providers', 'drivers', 'clients', 'calculations', 'email',
-  'facturacion', 'camioneros', 'coordination', 'importexport',
+  'facturacion', 'camioneros', 'coordination', 'importexport', 'patio',
 ];
 
 const getStoredActiveView = (): ActiveView | null => {
@@ -102,6 +106,7 @@ const hasPermissionForView = (view: ActiveView, permissions: UserPermissions): b
     camioneros: 'can_view_camioneros',
     coordination: 'can_view_coordination',
     importexport: 'can_view_importexport',
+    patio: 'can_view_patio',
   };
   return permissions[permissionByView[view]];
 };
@@ -185,6 +190,7 @@ function AppContent() {
               can_view_camioneros: true,
               can_view_coordination: true,
               can_view_importexport: true,
+              can_view_patio: true,
             }
           };
         }
@@ -208,6 +214,7 @@ function AppContent() {
         can_view_camioneros: permissionsData.can_view_camioneros || false,
         can_view_coordination: permissionsData.can_view_coordination || false,
         can_view_importexport: permissionsData.can_view_importexport || false,
+        can_view_patio: permissionsData.can_view_patio || false,
       };
 
       console.log('✅ Permisos finales:', permissions);
@@ -233,6 +240,7 @@ function AppContent() {
     if (permissions.can_view_coordination) return 'coordination';
     if (permissions.can_view_camioneros) return 'camioneros';
     if (permissions.can_view_importexport) return 'importexport';
+    if (permissions.can_view_patio) return 'patio';
     return 'dashboard';
   };
 
@@ -252,6 +260,7 @@ function AppContent() {
       case 'camioneros': return userPermissions.can_view_camioneros;
       case 'coordination': return userPermissions.can_view_coordination;
       case 'importexport': return userPermissions.can_view_importexport;
+      case 'patio': return userPermissions.can_view_patio;
       default: return false;
     }
   };
@@ -341,6 +350,7 @@ function AppContent() {
     coordination: <CoordinationBoard />,
     camioneros: <CamionerosModule />,
     importexport: <ImportExportModule />,
+    patio: <PatioModule />,
   }), [handleNavigate]);
 
   if (loading) {
