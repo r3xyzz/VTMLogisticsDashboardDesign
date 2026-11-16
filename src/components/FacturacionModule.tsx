@@ -45,7 +45,7 @@ function Icon({ name, className = "size-4" }: { name: IconName; className?: stri
   )
 }
 
-/* ─── Tipos ──────────────────────────────────────────────────────────────────── */
+/* ─── Tipos ──────────────────────────────────────────────────────────────────── exportaciones de carga suelta y conenedor LCL=CARGA SUELTA FCL=CONTENEDORES */
 
 type InvoiceStatus = 
   | "Pendiente" | "Pagada" | "Con detalle" | "Vencida"

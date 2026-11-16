@@ -2,6 +2,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useMsal } from '@azure/msal-react';
 import { loginRequest } from '../lib/msal';
+import { groupByConversation, parseTableFromEmail } from '../lib/outlookParser';
 
 export interface OutlookEmailForIE {
   id: string;
@@ -9,10 +10,14 @@ export interface OutlookEmailForIE {
   from?: { emailAddress?: { name?: string; address?: string } };
   receivedDateTime: string;
   body?: { content?: string; contentType?: string };
+  // Solo lo nuevo del mensaje (sin el historial citado de la respuesta)
+  uniqueBody?: { content?: string; contentType?: string };
+  conversationId?: string;
   hasAttachments?: boolean;
 }
 
 const MAX_PAGES = 5;
+const SELECT = 'id,subject,from,receivedDateTime,body,uniqueBody,conversationId,hasAttachments';
 
 export function useOutlookForImportExport() {
   const { instance, accounts } = useMsal();
@@ -51,10 +56,13 @@ export function useOutlookForImportExport() {
       setLoading(true);
       setError(null);
 
-      const select = 'id,subject,from,receivedDateTime,body,hasAttachments';
+      const headers = {
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+      };
       const params = new URLSearchParams({
         $top: '100',
-        $select: select,
+        $select: SELECT,
         $orderby: 'receivedDateTime desc',
       });
 
@@ -63,12 +71,7 @@ export function useOutlookForImportExport() {
       const all: OutlookEmailForIE[] = [];
       let url: string | undefined = `https://graph.microsoft.com/v1.0/me/messages?${params.toString()}`;
       for (let i = 0; url && i < MAX_PAGES; i++) {
-        const response: Response = await fetch(url, {
-          headers: {
-            Authorization: `Bearer ${accessToken}`,
-            'Content-Type': 'application/json',
-          },
-        });
+        const response: Response = await fetch(url, { headers });
         if (!response.ok) {
           const errorData = await response.text();
           throw new Error(`Error de Microsoft Graph (${response.status}): ${errorData}`);
@@ -78,8 +81,26 @@ export function useOutlookForImportExport() {
         url = page['@odata.nextLink'];
       }
 
-      // ✅ Traemos TODOS los correos (sin filtro). El Parser hace el resto.
-      setEmails(all);
+      // Hilos con carga: se trae la conversación COMPLETA (respuestas antiguas, enviados, otras carpetas)
+      // para que cada mensaje del hilo actualice la operación.
+      const cargoConversations = groupByConversation(all)
+        .filter((thread) => thread[0].conversationId && thread.some((m) => parseTableFromEmail(m.body?.content || '')))
+        .map((thread) => thread[0].conversationId as string);
+      const threads = await Promise.all(cargoConversations.map(async (conversationId) => {
+        // Sin $orderby: Graph rechaza ordenar por fecha al filtrar por conversationId (se ordena en el parser)
+        const query = new URLSearchParams({ $filter: `conversationId eq '${conversationId}'`, $select: SELECT, $top: '50' });
+        const response = await fetch(`https://graph.microsoft.com/v1.0/me/messages?${query.toString()}`, { headers });
+        if (!response.ok) {
+          console.warn('⚠️ [ImportExport] No se pudo leer la conversación completa:', await response.text());
+          return [];
+        }
+        return ((await response.json()).value || []) as OutlookEmailForIE[];
+      }));
+
+      // ✅ Todos los correos + los hilos completos, sin duplicados. El Parser hace el resto.
+      const byId = new Map<string, OutlookEmailForIE>();
+      for (const email of [...all, ...threads.flat()]) byId.set(email.id, email);
+      setEmails(Array.from(byId.values()));
       
     } catch (err) {
       console.error('❌ [ImportExport] Error al obtener correos:', err);

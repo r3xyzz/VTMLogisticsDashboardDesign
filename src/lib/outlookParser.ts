@@ -42,7 +42,11 @@ export type Operation = {
   documents: string[]
   currentStep: number
   steps: string[]
+  // Conversación de Outlook: un mensaje por entrada, del más antiguo al más nuevo
+  thread?: ThreadMessage[]
 }
+
+export type ThreadMessage = { id: string; date: string; from: string; snippet: string; status?: Operation["status"] }
 
 // Sinónimos por campo (ya normalizados: minúsculas, sin tildes ni signos).
 // El orden importa: cada etiqueta se asigna al PRIMER campo que coincida
@@ -111,22 +115,54 @@ function extractPairs(doc: Document): [string, string][] {
   return pairs;
 }
 
-export function parseTableFromEmail(body: string) {
-  if (!body) return null;
+// Todos los campos reconocidos en un cuerpo (vacíos si no aparecen), sin exigir mínimo
+export function extractFields(body: string): Record<ParsedField, string> {
+  const result = Object.fromEntries(Object.keys(FIELD_SYNONYMS).map((k) => [k, ""])) as Record<ParsedField, string>;
+  if (!body) return result;
 
   // DOMParser también sirve para cuerpos en texto plano (soporta correos reenviados)
   // Saltos de línea tras bloques para que textContent conserve las líneas "Etiqueta: valor"
   const withBreaks = body.replace(/<br\s*\/?>|<\/(p|div|tr|li|h\d)>/gi, "$&\n");
   const doc = new DOMParser().parseFromString(withBreaks, "text/html");
-  const result = Object.fromEntries(Object.keys(FIELD_SYNONYMS).map((k) => [k, ""])) as Record<ParsedField, string>;
 
   for (const [label, value] of extractPairs(doc)) {
     const field = matchField(label);
     if (field && !result[field] && value) result[field] = value;
   }
+  return result;
+}
 
-  const coreMatches = CORE_FIELDS.filter((f) => result[f]).length;
-  return coreMatches >= MIN_CORE_MATCHES ? result : null;
+const isCargo = (fields: Record<ParsedField, string>) => CORE_FIELDS.filter((f) => fields[f]).length >= MIN_CORE_MATCHES;
+
+export function parseTableFromEmail(body: string) {
+  const result = extractFields(body);
+  return isCargo(result) ? result : null;
+}
+
+const htmlToText = (html: string) =>
+  html.replace(/<(style|script)[^>]*>[\s\S]*?<\/\1>/gi, " ").replace(/<[^>]+>/g, " ").replace(/&nbsp;/g, " ").replace(/\s+/g, " ").trim();
+
+// Estado según lo que dice un mensaje del hilo (orden: gana el estado más avanzado que aparezca)
+const STATUS_WORDS: [Operation["status"], RegExp][] = [
+  ["Entregado", /\b(entregad[oa]s?|descargad[oa]s?|recepcionad[oa]s?|carga recibida|recibid[oa]s? conforme|pod firmado)\b/],
+  ["En tránsito", /\b(en transito|en ruta|en camino|despachad[oa]s?|ya salio)\b/],
+  ["Full / Cargado", /\b(cargad[oa]s?|carga lista|contenedor full|sellad[oa]s?)\b/],
+  ["Vacío", /\b(vacio retirado|retiro de vacio realizado|retiramos (el )?vacio)\b/],
+];
+// shortcut: palabras clave sin negación ("no ha sido entregado" cuenta como entregado); si molesta, usar reglas por frase
+export function detectStatus(text: string): Operation["status"] | null {
+  const t = normalize(text);
+  return STATUS_WORDS.find(([, re]) => re.test(t))?.[0] ?? null;
+}
+
+// Agrupa los correos por conversación de Outlook (sin conversationId: cada correo es su propia conversación)
+export function groupByConversation(emails: OutlookEmailForIE[]): OutlookEmailForIE[][] {
+  const groups = new Map<string, OutlookEmailForIE[]>();
+  for (const email of emails) {
+    const key = email.conversationId || email.id;
+    groups.set(key, [...(groups.get(key) || []), email]);
+  }
+  return Array.from(groups.values());
 }
 
 // "187,00" -> 187 · "18.500" -> 18500 · "18500 kg" -> 18500
@@ -139,7 +175,8 @@ export function parseKilos(raw: string): number {
 
 // Función auxiliar para buscar en el texto del correo (remitentes reenviados)
 function extractSenderFromBody(htmlBody: string): { name: string, email: string } {
-  const text = htmlBody.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ');
+  // Outlook escribe "De: Nombre &lt;correo&gt;": se decodifican las entidades antes de buscar
+  const text = htmlBody.replace(/<[^>]+>/g, ' ').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&nbsp;/g, ' ').replace(/\s+/g, ' ');
   // Busca patrones como "De: Nicolas Fabres <comercial@corposeidon.com>"
   const match = text.match(/De:\s*([^<]+)\s*<([^>]+)>/i);
   if (match) {
@@ -167,12 +204,46 @@ export function detectOperationType(subject: string, body: string, parsed: Recor
 }
 
 export function mapEmailToOperation(email: OutlookEmailForIE): Operation | null {
-  const html = email.body?.content || "";
-  const parsed = parseTableFromEmail(html);
-  if (!parsed) return null;
+  return mapConversationToOperation([email]);
+}
+
+// Lee TODOS los mensajes de la conversación, del más antiguo al más nuevo:
+// lo nuevo de cada mensaje (uniqueBody) actualiza los campos; el cuerpo completo solo rellena los que falten.
+export function mapConversationToOperation(messages: OutlookEmailForIE[]): Operation | null {
+  const ordered = [...messages].sort((a, b) => a.receivedDateTime.localeCompare(b.receivedDateTime));
+  const parsed = extractFields("");
+  let status: Operation["status"] = "Standby";
+  let html = "";
+  const thread: ThreadMessage[] = [];
+
+  for (const message of ordered) {
+    const full = message.body?.content || "";
+    const fresh = message.uniqueBody?.content || full;
+    const fromFull = extractFields(full);
+    const fromFresh = fresh === full ? fromFull : extractFields(fresh);
+    for (const key of Object.keys(parsed) as ParsedField[]) {
+      if (fromFresh[key]) parsed[key] = fromFresh[key];
+      else if (!parsed[key] && fromFull[key]) parsed[key] = fromFull[key];
+    }
+    if (!html && isCargo(fromFull)) html = full; // mensaje base con la tabla (remitente real del reenvío)
+    const freshText = htmlToText(fresh);
+    const messageStatus = detectStatus(freshText);
+    if (messageStatus) status = messageStatus;
+    thread.push({
+      id: message.id,
+      date: message.receivedDateTime,
+      from: message.from?.emailAddress?.name || message.from?.emailAddress?.address || "Desconocido",
+      snippet: freshText.slice(0, 220),
+      status: messageStatus ?? undefined,
+    });
+  }
+  if (!isCargo(parsed)) return null;
+  const email = ordered[0];
+  if (!html) html = email.body?.content || "";
+  const allText = ordered.map((m) => htmlToText(m.uniqueBody?.content || m.body?.content || "")).join(" ");
 
   const numericKilos = parseKilos(parsed.kilos);
-  const type = detectOperationType(email.subject || "", html, parsed);
+  const type = detectOperationType(email.subject || "", allText, parsed);
   
   // Extraemos el remitente real del cuerpo (para reenvíos)
   const realSender = extractSenderFromBody(html);
@@ -180,7 +251,7 @@ export function mapEmailToOperation(email: OutlookEmailForIE): Operation | null 
   const senderName = realSender.name !== "Desconocido" ? realSender.name : (email.from?.emailAddress?.name || "Desconocido");
 
   return {
-    id: email.id, 
+    id: email.conversationId || email.id, // estable aunque lleguen mensajes nuevos al hilo
     type,
     client: senderName,
     owner: parsed.dAga || "Por definir",
@@ -193,7 +264,7 @@ export function mapEmailToOperation(email: OutlookEmailForIE): Operation | null 
     destination: type === "impo" ? parsed.bodega || "Cliente" : "Puerto",
     driver: "Por asignar",
     plate: "—",
-    status: "Standby",
+    status,
     seal: "—",
     weight: `${parsed.kilos} kg`,
     deadline: parsed.pickUp ? `Pick up: ${parsed.pickUp}` : parsed.ets ? `ETS: ${parsed.ets}` : "Sin fecha",
@@ -221,6 +292,7 @@ export function mapEmailToOperation(email: OutlookEmailForIE): Operation | null 
     steps: type === "impo"
       ? ["Arribo / BL", "Retiro full", "Entrega cliente", "Devolución vacío"]
       : ["Folio / Booking", "Retiro vacío", "Carga cliente", "Sello naviera", "Ingreso puerto"],
+    thread,
   };
 }
 

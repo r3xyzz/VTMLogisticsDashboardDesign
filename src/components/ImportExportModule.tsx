@@ -1,7 +1,7 @@
 // src/components/ImportExportModule.tsx
 import { useEffect, useMemo, useState } from "react"
 import { useOutlookForImportExport } from "../hooks/useOutlookForImportExport"
-import { parseTableFromEmail, mapEmailToOperation, loadingSchedule, dayKey, type Operation } from "../lib/outlookParser"
+import { parseTableFromEmail, groupByConversation, mapConversationToOperation, loadingSchedule, dayKey, type Operation, type ThreadMessage } from "../lib/outlookParser"
 
 type OperationType = "impo" | "expo"
 type OperationStatus = "Standby" | "Vacío" | "Full / Cargado" | "En tránsito" | "Entregado"
@@ -168,6 +168,32 @@ function DaySummary({ operations, type, activeDay, onSelectDay }: { operations: 
   )
 }
 
+// Historial de la conversación de Outlook: del mensaje más nuevo al más antiguo
+function ThreadHistory({ thread }: { thread?: ThreadMessage[] }) {
+  if (!thread?.length) return null
+  const newestFirst = [...thread].reverse()
+  const when = (iso: string) => new Date(iso).toLocaleString("es-CL", { weekday: "short", day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })
+  return (
+    <div>
+      <p className="mb-2 text-[9px] font-bold uppercase tracking-wider text-slate-400">
+        Conversación · {thread.length} {thread.length === 1 ? "mensaje" : "mensajes"} · última: <span className="capitalize">{when(newestFirst[0].date)}</span>
+      </p>
+      <ol className="max-h-72 space-y-2 overflow-y-auto pr-1">
+        {newestFirst.map((message) => (
+          <li key={message.id} className="rounded-lg border border-slate-100 bg-slate-50 p-2.5">
+            <div className="flex items-center justify-between gap-2 text-[9px]">
+              <strong className="truncate text-slate-700">{message.from}</strong>
+              <span className="shrink-0 capitalize text-slate-400">{when(message.date)}</span>
+            </div>
+            {message.status && <span className={`mt-1 inline-flex rounded-full px-2 py-0.5 text-[8px] font-bold ring-1 ring-inset ${statusStyles[message.status]}`}>Estado: {message.status}</span>}
+            <p className="mt-1 line-clamp-3 text-[10px] text-slate-600">{message.snippet || "(sin texto)"}</p>
+          </li>
+        ))}
+      </ol>
+    </div>
+  )
+}
+
 // --- COMPONENTE EXPORT BOARD ---
 function ExportBoard({
   operations,
@@ -263,6 +289,8 @@ function ExportBoard({
               <p className="mb-2 text-[9px] font-bold uppercase tracking-wider text-slate-400">Todos los campos · edición</p>
               <OperationEditor operation={selected} onUpdate={onUpdate} />
             </div>
+
+            <ThreadHistory thread={selected.thread} />
           </div>
         </section>
       </div>
@@ -271,7 +299,7 @@ function ExportBoard({
 }
 
 // --- COMPONENTE PRINCIPAL ---
-const EDITS_KEY = "vtm-import-export-edits"
+const EDITS_KEY = "vtm-import-export-edits-v2" // v2: solo campos cambiados
 
 export default function ImportExportModule() {
   const { 
@@ -286,18 +314,28 @@ export default function ImportExportModule() {
 
   // Convertimos los correos a operaciones reales
   // Ediciones del usuario: viven en sessionStorage (se borran al cerrar la pestaña), nunca en la BD.
-  const [edits, setEdits] = useState<Record<string, Operation>>(() => {
+  // Se guardan solo los campos cambiados: el resto se sigue actualizando con los mensajes nuevos del hilo.
+  const [edits, setEdits] = useState<Record<string, Partial<Operation>>>(() => {
     try { return JSON.parse(sessionStorage.getItem(EDITS_KEY) || "{}") } catch { return {} }
   })
   useEffect(() => {
     try { sessionStorage.setItem(EDITS_KEY, JSON.stringify(edits)) } catch { /* almacenamiento no disponible */ }
   }, [edits])
-  const updateOperation = (operation: Operation) => setEdits((current) => ({ ...current, [operation.id]: operation }))
 
-  const allOperations = useMemo(() => {
-    if (!outlookEmails) return []
-    return (outlookEmails.map(mapEmailToOperation).filter(Boolean) as Operation[]).map((operation) => edits[operation.id] ?? operation)
-  }, [outlookEmails, edits])
+  // Una operación por conversación de Outlook (se leen todos los mensajes del hilo)
+  const parsedOperations = useMemo(
+    () => groupByConversation(outlookEmails || []).map(mapConversationToOperation).filter(Boolean) as Operation[],
+    [outlookEmails],
+  )
+  const allOperations = useMemo(
+    () => parsedOperations.map((operation) => ({ ...operation, ...edits[operation.id] })),
+    [parsedOperations, edits],
+  )
+  const updateOperation = (operation: Operation) => {
+    const base = parsedOperations.find((item) => item.id === operation.id)
+    const diff = Object.fromEntries(Object.entries(operation).filter(([key, value]) => !base || base[key as keyof Operation] !== value))
+    setEdits((current) => ({ ...current, [operation.id]: diff }))
+  }
 
   // Estados locales
   const [section, setSection] = useState<Section>("operations")
@@ -424,6 +462,7 @@ export default function ImportExportModule() {
                     <div className="max-h-[560px] overflow-y-auto pr-1">
                       <OperationEditor operation={selected} onUpdate={updateOperation} />
                     </div>
+                    <div className="mt-4 border-t border-slate-100 pt-4"><ThreadHistory thread={selected.thread} /></div>
                     <div className="mt-4 border-t border-slate-100 pt-4"><div className="flex items-center justify-between"><p className="text-[9px] font-bold uppercase tracking-wider text-slate-400">Documentación</p></div><div className="mt-2 space-y-2">{selected.documents.length === 0 ? <p className="text-[9px] text-slate-400">Sin documentos adjuntos</p> : selected.documents.map((document) => <div key={document} className="flex items-center gap-2 rounded-lg border border-slate-100 p-2"><Icon name="document" className="size-3.5 text-red-500" /><span className="min-w-0 flex-1 truncate text-[9px] font-semibold text-slate-600">{document}</span></div>)}</div></div>
                   </div>
                 </aside>
