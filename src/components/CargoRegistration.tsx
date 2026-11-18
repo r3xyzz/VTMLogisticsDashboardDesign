@@ -1,51 +1,9 @@
 // src/components/CargoRegistration.tsx
 import { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
+import { getDieselPrice, formatReportDate, type DieselSummary } from '../lib/dieselPrice';
 
 /* ─── Config ─────────────────────────────────────────────────────────────────── */
-
-// ✅ CONFIGURACIÓN DE LA API PARA EL PRECIO DEL DIÉSEL
-const OILPRICEAPI_KEY = import.meta.env.VITE_OILPRICEAPI_KEY;
-
-// ✅ FUNCIÓN PARA OBTENER EL PRECIO DEL DIÉSEL
-async function fetchDieselPrice(): Promise<number | null> {
-    try {
-        console.log('🔄 Obteniendo precio del diésel para cotización...');
-        
-        const response = await fetch(
-            'https://api.oilpriceapi.com/v1/prices/latest?by_code=DIESEL_USD',
-            {
-                headers: {
-                    'Authorization': `Token ${OILPRICEAPI_KEY}`
-                }
-            }
-        );
-        
-        if (!response.ok) {
-            throw new Error(`Error HTTP: ${response.status}`);
-        }
-        
-        const data = await response.json();
-        
-        if (data && data.data && data.data.price) {
-            const priceInUSD = data.data.price;
-            const USD_TO_CLP = 950;
-            const LITERS_PER_GALLON = 3.78541;
-            
-            const priceInCLPPerGallon = priceInUSD * USD_TO_CLP;
-            const priceInCLPPerLiter = priceInCLPPerGallon / LITERS_PER_GALLON;
-            const roundedPrice = Math.round(priceInCLPPerLiter);
-            
-            console.log(`⛽ Precio del diésel para cotización: $${roundedPrice}/L`);
-            return roundedPrice;
-        } else {
-            throw new Error('No se recibió el precio');
-        }
-    } catch (error) {
-        console.error('❌ Error fetching diesel price:', error);
-        return null;
-    }
-}
 
 // ✅ RUTAS ACTUALIZADAS CON DISTANCIAS REALES
 const ROUTES = [
@@ -76,7 +34,7 @@ const PKGS = ['Cajas', 'Cajón', 'Pallets', 'Bultos', 'Carga General', 'Carga Re
 const CITIES = ['Valparaíso', 'Santiago', 'San Antonio', 'Viña del Mar', 'Quilpué', 'Pudahuel', 'Lo Espejo', 'Rancagua'];
 
 // ✅ PRECIO POR DEFECTO (se usará si la API falla)
-const DIESEL_CLP_DEFAULT = 1090;
+const DIESEL_CLP_DEFAULT = 1600; // respaldo si Bencina en Línea no responde y no hay precio guardado
 
 const clp = (n: number) =>
   new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP', maximumFractionDigits: 0 }).format(n);
@@ -187,6 +145,7 @@ export default function CargoRegistration() {
   // ✅ ESTADO PARA EL PRECIO DEL DIÉSEL
   const [dieselPrice, setDieselPrice] = useState<number>(DIESEL_CLP_DEFAULT);
   const [loadingDiesel, setLoadingDiesel] = useState(true);
+  const [dieselInfo, setDieselInfo] = useState<DieselSummary | null>(null);
 
   const [f, setF] = useState({
     clientId: '',
@@ -288,20 +247,17 @@ export default function CargoRegistration() {
     if (driver?.current_fleet_id) selectVehicle(driver.current_fleet_id);
   };
 
-  // ✅ FUNCIÓN PARA CARGAR EL PRECIO DEL DIÉSEL
+  // ✅ PRECIO DEL DIÉSEL: mediana RM de Bencina en Línea (CNE)
   async function loadDieselPrice() {
     try {
       setLoadingDiesel(true);
-      const price = await fetchDieselPrice();
-      if (price !== null && price > 0) {
-        setDieselPrice(price);
-        console.log(`⛽ Precio del diésel actualizado en cotizador: $${price}/L`);
-      } else {
-        setDieselPrice(DIESEL_CLP_DEFAULT);
-      }
+      const summary = await getDieselPrice();
+      setDieselPrice(summary.median);
+      setDieselInfo(summary);
     } catch (error) {
       console.error('Error loading diesel price:', error);
       setDieselPrice(DIESEL_CLP_DEFAULT);
+      setDieselInfo(null);
     } finally {
       setLoadingDiesel(false);
     }
@@ -815,7 +771,11 @@ export default function CargoRegistration() {
                       {loadingDiesel ? (
                         <span className="text-[9px] text-blue-400 animate-pulse">⏳ Actualizando precio diésel...</span>
                       ) : (
-                        <span className="text-[9px] text-green-400">✅ Precio diésel: ${dieselPrice}/L (actualizado)</span>
+                        dieselInfo ? (
+                        <span className="text-[9px] text-green-400">✅ Diésel: ${dieselPrice.toLocaleString('es-CL')}/L · mediana RM ({dieselInfo.stations} estaciones · {formatReportDate(dieselInfo.lastReport)})</span>
+                      ) : (
+                        <span className="text-[9px] text-amber-400">⚠️ Diésel: ${dieselPrice.toLocaleString('es-CL')}/L (valor de respaldo, Bencina en Línea no respondió)</span>
+                      )
                       )}
                     </div>
                   </div>

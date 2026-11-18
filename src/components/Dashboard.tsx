@@ -5,83 +5,25 @@ import {
   ResponsiveContainer, BarChart, Bar, Legend
 } from 'recharts'
 import type { ActiveView } from '../App'
+import { getDieselPrice, formatReportDate, type DieselSummary } from '../lib/dieselPrice'
 
 interface Props { onNavigate: (v: ActiveView) => void }
 
-//  CONFIGURACIÓN DE LA API
-const OILPRICEAPI_KEY = import.meta.env.VITE_OILPRICEAPI_KEY;
-
-// FUNCIÓN PARA OBTENER EL PRECIO DEL DIÉSEL
-// src/components/Dashboard.tsx
-// +++CALCUALR EL RPECI DEL DISEL DEPENDIENDO DEL TIPO DE CAMBIO Y LA CONVERSIÓN DE GALÓN A LITRO Y EN LA CUIDAD O REGION EN LA QUE ESTE O VAYA EL CARGAMENTO O CAMION+++
-
-//  FUNCIÓN PARA OBTENER EL PRECIO DEL DIÉSEL
-async function fetchDieselPrice(): Promise<number | null> {
-    try {
-        console.log('🔄 Obteniendo precio del diésel desde OilPriceAPI...');
-        
-        // 🔥 Endpoint CORRECTO: DIESEL_USD (precio en USD/galón)
-        const response = await fetch(
-            'https://api.oilpriceapi.com/v1/prices/latest?by_code=DIESEL_USD',
-            {
-                headers: {
-                    'Authorization': `Token ${OILPRICEAPI_KEY}`
-                }
-            }
-        );
-        
-        if (!response.ok) {
-            throw new Error(`Error HTTP: ${response.status} - ${response.statusText}`);
-        }
-        
-        const data = await response.json();
-        
-        console.log('✅ Respuesta de la API:', data);
-        
-        if (data && data.data && data.data.price) {
-            // Precio en USD por galón
-            const priceInUSD = data.data.price; // 4.53 USD/galón
-            
-            //  CONVERSIÓN: USD/galón → CLP/litro
-            const USD_TO_CLP = 950;      // Tipo de cambio (puedes ajustarlo)
-            const LITERS_PER_GALLON = 3.78541;
-            
-            // Paso 1: USD → CLP por galón
-            const priceInCLPPerGallon = priceInUSD * USD_TO_CLP;
-            // Paso 2: CLP/galón → CLP/litro
-            const priceInCLPPerLiter = priceInCLPPerGallon / LITERS_PER_GALLON;
-            // Paso 3: Redondear
-            const roundedPrice = Math.round(priceInCLPPerLiter);
-            
-            console.log(`📊 Precio en USD/galón: $${priceInUSD}`);
-            console.log(`⛽ Precio convertido: $${roundedPrice}/L`);
-            
-            return roundedPrice;
-        } else {
-            throw new Error('No se recibió el precio en el formato esperado');
-        }
-    } catch (error) {
-        console.error('❌ Error fetching diesel price:', error);
-        return null;
-    }
-}
-
 /* ─── FUNCIÓN PARA CONSTRUIR KPIS ────────────────────────────────────────── */
 
-function buildKpis(dieselPrice: number | null, dieselError: string | null) {
+function buildKpis(diesel: DieselSummary | null, dieselError: string | null) {
     let priceDisplay = 'Cargando...';
     let priceDelta = 'Actualizando...';
-    let priceUp = null;
-    
-    if (dieselError) {
+    const priceUp = null;
+
+    if (diesel) {
+        // Mediana de la RM según Bencina en Línea (CNE)
+        priceDisplay = `$${diesel.median.toLocaleString('es-CL')}/L`;
+        priceDelta = `Mediana RM · ${diesel.stations} estaciones · ${formatReportDate(diesel.lastReport)}`;
+    } else if (dieselError) {
         priceDisplay = '⚠️ Error';
-        priceDelta = 'No disponible';
-    } else if (dieselPrice !== null) {
-        priceDisplay = `$${dieselPrice.toLocaleString('es-CL')}/L`;
-        priceDelta = 'Actualizado: hoy';
-        priceUp = null;
+        priceDelta = 'Bencina en Línea no disponible';
     }
-    
     return [
         {
             label: 'Cargas en Tránsito',
@@ -175,49 +117,27 @@ const fleetNodes = [
 /* ─── COMPONENTE PRINCIPAL ────────────────────────────────────────────────── */
 
 export default function Dashboard({ onNavigate }: Props) {
-    // ✅ ESTADO PARA EL PRECIO DEL DIÉSEL (AQUÍ DENTRO DEL COMPONENTE)
-    const [dieselPrice, setDieselPrice] = useState<number | null>(null);
-    const [loadingDiesel, setLoadingDiesel] = useState(true);
+    // ✅ PRECIO DEL DIÉSEL (Bencina en Línea, mediana RM)
+    const [diesel, setDiesel] = useState<DieselSummary | null>(null);
     const [dieselError, setDieselError] = useState<string | null>(null);
-    
+
     // ✅ ESTADO PARA ALERTAS
     const [dismissed, setDismiss] = useState<Set<number>>(new Set())
     const [activeAlerts] = useState(alerts.length)
 
-    // ✅ useEffect PARA OBTENER EL PRECIO DEL DIÉSEL (AQUÍ DENTRO DEL COMPONENTE)
+    // ✅ PRECIO DEL DIÉSEL: caché de 6 h en lib/dieselPrice; se revisa cada hora
     useEffect(() => {
-        const loadDieselPrice = async () => {
-            try {
-                setLoadingDiesel(true);
-                const price = await fetchDieselPrice();
-                
-                if (price !== null && price > 0) {
-                    setDieselPrice(price);
-                    setDieselError(null);
-                    console.log(`⛽ Precio del diésel actualizado: $${price}/L`);
-                } else {
-                    setDieselError('No se pudo obtener el precio');
-                    setDieselPrice(1107);
-                }
-            } catch (error) {
-                console.error('Error loading diesel price:', error);
-                setDieselError('Error al cargar');
-                setDieselPrice(1107);
-            } finally {
-                setLoadingDiesel(false);
-            }
-        };
+        const loadDieselPrice = () => getDieselPrice()
+            .then((summary) => { setDiesel(summary); setDieselError(null); })
+            .catch((error) => { console.error('Error loading diesel price:', error); setDieselError('Error al cargar'); });
 
         loadDieselPrice();
-
-        // ✅ ACTUALIZAR CADA 1 HORA
         const interval = setInterval(loadDieselPrice, 3600000);
-
         return () => clearInterval(interval);
     }, []);
 
     // ✅ CONSTRUIR KPIS CON EL PRECIO
-    const kpis = buildKpis(dieselPrice, dieselError);
+    const kpis = buildKpis(diesel, dieselError);
 
     // ✅ RENDERIZADO
     return (

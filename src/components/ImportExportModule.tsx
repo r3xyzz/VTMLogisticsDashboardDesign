@@ -1,5 +1,6 @@
 // src/components/ImportExportModule.tsx
-import { useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useState } from "react"
+import { supabase } from "../lib/supabase"
 import { useOutlookForImportExport } from "../hooks/useOutlookForImportExport"
 import { parseTableFromEmail, groupByConversation, mapConversationToOperation, loadingSchedule, dayKey, type Operation, type ThreadMessage } from "../lib/outlookParser"
 
@@ -66,6 +67,22 @@ function OperationEditor({ operation, onUpdate }: { operation: Operation; onUpda
       <label><span className={labelClass}>Clase contenedor</span><select className={inputClass} value={operation.containerClass ?? ""} onChange={(event) => onUpdate({ ...operation, containerClass: (event.target.value || undefined) as Operation["containerClass"] })}><option value="">—</option><option>Clase A</option><option>Clase M</option></select></label>
       {TEXT_FIELDS.map(([key, label]) => <label key={key}><span className={labelClass}>{label}</span><input className={inputClass} value={operation[key] ?? ""} onChange={(event) => onUpdate({ ...operation, [key]: event.target.value })} /></label>)}
       {NUMBER_FIELDS.map(([key, label]) => <label key={key}><span className={labelClass}>{label}</span><input type="number" className={inputClass} value={operation[key] ?? ""} onChange={(event) => onUpdate({ ...operation, [key]: event.target.value === "" ? undefined : Number(event.target.value) })} /></label>)}
+    </div>
+  )
+}
+
+// Estado de guardado de una ficha en la BD (tabla container_records)
+export type SaveState = { dirty: boolean; savedAt?: string; savedBy?: string | null; saving: boolean; onSave: () => void; onDiscard: () => void }
+
+function SaveBar({ state }: { state: SaveState }) {
+  const savedLabel = state.savedAt ? `Guardada ${new Date(state.savedAt).toLocaleString("es-CL", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })}${state.savedBy ? ` · ${state.savedBy}` : ""}` : "Sin guardar en la BD"
+  return (
+    <div className={`mb-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border px-3 py-2 ${state.dirty ? "border-amber-200 bg-amber-50" : "border-slate-200 bg-slate-50"}`}>
+      <p className={`text-[9px] font-bold ${state.dirty ? "text-amber-700" : state.savedAt ? "text-emerald-700" : "text-slate-500"}`}>{state.dirty ? "Cambios sin guardar" : savedLabel}</p>
+      <div className="flex gap-1.5">
+        {state.dirty && <button onClick={state.onDiscard} disabled={state.saving} className="rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-[9px] font-bold text-slate-600 disabled:opacity-50">Descartar</button>}
+        <button onClick={state.onSave} disabled={state.saving || (!state.dirty && !!state.savedAt)} className="rounded-md bg-navy-600 px-3 py-1.5 text-[9px] font-bold text-white disabled:opacity-40">{state.saving ? "Guardando…" : "Guardar ficha"}</button>
+      </div>
     </div>
   )
 }
@@ -200,11 +217,13 @@ function ExportBoard({
   selectedId,
   onSelect,
   onUpdate,
+  saveStateFor,
 }: {
   operations: Operation[]
   selectedId: string
   onSelect: (id: string) => void
   onUpdate: (operation: Operation) => void
+  saveStateFor: (operation: Operation) => SaveState
 }) {
   const [activeDay, setActiveDay] = useState("Todos")
   const { sorted, keyOf, whenLabel } = scheduleTools(operations.filter((operation) => operation.type === "expo"))
@@ -287,6 +306,7 @@ function ExportBoard({
 
             <div>
               <p className="mb-2 text-[9px] font-bold uppercase tracking-wider text-slate-400">Todos los campos · edición</p>
+              <SaveBar state={saveStateFor(selected)} />
               <OperationEditor operation={selected} onUpdate={onUpdate} />
             </div>
 
@@ -299,22 +319,28 @@ function ExportBoard({
 }
 
 // --- COMPONENTE PRINCIPAL ---
-const EDITS_KEY = "vtm-import-export-edits-v2" // v2: solo campos cambiados
+const EDITS_KEY = "vtm-import-export-edits-v2" // borradores sin guardar (solo campos cambiados)
+
+type ContainerRecord = { operation_id: string; overrides: Partial<Operation>; snapshot: Operation; updated_by: string | null; updated_at: string }
+
+const sameValue = (a: unknown, b: unknown) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null)
+// Campos de `next` que difieren de `base`
+const diffOperation = (next: Operation, base?: Operation): Partial<Operation> =>
+  Object.fromEntries(Object.entries(next).filter(([key, value]) => !base || !sameValue(base[key as keyof Operation], value))) as Partial<Operation>
 
 export default function ImportExportModule() {
-  const { 
-    emails: outlookEmails, 
-    loading: outlookLoading, 
-    error: outlookError, 
-    isConnected, 
+  const {
+    emails: outlookEmails,
+    loading: outlookLoading,
+    error: outlookError,
+    isConnected,
     connectOutlook,
     userEmail,
     userName
   } = useOutlookForImportExport()
 
-  // Convertimos los correos a operaciones reales
-  // Ediciones del usuario: viven en sessionStorage (se borran al cerrar la pestaña), nunca en la BD.
-  // Se guardan solo los campos cambiados: el resto se sigue actualizando con los mensajes nuevos del hilo.
+  // Capas de una ficha: correo (Outlook) -> guardado en BD (container_records) -> borrador de la pestaña (sessionStorage).
+  // En BD y en borrador se guardan solo los campos cambiados: el resto se sigue actualizando con los mensajes nuevos del hilo.
   const [edits, setEdits] = useState<Record<string, Partial<Operation>>>(() => {
     try { return JSON.parse(sessionStorage.getItem(EDITS_KEY) || "{}") } catch { return {} }
   })
@@ -322,20 +348,72 @@ export default function ImportExportModule() {
     try { sessionStorage.setItem(EDITS_KEY, JSON.stringify(edits)) } catch { /* almacenamiento no disponible */ }
   }, [edits])
 
+  const [records, setRecords] = useState<Record<string, ContainerRecord>>({})
+  const [savingId, setSavingId] = useState<string | null>(null)
+  const [saveError, setSaveError] = useState<string | null>(null)
+  const fetchRecords = useCallback(async () => {
+    const { data, error } = await supabase.from("container_records").select("operation_id, overrides, snapshot, updated_by, updated_at")
+    if (error) { setSaveError(`No se pudieron leer las fichas guardadas: ${error.message}`); return }
+    setRecords(Object.fromEntries(((data || []) as ContainerRecord[]).map((record) => [record.operation_id, record])))
+  }, [])
+  useEffect(() => {
+    fetchRecords()
+    // Lo que guarda otro usuario aparece al instante
+    const channel = supabase.channel("container-records-sync")
+      .on("postgres_changes", { event: "*", schema: "public", table: "container_records" }, () => fetchRecords())
+      .subscribe()
+    return () => { supabase.removeChannel(channel) }
+  }, [fetchRecords])
+
   // Una operación por conversación de Outlook (se leen todos los mensajes del hilo)
   const parsedOperations = useMemo(
     () => groupByConversation(outlookEmails || []).map(mapConversationToOperation).filter(Boolean) as Operation[],
     [outlookEmails],
   )
+  // Base de cada ficha: el correo si está en el buzón; si no, la copia guardada en BD
+  const baseOperations = useMemo(() => {
+    const parsedIds = new Set(parsedOperations.map((operation) => operation.id))
+    const savedOnly = Object.values(records).filter((record) => !parsedIds.has(record.operation_id)).map((record) => record.snapshot)
+    return [...parsedOperations, ...savedOnly]
+  }, [parsedOperations, records])
+  const savedBase = (operation: Operation) => ({ ...operation, ...records[operation.id]?.overrides })
   const allOperations = useMemo(
-    () => parsedOperations.map((operation) => ({ ...operation, ...edits[operation.id] })),
-    [parsedOperations, edits],
+    () => baseOperations.map((operation) => ({ ...operation, ...records[operation.id]?.overrides, ...edits[operation.id] })),
+    [baseOperations, records, edits],
   )
   const updateOperation = (operation: Operation) => {
-    const base = parsedOperations.find((item) => item.id === operation.id)
-    const diff = Object.fromEntries(Object.entries(operation).filter(([key, value]) => !base || base[key as keyof Operation] !== value))
-    setEdits((current) => ({ ...current, [operation.id]: diff }))
+    const base = baseOperations.find((item) => item.id === operation.id)
+    const diff = diffOperation(operation, base && savedBase(base))
+    setEdits((current) => {
+      const next = { ...current }
+      if (Object.keys(diff).length) next[operation.id] = diff
+      else delete next[operation.id]
+      return next
+    })
   }
+  const discardOperation = (id: string) => setEdits((current) => { const next = { ...current }; delete next[id]; return next })
+  const saveOperation = async (operation: Operation) => {
+    const parsed = parsedOperations.find((item) => item.id === operation.id)
+    // Con correo: se guardan los campos que difieren del correo. Sin correo: se acumulan sobre lo ya guardado.
+    const overrides = parsed ? diffOperation(operation, parsed) : { ...records[operation.id]?.overrides, ...edits[operation.id] }
+    setSavingId(operation.id)
+    setSaveError(null)
+    const { error } = await supabase.from("container_records").upsert({
+      operation_id: operation.id, type: operation.type, container: operation.container || null, reference: operation.reference || null, client: operation.client || null,
+      overrides, snapshot: operation, updated_by: userEmail, updated_at: new Date().toISOString(),
+    })
+    if (error) setSaveError(`No se pudo guardar la ficha: ${error.message}`)
+    else { discardOperation(operation.id); await fetchRecords() }
+    setSavingId(null)
+  }
+  const saveStateFor = (operation: Operation): SaveState => ({
+    dirty: !!edits[operation.id],
+    savedAt: records[operation.id]?.updated_at,
+    savedBy: records[operation.id]?.updated_by,
+    saving: savingId === operation.id,
+    onSave: () => saveOperation(operation),
+    onDiscard: () => discardOperation(operation.id),
+  })
 
   // Estados locales
   const [section, setSection] = useState<Section>("operations")
@@ -388,6 +466,7 @@ export default function ImportExportModule() {
       </header>
 
       <main className="mx-auto max-w-[1600px] space-y-4 p-5">
+        {saveError && <div className="flex items-center justify-between gap-3 rounded-lg border border-red-200 bg-red-50 px-4 py-2 text-[10px] font-semibold text-red-700"><span>{saveError}</span><button onClick={() => setSaveError(null)} className="text-sm">×</button></div>}
         
         {/* MÉTRICAS */}
         <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
@@ -428,6 +507,7 @@ export default function ImportExportModule() {
                 selectedId={selectedId}
                 onSelect={setSelectedId}
                 onUpdate={updateOperation}
+                saveStateFor={saveStateFor}
               />
             ) : (
             <div className="grid gap-4 xl:grid-cols-[minmax(0,1.45fr)_minmax(360px,0.75fr)]">
@@ -459,6 +539,7 @@ export default function ImportExportModule() {
                 <aside className="self-start overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm xl:sticky xl:top-20">
                   <div className={`p-4 text-white ${selected.type === "expo" ? "bg-red-500" : "bg-slate-950"}`}><div className="flex items-start justify-between gap-3"><div><p className="text-[9px] font-bold uppercase tracking-widest text-white/60">Ficha de contenedor</p><p className="mt-1 font-mono text-sm font-bold">{selected.container}</p><p className="mt-1 text-[10px] text-white/70">{selected.client} · {selected.owner}</p></div><div className="rounded-lg bg-white/10 px-2.5 py-2 text-right"><p className="text-[8px] uppercase text-white/60">Cuenta regresiva</p><p className="mt-0.5 text-lg font-bold">{selected.countdown === 0 ? "HOY" : `${selected.countdown} días`}</p></div></div></div>
                   <div className="p-4">
+                    <SaveBar state={saveStateFor(selected)} />
                     <div className="max-h-[560px] overflow-y-auto pr-1">
                       <OperationEditor operation={selected} onUpdate={updateOperation} />
                     </div>
