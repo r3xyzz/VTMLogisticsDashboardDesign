@@ -19,7 +19,7 @@ export type Operation = {
   seal: string
   weight: string
   deadline: string
-  countdown: number
+  countdown?: number // días hasta el carguío/retiro; se calcula con la fecha real (sin fecha: undefined)
   booking?: string
   shippingLine?: string
   bookingStatus?: "Vigente" | "Roleado / Aplazado"
@@ -266,27 +266,19 @@ export function mapConversationToOperation(messages: OutlookEmailForIE[]): Opera
     plate: "—",
     status,
     seal: "—",
-    weight: `${parsed.kilos} kg`,
+    weight: parsed.kilos ? `${parsed.kilos} kg` : "—",
     deadline: parsed.pickUp ? `Pick up: ${parsed.pickUp}` : parsed.ets ? `ETS: ${parsed.ets}` : "Sin fecha",
-    countdown: 2, 
     booking: parsed.booking || parsed.bl || undefined,
-    shippingLine: "Por confirmar",
     bookingStatus: "Vigente",
     depot: parsed.bodega || "Por definir",
-    depotCity: "Santiago",
-    containerClass: "Clase A",
-    assistants: 0,
     gateOut: parsed.pickUp,
     loadingAt: parsed.hora,
     stackingAt: parsed.stacking,
-    truckType: "Tracto",
-    truckCapacityKg: 30000,
     weightKg: numericKilos,
     earlyGateOut: false,
     stackingCollision: false,
     noStock: false,
     roleHistory: [],
-    freeDays: 5,
     documents: [],
     currentStep: 0,
     steps: type === "impo"

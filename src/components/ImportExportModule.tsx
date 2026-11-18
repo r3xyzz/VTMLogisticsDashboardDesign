@@ -42,7 +42,7 @@ const statusStyles: Record<OperationStatus, string> = {
 
 // --- EDITOR DE CAMPOS (todas las propiedades editables de una operación) ---
 type TextKey = "client" | "owner" | "reference" | "container" | "size" | "weight" | "seal" | "booking" | "shippingLine" | "eta" | "port" | "origin" | "destination" | "depot" | "depotCity" | "driver" | "plate" | "truckType" | "gateOut" | "loadingAt" | "stackingAt" | "deadline" | "provider"
-type NumberKey = "weightKg" | "truckCapacityKg" | "assistants" | "freeDays" | "countdown"
+type NumberKey = "weightKg" | "truckCapacityKg" | "assistants" | "freeDays"
 
 const TEXT_FIELDS: [TextKey, string][] = [
   ["client", "Cliente"], ["owner", "Dueño / D-AGA"], ["reference", "Referencia"], ["container", "N° Contenedor"],
@@ -53,7 +53,7 @@ const TEXT_FIELDS: [TextKey, string][] = [
   ["plate", "Patente"], ["truckType", "Tipo camión"], ["provider", "Proveedor"],
 ]
 const NUMBER_FIELDS: [NumberKey, string][] = [
-  ["weightKg", "Kilos"], ["truckCapacityKg", "Capacidad camión (kg)"], ["assistants", "Peonetas"], ["freeDays", "Días libres"], ["countdown", "Cuenta regresiva (días)"],
+  ["weightKg", "Kilos"], ["truckCapacityKg", "Capacidad camión (kg)"], ["assistants", "Peonetas"], ["freeDays", "Días libres"],
 ]
 const STATUSES: OperationStatus[] = ["Standby", "Vacío", "Full / Cargado", "En tránsito", "Entregado"]
 
@@ -108,78 +108,57 @@ function scheduleTools(operations: Operation[]) {
 }
 
 const DAY_THEME = {
-  expo: { title: "Próximos días con trabajo de exportación", today: "Cargas de hoy", verb: "Carguío", one: "carguío", many: "carguíos", border: "border-red-200", head: "border-red-100 bg-red-50", text: "text-red-600", sub: "text-red-500", pill: "bg-red-500", on: "border-red-500 bg-red-500 text-white shadow-sm", off: "border-red-100 bg-red-50/50 text-red-700 hover:border-red-300", box: "border-red-100", boxTitle: "text-red-600/70" },
-  impo: { title: "Próximos días con trabajo de importación", today: "Retiros de hoy", verb: "Retiro", one: "retiro", many: "retiros", border: "border-slate-300", head: "border-slate-200 bg-slate-100", text: "text-slate-900", sub: "text-slate-500", pill: "bg-slate-900", on: "border-slate-900 bg-slate-900 text-white shadow-sm", off: "border-slate-200 bg-slate-50 text-slate-700 hover:border-slate-400", box: "border-slate-200", boxTitle: "text-slate-500" },
+  expo: { title: "Próximos días con trabajo de exportación", tile: "Carguíos programados", today: "Cargas de hoy", one: "carguío", many: "carguíos", border: "border-red-200", head: "border-red-100 bg-red-50", text: "text-red-600", sub: "text-red-500", pill: "bg-red-500", on: "border-red-500 bg-red-500 text-white shadow-sm", off: "border-red-100 bg-red-50/40 text-red-700 hover:border-red-300", label: "text-red-500/80", detail: "text-red-500/80" },
+  impo: { title: "Próximos días con trabajo de importación", tile: "Retiros programados", today: "Retiros de hoy", one: "retiro", many: "retiros", border: "border-slate-300", head: "border-slate-200 bg-slate-100", text: "text-slate-900", sub: "text-slate-500", pill: "bg-slate-900", on: "border-slate-900 bg-slate-900 text-white shadow-sm", off: "border-slate-200 bg-slate-50 text-slate-800 hover:border-slate-400", label: "text-slate-500", detail: "text-slate-500" },
 } as const
 
-// Panel: resumen de días activos, trabajos de hoy y próximas fechas (siempre con día y hora)
-function DaySummary({ operations, type, activeDay, onSelectDay }: { operations: Operation[]; type: OperationType; activeDay: string; onSelectDay: (day: string) => void }) {
+// "04 nov"
+const formatShortDay = (date: Date) => `${String(date.getDate()).padStart(2, "0")} ${date.toLocaleDateString("es-CL", { month: "short" }).replace(".", "")}`
+
+// Panel: Resumen + una tarjeta por día con trabajo (hoy y próximos días) + sin fecha. Clic en una tarjeta filtra la lista.
+export function DaySummary({ operations, type, activeDay, onSelectDay }: { operations: Operation[]; type: OperationType; activeDay: string; onSelectDay: (day: string) => void }) {
   const theme = DAY_THEME[type]
-  const { now, todayKey, schedules, keyOf, sorted, whenLabel } = scheduleTools(operations)
-  const todayOps = sorted.filter((operation) => keyOf(operation) === todayKey)
-  const upcomingDays = Array.from(new Set(sorted.map(keyOf).filter((key) => key !== NO_DATE && key > todayKey)))
+  const { todayKey, schedules, keyOf, sorted } = scheduleTools(operations)
+  // Solo días con servicios: hoy en adelante (los pasados ya no se programan)
+  const days = Array.from(new Set(sorted.map(keyOf).filter((key) => key !== NO_DATE && key >= todayKey)))
   const undated = sorted.filter((operation) => keyOf(operation) === NO_DATE)
-  const activeDays = new Set(sorted.map(keyOf).filter((key) => key !== NO_DATE)).size
-  const opLabel = (operation: Operation) => operation.booking || operation.reference || operation.container
-  const tileClass = (active: boolean) => `rounded-lg border p-3 text-left transition-all ${active ? theme.on : theme.off}`
+  const tileClass = (active: boolean) => `min-w-[150px] rounded-lg border px-4 py-3 text-left transition-all ${active ? theme.on : theme.off}`
+  const countLabel = (count: number) => `${count} ${count === 1 ? "operación" : "operaciones"}`
 
   return (
     <section className={`overflow-hidden rounded-xl border ${theme.border} bg-white shadow-sm`}>
       <div className={`flex flex-wrap items-center justify-between gap-3 border-b ${theme.head} px-5 py-4`}>
         <div>
           <div className={`flex items-center gap-2 ${theme.text}`}><Icon name="alert" /><p className="text-xs font-bold">{theme.title}</p></div>
-          <p className={`mt-1 text-[10px] ${theme.sub}`}>Extraído automáticamente desde Outlook.</p>
+          <p className={`mt-1 text-[10px] ${theme.sub}`}>Solo se muestran fechas con servicios activos. No necesitas revisar días vacíos.</p>
         </div>
         <p className={`rounded-full ${theme.pill} px-3 py-1.5 text-[9px] font-bold uppercase tracking-wider text-white`}>{operations.length} servicios vigentes</p>
       </div>
-      <div className="grid gap-3 p-4 lg:grid-cols-[minmax(0,0.8fr)_minmax(0,1fr)_minmax(0,1.4fr)]">
-        {/* 1. Resumen */}
-        <button onClick={() => onSelectDay("Todos")} className={`self-start ${tileClass(activeDay === "Todos")}`}>
-          <p className="text-[9px] font-bold uppercase tracking-wider opacity-70">Resumen</p>
+      <div className="flex flex-wrap gap-3 p-4">
+        <button onClick={() => onSelectDay("Todos")} className={`flex flex-col justify-center ${tileClass(activeDay === "Todos")}`}>
+          <p className="text-[9px] font-bold uppercase tracking-wider opacity-80">Resumen</p>
           <p className="mt-1 text-xs font-bold">Todos los días activos</p>
-          <p className="mt-1 text-[9px] opacity-70">{operations.length} {operations.length === 1 ? "operación" : "operaciones"} · {activeDays} {activeDays === 1 ? "día" : "días"}</p>
         </button>
-
-        {/* 2. Hoy */}
-        <button onClick={() => onSelectDay(todayKey)} className={`self-start ${tileClass(activeDay === todayKey)}`}>
-          <p className="text-[9px] font-bold uppercase tracking-wider opacity-70">{theme.today}</p>
-          <p className="mt-1 text-xs font-bold capitalize">{formatDay(now)}</p>
-          {todayOps.length === 0 ? (
-            <p className="mt-1 text-[9px] opacity-70">Sin {theme.many} programados hoy</p>
-          ) : (
-            <ul className="mt-1.5 space-y-0.5 text-[10px]">
-              {todayOps.map((operation) => <li key={operation.id} className="truncate"><strong>{schedules.get(operation.id)?.time ?? "sin hora"}</strong> · {opLabel(operation)} · {operation.client}</li>)}
-            </ul>
-          )}
-        </button>
-
-        {/* 3. Próximas fechas (con día y hora para no confundir) */}
-        <div className={`rounded-lg border ${theme.box} bg-white p-3`}>
-          <p className={`text-[9px] font-bold uppercase tracking-wider ${theme.boxTitle}`}>Próximas fechas</p>
-          {upcomingDays.length === 0 && undated.length === 0 ? (
-            <p className="mt-1 text-[10px] text-slate-400">No hay {theme.many} en los próximos días</p>
-          ) : (
-            <div className="mt-2 space-y-1.5">
-              {upcomingDays.map((key) => {
-                const dayOps = sorted.filter((operation) => keyOf(operation) === key)
-                return (
-                  <button key={key} onClick={() => onSelectDay(key)} className={`w-full ${tileClass(activeDay === key)} p-2`}>
-                    <p className="text-[10px] font-bold capitalize">{formatDay(schedules.get(dayOps[0].id)!.date!)} · {dayOps.length} {dayOps.length === 1 ? theme.one : theme.many}</p>
-                    <ul className="mt-0.5 space-y-0.5 text-[10px] opacity-80">
-                      {dayOps.map((operation) => <li key={operation.id} className="truncate">{theme.verb}: <strong className="capitalize">{whenLabel(operation)}</strong> · {opLabel(operation)} · {operation.client}</li>)}
-                    </ul>
-                  </button>
-                )
-              })}
-              {undated.length > 0 && (
-                <button onClick={() => onSelectDay(NO_DATE)} className={`w-full ${tileClass(activeDay === NO_DATE)} p-2`}>
-                  <p className="text-[10px] font-bold">Sin fecha de {theme.one} · {undated.length}</p>
-                  <p className="mt-0.5 text-[9px] opacity-70">Completa la fecha en la ficha para ordenarlas</p>
-                </button>
-              )}
-            </div>
-          )}
-        </div>
+        {days.map((key) => {
+          const dayOps = sorted.filter((operation) => keyOf(operation) === key)
+          const times = dayOps.map((operation) => schedules.get(operation.id)?.time).filter(Boolean)
+          const active = activeDay === key
+          return (
+            <button key={key} onClick={() => onSelectDay(key)} className={tileClass(active)}>
+              <p className={`text-[9px] font-bold uppercase tracking-wider ${active ? "opacity-80" : theme.label}`}>{key === todayKey ? theme.today : theme.tile}</p>
+              <p className="mt-1 text-sm font-bold">{formatShortDay(schedules.get(dayOps[0].id)!.date!)}</p>
+              <p className={`mt-1 text-[9px] ${active ? "opacity-80" : theme.detail}`}>{countLabel(dayOps.length)}{times.length ? ` · ${times.join(", ")}` : ""}</p>
+            </button>
+          )
+        })}
+        {undated.length > 0 && (
+          <button onClick={() => onSelectDay(NO_DATE)} className={tileClass(activeDay === NO_DATE)}>
+            <p className={`text-[9px] font-bold uppercase tracking-wider ${activeDay === NO_DATE ? "opacity-80" : theme.label}`}>Sin fecha de {theme.one}</p>
+            <p className="mt-1 text-sm font-bold">—</p>
+            <p className={`mt-1 text-[9px] ${activeDay === NO_DATE ? "opacity-80" : theme.detail}`}>{countLabel(undated.length)}</p>
+          </button>
+        )}
+        {days.length === 0 && undated.length === 0 && <p className="self-center text-[10px] text-slate-400">No hay {theme.many} programados desde hoy.</p>}
       </div>
     </section>
   )
@@ -256,11 +235,11 @@ function ExportBoard({
                 <div className="h-1.5 bg-red-500" />
                 <div className="p-4">
                   <div className="flex items-start justify-between gap-3">
-                    <div><div className="flex items-center gap-2"><span className="rounded bg-red-50 px-2 py-1 text-[8px] font-bold uppercase tracking-wider text-red-600">Exportación</span><span className={`rounded px-2 py-1 text-[8px] font-bold ${operation.bookingStatus === "Vigente" ? "bg-emerald-50 text-emerald-700" : "bg-orange-50 text-orange-700"}`}>{operation.bookingStatus}</span></div><p className="mt-2 text-sm font-bold text-slate-950">{operation.client} <span className="font-medium text-slate-400">/ {operation.owner}</span></p><p className="mt-1 font-mono text-[10px] font-semibold text-slate-500">{operation.booking} · {operation.shippingLine}</p></div>
+                    <div><div className="flex items-center gap-2"><span className="rounded bg-red-50 px-2 py-1 text-[8px] font-bold uppercase tracking-wider text-red-600">Exportación</span><span className={`rounded px-2 py-1 text-[8px] font-bold ${operation.bookingStatus === "Vigente" ? "bg-emerald-50 text-emerald-700" : "bg-orange-50 text-orange-700"}`}>{operation.bookingStatus}</span></div><p className="mt-2 text-sm font-bold text-slate-950">{operation.client} <span className="font-medium text-slate-400">/ {operation.owner}</span></p><p className="mt-1 font-mono text-[10px] font-semibold text-slate-500">{operation.booking ?? "Sin booking"} · {operation.shippingLine ?? "Naviera por confirmar"}</p></div>
                     <div className="text-right"><p className="text-[9px] font-bold uppercase tracking-wider text-slate-400">Carguío</p><p className="mt-1 text-xs font-bold capitalize text-red-600">{whenLabel(operation)}</p>{alerts > 0 && <span className="mt-2 inline-flex items-center gap-1 rounded-full bg-red-50 px-2 py-1 text-[8px] font-bold text-red-600"><Icon name="alert" className="size-3" />{alerts} alertas</span>}</div>
                   </div>
                   <div className="mt-3 grid grid-cols-3 gap-2 border-t border-slate-100 pt-3">
-                    <div><p className="text-[8px] font-bold uppercase tracking-wider text-slate-400">Depósito</p><p className="mt-1 truncate text-[9px] font-semibold text-slate-700">{operation.depot} · {operation.containerClass}</p></div>
+                    <div><p className="text-[8px] font-bold uppercase tracking-wider text-slate-400">Depósito</p><p className="mt-1 truncate text-[9px] font-semibold text-slate-700">{operation.depot} · {operation.containerClass ?? "Clase —"}</p></div>
                     <div><p className="text-[8px] font-bold uppercase tracking-wider text-slate-400">Equipo</p><p className="mt-1 truncate text-[9px] font-semibold text-slate-700">{operation.size} · {operation.weight}</p></div>
                     <div><p className="text-[8px] font-bold uppercase tracking-wider text-slate-400">Conductor</p><p className="mt-1 truncate text-[9px] font-semibold text-slate-700">{operation.driver} · {operation.plate}</p></div>
                   </div>
@@ -274,7 +253,7 @@ function ExportBoard({
           <div className="bg-red-500 px-5 py-4 text-white">
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div><p className="text-[9px] font-bold uppercase tracking-widest text-white/65">Detalle de exportación</p><p className="mt-1 text-base font-bold">{selected.client} / {selected.owner}</p><p className="mt-1 font-mono text-[10px] text-white/75">{selected.reference} · {selected.container}</p></div>
-              <div className="flex gap-2"><span className="rounded-lg bg-white/10 px-3 py-2 text-center"><span className="block text-[8px] uppercase text-white/60">Alertas</span><strong className="mt-0.5 block text-lg">{hasAlerts}</strong></span><span className="rounded-lg bg-white/10 px-3 py-2 text-center"><span className="block text-[8px] uppercase text-white/60">Días libres</span><strong className="mt-0.5 block text-lg">{selected.freeDays}</strong></span></div>
+              <div className="flex gap-2"><span className="rounded-lg bg-white/10 px-3 py-2 text-center"><span className="block text-[8px] uppercase text-white/60">Alertas</span><strong className="mt-0.5 block text-lg">{hasAlerts}</strong></span><span className="rounded-lg bg-white/10 px-3 py-2 text-center"><span className="block text-[8px] uppercase text-white/60">Días libres</span><strong className="mt-0.5 block text-lg">{selected.freeDays ?? "—"}</strong></span></div>
             </div>
           </div>
 
@@ -323,10 +302,23 @@ const EDITS_KEY = "vtm-import-export-edits-v2" // borradores sin guardar (solo c
 
 type ContainerRecord = { operation_id: string; overrides: Partial<Operation>; snapshot: Operation; updated_by: string | null; updated_at: string }
 
+// Días desde hoy hasta la fecha de carguío (expo) o retiro (impo); sin fecha queda undefined
+const withCountdown = (operation: Operation): Operation => {
+  const today = new Date()
+  const date = loadingSchedule(operation, today).date
+  if (!date) return { ...operation, countdown: undefined }
+  const start = new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime()
+  const target = new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime()
+  return { ...operation, countdown: Math.round((target - start) / 86400000) }
+}
+// Urgente: hoy o en los próximos 2 días (las fechas pasadas ya no cuentan)
+const isUrgent = (operation: Operation) => operation.countdown != null && operation.countdown >= 0 && operation.countdown <= 2
+const countdownLabel = (days?: number) => days == null ? "Sin fecha" : days === 0 ? "HOY" : days < 0 ? "Pasada" : `${days} ${days === 1 ? "día" : "días"}`
+
 const sameValue = (a: unknown, b: unknown) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null)
 // Campos de `next` que difieren de `base`
 const diffOperation = (next: Operation, base?: Operation): Partial<Operation> =>
-  Object.fromEntries(Object.entries(next).filter(([key, value]) => !base || !sameValue(base[key as keyof Operation], value))) as Partial<Operation>
+  Object.fromEntries(Object.entries(next).filter(([key, value]) => key !== "countdown" && (!base || !sameValue(base[key as keyof Operation], value)))) as Partial<Operation> // countdown es calculado
 
 export default function ImportExportModule() {
   const {
@@ -378,7 +370,7 @@ export default function ImportExportModule() {
   }, [parsedOperations, records])
   const savedBase = (operation: Operation) => ({ ...operation, ...records[operation.id]?.overrides })
   const allOperations = useMemo(
-    () => baseOperations.map((operation) => ({ ...operation, ...records[operation.id]?.overrides, ...edits[operation.id] })),
+    () => baseOperations.map((operation) => withCountdown({ ...operation, ...records[operation.id]?.overrides, ...edits[operation.id] })),
     [baseOperations, records, edits],
   )
   const updateOperation = (operation: Operation) => {
@@ -395,12 +387,13 @@ export default function ImportExportModule() {
   const saveOperation = async (operation: Operation) => {
     const parsed = parsedOperations.find((item) => item.id === operation.id)
     // Con correo: se guardan los campos que difieren del correo. Sin correo: se acumulan sobre lo ya guardado.
-    const overrides = parsed ? diffOperation(operation, parsed) : { ...records[operation.id]?.overrides, ...edits[operation.id] }
+    const { countdown: _countdown, ...toSave } = operation // calculada: no se guarda
+    const overrides = parsed ? diffOperation(toSave as Operation, parsed) : { ...records[operation.id]?.overrides, ...edits[operation.id] }
     setSavingId(operation.id)
     setSaveError(null)
     const { error } = await supabase.from("container_records").upsert({
       operation_id: operation.id, type: operation.type, container: operation.container || null, reference: operation.reference || null, client: operation.client || null,
-      overrides, snapshot: operation, updated_by: userEmail, updated_at: new Date().toISOString(),
+      overrides, snapshot: toSave, updated_by: userEmail, updated_at: new Date().toISOString(),
     })
     if (error) setSaveError(`No se pudo guardar la ficha: ${error.message}`)
     else { discardOperation(operation.id); await fetchRecords() }
@@ -440,7 +433,7 @@ export default function ImportExportModule() {
 
   // Solo se muestra una ficha que pertenezca al filtro actual (si no, el panel queda vacío)
   const selected = listed.find((operation) => operation.id === selectedId) ?? listed[0]
-  const urgent = allOperations.filter((operation) => operation.countdown <= 2).length
+  const urgent = allOperations.filter(isUrgent).length
 
   return (
     <div className="min-h-full bg-slate-50">
@@ -519,7 +512,7 @@ export default function ImportExportModule() {
                       <div className="min-w-0 flex-1 p-4">
                         <div className="flex flex-wrap items-start justify-between gap-3">
                           <div className="flex items-start gap-3"><div className={`flex size-10 items-center justify-center rounded-lg ${operation.type === "expo" ? "bg-red-50 text-red-600" : "bg-slate-100 text-slate-900"}`}><Icon name={operation.type === "expo" ? "ship" : "anchor"} className="size-5" /></div><div><div className="flex items-center gap-2"><span className={`text-[8px] font-bold uppercase tracking-widest ${operation.type === "expo" ? "text-red-600" : "text-slate-600"}`}>{operation.type === "expo" ? "Exportación" : "Importación"}</span><span className="text-[9px] text-slate-300">•</span><span className="font-mono text-[10px] font-bold text-slate-500">{operation.reference}</span></div><p className="mt-1 text-sm font-bold text-slate-950">{operation.client} <span className="font-medium text-slate-400">/ {operation.owner}</span></p><p className="mt-1 font-mono text-[10px] text-slate-500">{operation.container} · {operation.size}</p></div></div>
-                          <div className="text-right"><span className={`inline-flex rounded-full px-2.5 py-1 text-[9px] font-bold ring-1 ring-inset ${statusStyles[operation.status]}`}>{operation.status}</span><p className={`mt-2 text-[10px] font-bold ${operation.countdown <= 2 ? "text-red-600" : "text-slate-500"}`}>{operation.deadline}</p>{operation.type === "impo" && <p className="mt-1 text-[10px] font-bold capitalize text-slate-700">Retiro: {impoTools.whenLabel(operation)}</p>}</div>
+                          <div className="text-right"><span className={`inline-flex rounded-full px-2.5 py-1 text-[9px] font-bold ring-1 ring-inset ${statusStyles[operation.status]}`}>{operation.status}</span><p className={`mt-2 text-[10px] font-bold ${isUrgent(operation) ? "text-red-600" : "text-slate-500"}`}>{operation.deadline}</p>{operation.type === "impo" && <p className="mt-1 text-[10px] font-bold capitalize text-slate-700">Retiro: {impoTools.whenLabel(operation)}</p>}</div>
                         </div>
                         <div className="mt-4 grid grid-cols-[1fr_auto_1fr_auto] items-center gap-3 border-t border-slate-100 pt-3">
                           <div><p className="text-[8px] font-bold uppercase tracking-wider text-slate-400">{operation.type === "impo" ? "ETA / Puerto" : "Origen / Retiro"}</p><p className="mt-1 truncate text-[10px] font-semibold text-slate-700">{operation.type === "impo" ? `${operation.eta} · ${operation.port}` : operation.origin}</p></div><Icon name="arrow" className="size-3.5 text-slate-300" /><div><p className="text-[8px] font-bold uppercase tracking-wider text-slate-400">Destino</p><p className="mt-1 truncate text-[10px] font-semibold text-slate-700">{operation.destination}</p></div><div className="border-l border-slate-100 pl-4"><p className="text-[8px] font-bold uppercase tracking-wider text-slate-400">Conductor</p><p className="mt-1 whitespace-nowrap text-[10px] font-semibold text-slate-700">{operation.driver}</p></div>
@@ -537,7 +530,7 @@ export default function ImportExportModule() {
 
               {selected && (
                 <aside className="self-start overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm xl:sticky xl:top-20">
-                  <div className={`p-4 text-white ${selected.type === "expo" ? "bg-red-500" : "bg-slate-950"}`}><div className="flex items-start justify-between gap-3"><div><p className="text-[9px] font-bold uppercase tracking-widest text-white/60">Ficha de contenedor</p><p className="mt-1 font-mono text-sm font-bold">{selected.container}</p><p className="mt-1 text-[10px] text-white/70">{selected.client} · {selected.owner}</p></div><div className="rounded-lg bg-white/10 px-2.5 py-2 text-right"><p className="text-[8px] uppercase text-white/60">Cuenta regresiva</p><p className="mt-0.5 text-lg font-bold">{selected.countdown === 0 ? "HOY" : `${selected.countdown} días`}</p></div></div></div>
+                  <div className={`p-4 text-white ${selected.type === "expo" ? "bg-red-500" : "bg-slate-950"}`}><div className="flex items-start justify-between gap-3"><div><p className="text-[9px] font-bold uppercase tracking-widest text-white/60">Ficha de contenedor</p><p className="mt-1 font-mono text-sm font-bold">{selected.container}</p><p className="mt-1 text-[10px] text-white/70">{selected.client} · {selected.owner}</p></div><div className="rounded-lg bg-white/10 px-2.5 py-2 text-right"><p className="text-[8px] uppercase text-white/60">Cuenta regresiva</p><p className="mt-0.5 text-lg font-bold">{countdownLabel(selected.countdown)}</p></div></div></div>
                   <div className="p-4">
                     <SaveBar state={saveStateFor(selected)} />
                     <div className="max-h-[560px] overflow-y-auto pr-1">
@@ -562,7 +555,7 @@ export default function ImportExportModule() {
                   <p className="text-sm font-bold text-slate-900">Bandeja operacional (Outlook)</p>
                   <p className="mt-1 text-[10px] text-slate-400">
                     {isConnected 
-                      ? <>Correos de @cronoslogistica.com · Conectado como <strong>{userEmail}</strong></>
+                      ? <>Correos con datos de carga · Conectado como <strong>{userEmail}</strong></>
                       : "Conecta tu cuenta para extraer los correos automáticamente."}
                   </p>
                 </div>
@@ -587,7 +580,7 @@ export default function ImportExportModule() {
 
                 {isConnected && !outlookLoading && outlookEmails.length === 0 && (
                   <div className="p-10 text-center text-sm text-slate-500">
-                    No se encontraron correos de Cronos Logística con tablas válidas.
+                    No se encontraron correos con datos de carga.
                   </div>
                 )}
 

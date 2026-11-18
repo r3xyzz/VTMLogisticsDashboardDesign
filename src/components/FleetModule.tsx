@@ -26,9 +26,45 @@ interface FleetFormData {
 const VEHICLE_TYPES = ['Truck', 'Van', '40FR', '20FR', '40HC', '20HC', 'Flatbed', 'Refrigerated'];
 const STATUSES = ['available', 'in_route', 'maintenance', 'inactive'];
 
+// Conductor con los campos que cuentan para la documentación del vehículo
+type FleetDriver = DriverBasic & {
+    license_number: string | null;
+    license_expiry: string | null;
+    background_check: string | null;
+    cv: string | null;
+};
+
+type DocState = 'ok' | 'missing' | 'expired';
+
+// Vencido si la fecha (YYYY-MM-DD) ya pasó; sin fecha no se considera vencido
+const isExpired = (date?: string | null) => !!date && new Date(`${date}T23:59:59`).getTime() < Date.now();
+const docState = (present: unknown, expiry?: string | null): DocState => !present ? 'missing' : isExpired(expiry) ? 'expired' : 'ok';
+
+// Checklist de documentos: 3 del conductor asignado + 5 del vehículo
+function vehicleDocs(vehicle: Fleet, driver?: FleetDriver): { label: string; state: DocState }[] {
+    return [
+        { label: 'Licencia conducir', state: docState(driver?.license_number, driver?.license_expiry) },
+        { label: 'Cert. antecedentes', state: docState(driver?.background_check) },
+        { label: 'Hoja de vida', state: docState(driver?.cv) },
+        { label: 'Permiso circulación', state: docState(vehicle.permit_circulation, vehicle.permit_expiry) },
+        { label: 'Revisión técnica', state: docState(vehicle.technical_review, vehicle.technical_review) }, // technical_review es la fecha de vencimiento
+        { label: 'Seguro de carga', state: docState(vehicle.cargo_insurance) },
+        { label: 'Seguro vehículo', state: docState(vehicle.vehicle_insurance, vehicle.vehicle_insurance_expiry) },
+        { label: 'GPS activo', state: docState(vehicle.has_gps) },
+    ];
+}
+
+const DOC_PILL: Record<DocState, string> = {
+    ok: 'bg-green-50 text-green-700',
+    missing: 'bg-red-50 text-red-600',
+    expired: 'bg-amber-50 text-amber-700',
+};
+const DOC_TEXT: Record<DocState, string> = { ok: '✓ OK', missing: '✗ Falta', expired: '⚠ Vencido' };
+const progressColor = (pct: number) => (pct === 100 ? '#16a34a' : pct >= 50 ? '#ea580c' : '#dc2626');
+
 export default function FleetModule() {
     const [fleet, setFleet] = useState<Fleet[]>([]);
-    const [drivers, setDrivers] = useState<DriverBasic[]>([]);
+    const [drivers, setDrivers] = useState<FleetDriver[]>([]);
     const [loading, setLoading] = useState(true);
     const [filterStatus, setFilterStatus] = useState<string>('all');
     const [isModalOpen, setIsModalOpen] = useState(false);
@@ -82,12 +118,12 @@ export default function FleetModule() {
     try {
         const { data, error } = await supabase
             .from('drivers')
-            .select('id, rut, full_name, phone, current_fleet_id') // ✅ Incluir current_fleet_id
+            .select('id, rut, full_name, phone, current_fleet_id, license_number, license_expiry, background_check, cv') // documentos del conductor para el checklist
             .eq('is_active', true)
             .order('full_name');
 
         if (error) throw error;
-        setDrivers((data || []) as DriverBasic[]);
+        setDrivers((data || []) as FleetDriver[]);
     } catch (error) {
         console.error('Error fetching drivers:', error);
     }
@@ -454,82 +490,75 @@ export default function FleetModule() {
                 </div>
             ) : (
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                    {fleet.map((vehicle) => (
-                        <div key={vehicle.id} className="bg-white rounded-lg border border-slate-200 overflow-hidden hover:shadow-lg transition-shadow">
-                            <div className="px-4 py-3 border-b border-slate-100" style={{ background: '#050f1c' }}>
-                                <div className="flex items-center justify-between">
-                                    <div>
-                                        <div className="text-white text-sm font-bold">{vehicle.plate}</div>
-                                        <div className="text-blue-300 text-xs">
-                                            {vehicle.brand} {vehicle.model} {vehicle.year}
+                    {fleet.map((vehicle) => {
+                        const driver = drivers.find(d => d.current_fleet_id === vehicle.id);
+                        const docs = vehicleDocs(vehicle, driver);
+                        const okCount = docs.filter(doc => doc.state === 'ok').length;
+                        const pct = Math.round((okCount / docs.length) * 100);
+                        const color = progressColor(pct);
+                        return (
+                        <div key={vehicle.id} className="bg-white rounded-xl border border-slate-200 overflow-hidden hover:shadow-lg transition-shadow flex flex-col">
+                            {/* Cabecera: conductor, patente · tipo y avance de documentación */}
+                            <div className="px-4 pt-3.5 pb-3" style={{ background: '#050f1c' }}>
+                                <div className="flex items-start justify-between gap-3">
+                                    <div className="min-w-0">
+                                        <div className="text-white text-[15px] font-bold truncate">{driver?.full_name || vehicle.driver_name || 'Sin conductor'}</div>
+                                        <div className="mt-0.5 font-mono text-xs text-blue-300">
+                                            {vehicle.plate} · {vehicle.vehicle_type}
+                                            {vehicle.capacity_kg ? ` ${Number(vehicle.capacity_kg).toLocaleString('es-CL')} kg` : ''}
                                         </div>
                                     </div>
-                                    <div className="text-right">
-                                        <span className={`px-2 py-1 text-xs font-semibold rounded-full ${getStatusColor(vehicle.status || '')}`}>
-                                            {getStatusText(vehicle.status || '')}
-                                        </span>
+                                    <div className="text-right flex-shrink-0">
+                                        <div className="text-2xl font-bold leading-none" style={{ color }}>{pct}%</div>
+                                        <div className="mt-1 text-[11px] text-slate-400">{okCount}/{docs.length} docs</div>
                                     </div>
+                                </div>
+                                <div className="mt-3 h-1.5 rounded-full bg-slate-700/60 overflow-hidden">
+                                    <div className="h-full rounded-full transition-all" style={{ width: `${pct}%`, background: color }} />
                                 </div>
                             </div>
 
-                            <div className="p-4 space-y-2">
-                                <div className="flex justify-between text-sm">
-                                    <span className="text-slate-500">Tipo:</span>
-                                    <span className="font-medium">{vehicle.vehicle_type}</span>
-                                </div>
-                                {vehicle.driver_name && (
-                                    <div className="flex justify-between text-sm">
-                                        <span className="text-slate-500">Conductor:</span>
-                                        <span className="font-medium">{vehicle.driver_name}</span>
+                            {/* Checklist de documentos */}
+                            <div className="px-4 py-2 flex-1">
+                                {docs.map(doc => (
+                                    <div key={doc.label} className="flex items-center justify-between py-1.5 text-[13px]">
+                                        <span className="text-slate-600">{doc.label}</span>
+                                        <span className={`rounded px-2 py-0.5 text-[11px] font-bold ${DOC_PILL[doc.state]}`}>{DOC_TEXT[doc.state]}</span>
                                     </div>
-                                )}
-                                {vehicle.current_location && (
-                                    <div className="flex justify-between text-sm">
-                                        <span className="text-slate-500">Ubicación:</span>
-                                        <span className="font-medium">{vehicle.current_location}</span>
-                                    </div>
-                                )}
-                                <div className="flex justify-between text-sm">
-                                    <span className="text-slate-500">Capacidad:</span>
-                                    <span className="font-medium">
-                                        {vehicle.capacity_kg ? `${vehicle.capacity_kg} kg` : 'N/A'}
-                                        {vehicle.capacity_cbm ? ` / ${vehicle.capacity_cbm} m³` : ''}
-                                    </span>
-                                </div>
-                                <div className="flex justify-between text-sm">
-                                    <span className="text-slate-500">GPS:</span>
-                                    <span className={`font-medium ${vehicle.has_gps ? 'text-green-600' : 'text-red-600'}`}>
-                                        {vehicle.has_gps ? '✅ Activo' : '❌ Inactivo'}
-                                    </span>
-                                </div>
+                                ))}
+                            </div>
 
-                                <div className="pt-3 border-t border-slate-100 flex items-center gap-2">
-                                    <select
-                                        value={vehicle.status || 'available'}
-                                        onChange={(e) => handleStatusChange(vehicle.id, e.target.value)}
-                                        className="text-xs border border-gray-300 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-blue-500 flex-1"
-                                    >
-                                        <option value="available">Disponible</option>
-                                        <option value="in_route">En Ruta</option>
-                                        <option value="maintenance">Mantenimiento</option>
-                                        <option value="inactive">Inactivo</option>
-                                    </select>
-                                    <button
-                                        onClick={() => openEditModal(vehicle)}
-                                        className="px-2 py-1 text-blue-600 hover:bg-blue-50 rounded text-xs"
-                                    >
-                                        Editar
-                                    </button>
-                                    <button
-                                        onClick={() => handleDelete(vehicle.id)}
-                                        className="px-2 py-1 text-red-600 hover:bg-red-50 rounded text-xs"
-                                    >
-                                        Eliminar
-                                    </button>
-                                </div>
+                            {/* Estado y acciones */}
+                            <div className="px-4 py-3 border-t border-slate-100 flex items-center gap-2">
+                                <span className={`px-2 py-1 text-[10px] font-semibold rounded-full ${getStatusColor(vehicle.status || '')}`}>
+                                    {getStatusText(vehicle.status || '')}
+                                </span>
+                                <select
+                                    value={vehicle.status || 'available'}
+                                    onChange={(e) => handleStatusChange(vehicle.id, e.target.value)}
+                                    className="text-xs border border-gray-300 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-blue-500 flex-1 min-w-0"
+                                >
+                                    <option value="available">Disponible</option>
+                                    <option value="in_route">En Ruta</option>
+                                    <option value="maintenance">Mantenimiento</option>
+                                    <option value="inactive">Inactivo</option>
+                                </select>
+                                <button
+                                    onClick={() => openEditModal(vehicle)}
+                                    className="px-2 py-1 text-blue-600 hover:bg-blue-50 rounded text-xs"
+                                >
+                                    Editar
+                                </button>
+                                <button
+                                    onClick={() => handleDelete(vehicle.id)}
+                                    className="px-2 py-1 text-red-600 hover:bg-red-50 rounded text-xs"
+                                >
+                                    Eliminar
+                                </button>
                             </div>
                         </div>
-                    ))}
+                        );
+                    })}
                 </div>
             )}
 
