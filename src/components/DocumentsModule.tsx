@@ -254,7 +254,7 @@ function OrderDetailModal({ order, isOpen, onClose, onRefresh }: OrderDetailProp
             // ============================================
             // 1. CARGAR IMÁGENES
             // ============================================
-            const logoBase64 = await imageToBase64('/logo_empresa_VTM.png');
+            const logoBase64 = await imageToBase64(`${import.meta.env.BASE_URL}logo_empresa_VTM.png`);
             const podEmptyBase64 = documents?.pod_empty_url 
                 ? await imageToBase64(documents.pod_empty_url) 
                 : null;

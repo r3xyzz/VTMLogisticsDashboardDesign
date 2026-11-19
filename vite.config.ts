@@ -1,17 +1,27 @@
 import { defineConfig, type HtmlTagDescriptor, type Plugin } from 'vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
+import fs from 'node:fs'
 import path from 'node:path'
 
-import siteConfiguration from './.figma/make/site.json'
+// .figma/ no se sube a GitHub (.gitignore): si no existe (build de GitHub Pages) se usan estos valores
+const SITE_JSON = path.resolve(__dirname, '.figma/make/site.json')
+const siteConfiguration: FigmaSiteConfiguration = fs.existsSync(SITE_JSON)
+  ? JSON.parse(fs.readFileSync(SITE_JSON, 'utf-8'))
+  : { title: 'VTM-Control-Center', icons: { icon: '/logo_empresa_VTM.png' }, robots: { index: false } }
 
 // Vite config — https://vitejs.dev/config/
 export default defineConfig(({ mode }) => {
   // .figma/make/deploy-preview passes `--mode development` for cached-preview builds.
   const emitSourcemaps = mode === 'development'
+  const base = process.env.FIGMA_PUBLIC_URL ? `${process.env.FIGMA_PUBLIC_URL}/` : process.env.BASE_PATH || '/'
+  // El favicon de site.json es absoluto ("/logo..."): se ajusta a la ruta base
+  const icon = siteConfiguration.icons?.icon
+  const site = { ...siteConfiguration, icons: { ...siteConfiguration.icons, icon: icon?.startsWith('/') ? `${base}${icon.slice(1)}` : icon } }
 
   return {
-    base: process.env.FIGMA_PUBLIC_URL ? `${process.env.FIGMA_PUBLIC_URL}/` : '/',
+    // GitHub Pages sirve la app en /<repo>/: el workflow pasa BASE_PATH=/VTMLogisticsDashboardDesign/
+    base,
     build: {
       sourcemap: emitSourcemaps ? 'inline' : false,
       minify: !emitSourcemaps,
@@ -19,7 +29,7 @@ export default defineConfig(({ mode }) => {
     plugins: [
       react(),
       tailwindcss(),
-      figmaSiteConfiguration(siteConfiguration),
+      figmaSiteConfiguration(site),
       figmaErrorOverlayReplay(),
       figmaReactRefreshBoundaryFallback(),
       figmaMakeKitPlugin({ storiesGlob: '/src/**/*.stories.{ts,tsx,js,jsx}' }),

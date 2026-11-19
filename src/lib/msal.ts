@@ -5,8 +5,9 @@ export const msalConfig = {
     auth: {
         clientId: '475baba6-abc6-4c1e-92b3-9bb2787c008a',
         authority: 'https://login.microsoftonline.com/05094f27-0087-498b-b620-c24992918b7d',
-        redirectUri: 'http://localhost:8443/',
-        postLogoutRedirectUri: 'http://localhost:8443/',
+        // Debe estar registrada en Azure (App registrations > Authentication > SPA)
+        redirectUri: `${window.location.origin}${import.meta.env.BASE_URL}`,
+        postLogoutRedirectUri: `${window.location.origin}${import.meta.env.BASE_URL}`,
     },
     cache: {
         cacheLocation: 'localStorage', 

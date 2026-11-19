@@ -150,7 +150,7 @@ export default function Sidebar({
         style={{ borderBottom: '1px solid rgba(255,255,255,0.07)' }}
       >
         <img
-          src="/logo_empresa_VTM.png"
+          src={`${import.meta.env.BASE_URL}logo_empresa_VTM.png`}
           alt="VTM Logistics"
           className={`${collapsed ? 'w-11' : 'w-36'} h-auto object-contain flex-shrink-0`}
         />

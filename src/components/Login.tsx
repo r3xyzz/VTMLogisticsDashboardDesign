@@ -12,7 +12,7 @@ export default function Login() {
       setLoading(true);
       setError(null);
       setLoginAttempts(prev => prev + 1);
-      const redirectUrl = new URL('/', window.location.origin).toString();
+      const redirectUrl = new URL(import.meta.env.BASE_URL, window.location.origin).toString();
       
       console.log(`🔄 ====== INTENTO DE LOGIN #${loginAttempts + 1} ======`);
       console.log('📍 URL actual:', window.location.href);
@@ -54,7 +54,7 @@ export default function Login() {
         <div className="text-center">
           <div className="flex justify-center">
             <img
-              src="/logo_empresa_VTM.png"
+              src={`${import.meta.env.BASE_URL}logo_empresa_VTM.png`}
               alt="VTM Logistics"
               className="h-20 w-auto object-contain"
             />
