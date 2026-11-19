@@ -628,7 +628,7 @@ export default function ImportExportModule() {
 
                           <div className="mt-3 flex gap-2">
                             <button 
-                              onClick={() => window.open(`https://outlook.office.com/mail/id/${email.id}`, '_blank')}
+                              onClick={() => window.open(`https://outlook.office.com/mail/id/${encodeURIComponent(email.parentId || email.id)}`, '_blank')}
                               className="rounded-md border border-slate-200 px-3 py-1.5 text-[9px] font-bold text-slate-500 hover:bg-slate-100"
                             >
                               Ver en Outlook

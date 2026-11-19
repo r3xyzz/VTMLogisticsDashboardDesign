@@ -243,7 +243,11 @@ export function mapConversationToOperation(messages: OutlookEmailForIE[]): Opera
   const allText = ordered.map((m) => htmlToText(m.uniqueBody?.content || m.body?.content || "")).join(" ");
 
   const numericKilos = parseKilos(parsed.kilos);
-  const type = detectOperationType(email.subject || "", allText, parsed);
+  // Si el asunto no dice IMPO/EXPO, manda lo que escribió quien reenvió el adjunto ("EXPOS.")
+  const subjectNorm = normalize(email.subject || "");
+  const subjectDecides = SUBJECT_IMPO.test(subjectNorm) || SUBJECT_EXPO.test(subjectNorm);
+  const hint = ordered.find((message) => message.typeHint)?.typeHint;
+  const type = !subjectDecides && hint ? hint : detectOperationType(email.subject || "", allText, parsed);
   
   // Extraemos el remitente real del cuerpo (para reenvíos)
   const realSender = extractSenderFromBody(html);
