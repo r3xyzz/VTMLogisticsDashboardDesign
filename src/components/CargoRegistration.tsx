@@ -99,6 +99,9 @@ function CostLine({ label, value, note, bold, highlight }: { label: string; valu
 
 /* ─── Main ─────────────────────────────────────────────────────────────────── */
 
+// Fecha local (YYYY-MM-DD): toISOString usa UTC y de noche en Chile da el día siguiente
+const localToday = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
+
 // Interface para los clientes
 interface Client {
     id: string;
@@ -168,6 +171,13 @@ export default function CargoRegistration() {
     subCost: '',
     notes: '',
     priority: 'normal' as 'normal' | 'urgente',
+    // Coordinación: la OT confirmada aparece en la pestaña FCL o LCL
+    cargoMode: 'lcl' as 'fcl' | 'lcl',
+    operationType: 'impo' as 'impo' | 'expo',
+    serviceDate: localToday(),
+    pickupTime: '',
+    containerNumber: '',
+    containerSize: '40',
   });
 
   // ✅ Cargar clientes, choferes y precio del diésel al montar el componente
@@ -288,6 +298,47 @@ export default function CargoRegistration() {
   const margin20 = subBase * 0.2;
   const subTotal = subBase + margin20;
 
+  // ─── OT -> COORDINACIÓN ─────────────────────────────────────────────────
+  async function createCoordinationService(order: { id: string; order_number: string }): Promise<string | null> {
+    const client = clients.find(c => c.id === f.clientId);
+    const driver = drivers.find(d => d.id === f.driverId);
+    const vehicle = vehicles.find(v => v.id === f.fleetId);
+    const provider = providers.find(p => p.id === f.providerId);
+    const day = f.serviceDate || localToday();
+    const { error } = await supabase.from('coordination_services').insert([{
+      order_id: order.id,
+      cargo_mode: f.cargoMode,
+      type: f.operationType,
+      service_date: day,
+      date: `${day.slice(8, 10)}/${day.slice(5, 7)}/${day.slice(0, 4)}`,
+      scope: day === localToday() ? 'today' : 'month',
+      time: f.pickupTime || '',
+      forwarder: client?.name || '',
+      final_client: '',
+      reference: order.order_number,
+      cargo: [f.qty && `${f.qty} ${f.pkg}`, f.kg && `${f.kg} kg`].filter(Boolean).join(' · '),
+      packages: f.qty || null,
+      dimensions: f.kg ? `${f.kg} kg` : '',
+      stackable: false,
+      stacking: '',
+      stacking_tone: 'safe',
+      container_number: f.cargoMode === 'fcl' ? (f.containerNumber.trim().toUpperCase() || null) : null,
+      container_size: f.cargoMode === 'fcl' ? (f.containerSize || null) : null,
+      pickup: f.origin || '',
+      pickup_contact: f.contact || '',
+      delivery: f.destination || '',
+      delivery_contact: '',
+      special_instructions: f.notes || null,
+      driver: f.mode === 'propia' ? (driver?.full_name || '') : (provider ? `Subcontrato: ${provider.name}` : ''),
+      plate: f.mode === 'propia' ? (vehicle?.plate || '') : (provider?.vehicle_plate || ''),
+      status: 'Programado',
+      done: false,
+      source: `Nueva OT ${order.order_number}`,
+      updated: 'Desde Nueva OT',
+    }]);
+    return error ? error.message : null;
+  }
+
   // ─── GUARDAR EN SUPABASE ──────────────────────────────────────────────
   const saveOrder = async (status: 'pending' | 'draft') => {
     setError(null);
@@ -315,12 +366,14 @@ export default function CargoRegistration() {
         client_id: f.clientId || null, // Permitimos nulo en borrador
         client_contact: f.contact || null,
         service_type: `${f.origin || 'Sin origen'}/${f.destination || 'Sin destino'}`,
-        service_date: new Date().toISOString().split('T')[0],
+        service_date: f.serviceDate || localToday(),
         quantity: parseInt(f.qty) || 0,
         package_type: f.pkg || null,
         weight_kg: parseFloat(f.kg) || 0,
         volume_cbm: (vol * qty) || 0,
-        container_number: null,
+        container_number: f.cargoMode === 'fcl' ? (f.containerNumber.trim().toUpperCase() || null) : null,
+        cargo_mode: f.cargoMode,
+        operation_type: f.operationType,
         description: f.notes || null,
         origin: f.origin || null,
         destination: f.destination || null,
@@ -345,6 +398,12 @@ export default function CargoRegistration() {
 
       if (error) throw error;
 
+      // Una OT confirmada se programa en Coordinación (FCL o LCL), enlazada por order_id
+      if (status === 'pending' && data?.[0]) {
+        const coordError = await createCoordinationService(data[0]);
+        if (coordError) setError(`La OT se guardó, pero no se pudo crear en Coordinación: ${coordError}`);
+      }
+
       // Una OT confirmada deja el vehículo "en ruta" en Flota (se libera al subir el POD final)
       if (status === 'pending' && orderData.fleet_id) {
         const { error: fleetError } = await supabase.from('fleet').update({ status: 'in_route' }).eq('id', orderData.fleet_id);
@@ -360,6 +419,7 @@ export default function CargoRegistration() {
         clientId: '', clientCode: '', contact: '', origin: '', destination: '',
         routeIdx: 0, truckIdx: 0, driverId: '', fleetId: '', providerId: '', pkg: 'Cajas', qty: '', kg: '', l: '', a: '', h: '',
         mode: 'propia', subCost: '', notes: '', priority: 'normal',
+        cargoMode: 'lcl', operationType: 'impo', serviceDate: localToday(), pickupTime: '', containerNumber: '', containerSize: '40',
       });
 
       setTimeout(() => setSuccess(false), 5000);
@@ -500,6 +560,51 @@ export default function CargoRegistration() {
                     />
                   </div>
                 </div>
+              </Card>
+
+              {/* 1b. Coordinación */}
+              <Card title="Programación · Coordinación" icon="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z">
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                  <div>
+                    <Lbl req>Tipo de carga</Lbl>
+                    <select className={inp} value={f.cargoMode} onChange={e => set('cargoMode', e.target.value as 'fcl' | 'lcl')}>
+                      <option value="lcl">LCL · carga suelta</option>
+                      <option value="fcl">FCL · contenedor</option>
+                    </select>
+                  </div>
+                  <div>
+                    <Lbl req>Operación</Lbl>
+                    <select className={inp} value={f.operationType} onChange={e => set('operationType', e.target.value as 'impo' | 'expo')}>
+                      <option value="impo">Importación</option>
+                      <option value="expo">Exportación</option>
+                    </select>
+                  </div>
+                  <div>
+                    <Lbl req>Fecha del servicio</Lbl>
+                    <input type="date" className={inp} value={f.serviceDate} onChange={e => set('serviceDate', e.target.value)} required={!savingDraft} />
+                  </div>
+                  <div>
+                    <Lbl>Hora de retiro</Lbl>
+                    <input type="time" className={inp} value={f.pickupTime} onChange={e => set('pickupTime', e.target.value)} />
+                  </div>
+                  {f.cargoMode === 'fcl' && (
+                    <>
+                      <div className="col-span-2">
+                        <Lbl>N° contenedor</Lbl>
+                        <input className={inp + ' font-mono uppercase'} placeholder="MSCU1234567" value={f.containerNumber} onChange={e => set('containerNumber', e.target.value.toUpperCase())} />
+                      </div>
+                      <div>
+                        <Lbl>Medida</Lbl>
+                        <select className={inp} value={f.containerSize} onChange={e => set('containerSize', e.target.value)}>
+                          <option value="20">20'</option>
+                          <option value="40">40'</option>
+                          <option value="40HC">40' HC</option>
+                        </select>
+                      </div>
+                    </>
+                  )}
+                </div>
+                <p className="mt-2 text-[10px] text-slate-400">Al confirmar la OT, el servicio aparece en Coordinación ({f.cargoMode === 'fcl' ? 'FCL · Contenedores, en la fecha elegida' : 'LCL · Carga suelta'}) y se marca finalizado cuando el camionero completa el viaje.</p>
               </Card>
 
               {/* 2. Ruta */}

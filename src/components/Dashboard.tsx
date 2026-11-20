@@ -234,6 +234,8 @@ export default function Dashboard({ onNavigate }: Props) {
                             </button>
                         </div>
 
+                        {/* En pantallas angostas la línea de tiempo se desplaza horizontalmente en vez de aplastarse */}
+                        <div className="overflow-x-auto"><div className="min-w-[680px]">
                         {/* Hours ruler */}
                         <div className="flex px-5 pt-3 pb-1">
                             <div className="w-44 flex-shrink-0" />
@@ -310,6 +312,7 @@ export default function Dashboard({ onNavigate }: Props) {
                                 )
                             })}
                         </div>
+                        </div></div>
                     </div>
 
                     {/* Alerts */}

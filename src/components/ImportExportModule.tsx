@@ -438,11 +438,11 @@ export default function ImportExportModule() {
   return (
     <div className="min-h-full bg-slate-50">
       <header className="sticky top-0 z-30 border-b border-slate-200 bg-white/95 px-6 py-3 backdrop-blur">
-        <div className="mx-auto flex max-w-[1600px] items-center justify-between gap-4">
+        <div className="mx-auto flex max-w-[1600px] flex-wrap items-center justify-between gap-3">
           <div><div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-wider text-navy-500"><span>Operaciones marítimas</span><span className="text-slate-300">/</span><span>Control de contenedores</span></div><h1 className="mt-1 text-xl font-bold tracking-tight text-slate-950">Carga Importación / Exportación</h1></div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             {isConnected ? (
-              <div className="hidden items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-[11px] font-semibold text-emerald-700 md:flex">
+              <div className="flex items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-[11px] font-semibold text-emerald-700">
                 <span className="size-2 rounded-full bg-emerald-500" />
                 <span className="truncate max-w-[180px]" title={userEmail || ''}>
                   Conectado: <strong className="font-bold">{userName}</strong>
@@ -450,7 +450,7 @@ export default function ImportExportModule() {
                 <button onClick={connectOutlook} className="ml-1 rounded-md border border-emerald-300 bg-white px-2 py-0.5 text-[10px] font-bold text-emerald-700 hover:bg-emerald-100" title="Conectar otro correo">Cambiar cuenta</button>
               </div>
             ) : (
-              <button onClick={connectOutlook} className="hidden items-center gap-2 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-[11px] font-semibold text-blue-700 md:flex hover:bg-blue-100 transition-colors">
+              <button onClick={connectOutlook} className="flex items-center gap-2 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-[11px] font-semibold text-blue-700 hover:bg-blue-100 transition-colors">
                 <Icon name="mail" className="size-3.5" /> Conectar Outlook
               </button>
             )}

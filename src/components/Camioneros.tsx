@@ -106,6 +106,12 @@ export default function CamionerosModule() {
   const [trips, setTrips] = useState<Trip[]>([])
   const [loading, setLoading] = useState(true)
   const [selectedId, setSelectedId] = useState<string | null>(null)
+  // En celular la lista va arriba y el detalle abajo: al elegir un viaje se baja hasta el detalle
+  const detailRef = useRef<HTMLElement>(null)
+  const selectTrip = (id: string) => {
+    setSelectedId(id)
+    if (window.matchMedia("(max-width: 1279px)").matches) setTimeout(() => detailRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 50)
+  }
   const [search, setSearch] = useState("")
   const [toast, setToast] = useState("")
   const [uploading, setUploading] = useState(false)
@@ -317,7 +323,7 @@ export default function CamionerosModule() {
         </div>
       </header>
 
-      <main className="mx-auto max-w-screen-2xl p-6">
+      <main className="mx-auto max-w-screen-2xl p-4 sm:p-6">
         <div className="grid gap-5 xl:grid-cols-[320px_minmax(0,1fr)]">
           <aside className="overflow-hidden rounded-xl border border-slate-200 bg-white">
             <div className="border-b border-slate-200 p-4">
@@ -327,11 +333,11 @@ export default function CamionerosModule() {
                 <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Buscar OT o cliente" className="w-full bg-transparent text-xs text-slate-800 outline-none placeholder:text-slate-400" />
               </label>
             </div>
-            <div className="max-h-[650px] divide-y divide-slate-100 overflow-y-auto">
+            <div className="max-h-[45vh] divide-y divide-slate-100 overflow-y-auto xl:max-h-[650px]">
               {filteredTrips.map((trip) => {
                 const active = trip.id === selected?.id
                 return (
-                  <button key={trip.id} onClick={() => setSelectedId(trip.id)} className={`w-full p-4 text-left transition-colors ${active ? "bg-navy-50" : "hover:bg-slate-50"}`}>
+                  <button key={trip.id} onClick={() => selectTrip(trip.id)} className={`w-full p-4 text-left transition-colors ${active ? "bg-navy-50" : "hover:bg-slate-50"}`}>
                     <div className="flex items-start gap-3">
                       <div className={`flex size-9 shrink-0 items-center justify-center rounded-full text-xs font-bold ${active ? "bg-navy-500 text-white" : "bg-slate-100 text-slate-600"}`}>{trip.initials}</div>
                       <div className="min-w-0 flex-1">
@@ -358,7 +364,7 @@ export default function CamionerosModule() {
             </div>
           </aside>
 
-          <section className="min-w-0 space-y-5">
+          <section ref={detailRef} className="min-w-0 scroll-mt-4 space-y-5">
             {selected ? (
               <>
                 <article className="overflow-hidden rounded-xl border border-slate-200 bg-white">

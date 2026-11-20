@@ -23,7 +23,7 @@ export default function TrackingModule() {
   const filtered = filter === 'todos' ? loads : loads.filter(l => l.status === filter)
 
   return (
-    <div className="p-6 max-w-screen-xl mx-auto">
+    <div className="p-4 sm:p-6 max-w-screen-xl mx-auto">
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-xl font-bold text-slate-900">Monitoreo de Viajes</h1>
@@ -32,7 +32,7 @@ export default function TrackingModule() {
       </div>
 
       {/* Filter bar */}
-      <div className="flex gap-2 mb-4">
+      <div className="flex flex-wrap gap-2 mb-4">
         {['todos', 'en-ruta', 'retrasado', 'cargando', 'en-espera', 'entregado'].map(f => (
           <button
             key={f}
@@ -58,8 +58,8 @@ export default function TrackingModule() {
         </div>
       )}
 
-      <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
-        <table className="w-full text-sm">
+      <div className="bg-white rounded-lg border border-slate-200 overflow-x-auto">
+        <table className="w-full min-w-[720px] text-sm">
           <thead>
             <tr className="bg-slate-50 border-b border-slate-200">
               {['ID Carga', 'Cliente', 'Chofer / Unidad', 'Origen → Destino', 'Hito Actual', 'Estado', 'Incidencia', 'Acciones'].map(h => (

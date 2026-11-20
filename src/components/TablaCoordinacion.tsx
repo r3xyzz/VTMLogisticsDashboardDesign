@@ -46,6 +46,8 @@ type Service = {
   trailer: string // rampla
   status: ServiceStatus
   done: boolean // finalizado: se muestra tachado
+  orderId: string // OT de Nueva OT que creó este servicio ("" = creado en Coordinación)
+  tripStatus: string // estado del viaje en la OT (pending / in_progress / completed / draft)
   source: string
   updated: string
 }
@@ -97,6 +99,19 @@ const TYPE_STYLE: Record<ServiceType, { label: string; badge: string; header: st
   impo: { label: "IMPO", badge: "bg-slate-100 text-slate-800 ring-slate-300", header: "bg-slate-800", canvas: "#1e293b" },
 }
 
+// Estado de la OT (lo avanza el camionero en su módulo / el POD final)
+const TRIP: Record<string, { label: string; style: string }> = {
+  draft: { label: "Borrador", style: "bg-slate-100 text-slate-500 ring-slate-200" },
+  pending: { label: "En carga", style: "bg-amber-50 text-amber-700 ring-amber-200" },
+  in_progress: { label: "En tránsito", style: "bg-orange-50 text-orange-700 ring-orange-200" },
+  completed: { label: "Completado", style: "bg-emerald-50 text-emerald-700 ring-emerald-200" },
+}
+function TripBadge({ service }: { service: Service }) {
+  if (!service.orderId) return null
+  const trip = TRIP[service.tripStatus]
+  return <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold ring-1 ring-inset ${trip?.style ?? "bg-slate-100 text-slate-500 ring-slate-200"}`} title="Viaje de la OT (lo actualiza el camionero)">OT · {trip?.label ?? "Sin estado"}</span>
+}
+
 const statusStyles: Record<ServiceStatus, string> = {
   Cotizado: "bg-slate-100 text-slate-600 ring-slate-200",
   Programado: "bg-blue-50 text-blue-700 ring-blue-200",
@@ -143,6 +158,8 @@ function rowToService(row: any): Service {
     trailer: row.trailer_plate || "",
     status: (row.status as ServiceStatus) || "Programado",
     done: !!row.done,
+    orderId: row.order_id || "",
+    tripStatus: "",
     source: row.source || "",
     updated: row.updated || "",
   }
@@ -182,6 +199,7 @@ function serviceToRow(service: Service) {
     source: service.source,
     updated: new Date().toLocaleString("es-CL", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" }),
     updated_at: new Date().toISOString(),
+    order_id: service.orderId || null,
   }
 }
 
@@ -198,7 +216,7 @@ const newService = (mode: CargoMode, serviceDate: string): Service => ({
   id: "", mode, type: "impo", serviceDate, time: "", forwarder: "", finalClient: "", reference: "", shippingLine: "", containerNumber: "",
   containerSize: mode === "fcl" ? "40" : "", cargo: "", packages: "", dimensions: "", stackable: false, stacking: "", stackingTone: "safe",
   pickup: "", pickupContact: "", delivery: "", deliveryDate: "", deliveryContact: "", instructions: "", driver: "", plate: "", trailer: "",
-  status: "Programado", done: false, source: "", updated: "",
+  status: "Programado", done: false, orderId: "", tripStatus: "", source: "", updated: "",
 })
 
 const sortServices = (list: Service[]) => [...list].sort((a, b) => `${a.serviceDate || "9999"} ${a.time || "99:99"}`.localeCompare(`${b.serviceDate || "9999"} ${b.time || "99:99"}`))
@@ -360,6 +378,7 @@ function BoardCard({ service, onEdit, onToggleDone }: { service: Service; onEdit
       <div className="flex flex-wrap items-center gap-1">
         {service.containerSize && <span className={`rounded px-1.5 py-0.5 text-[9px] font-bold text-white ${is20(service) ? "bg-blue-600" : "bg-slate-600"}`}>{service.containerSize}'</span>}
         {isSanAntonio(service) && <span className="rounded bg-violet-600 px-1.5 py-0.5 text-[9px] font-bold text-white">SAN ANTONIO</span>}
+        <TripBadge service={service} />
         <span className="ml-auto font-bold text-slate-700">{service.time || "Sin hora"}</span>
       </div>
       <p className={`truncate font-bold text-slate-900 ${service.done ? "line-through" : ""}`}>{service.forwarder || "Sin cliente"}{service.finalClient && <span className="font-medium text-slate-400"> / {service.finalClient}</span>}</p>
@@ -394,6 +413,8 @@ function Whiteboard({ title, services, initialData, onDataChange, onEdit, onTogg
   const dragRef = useRef<{ kind: "note" | "card"; id: string; offsetX: number; offsetY: number } | null>(null)
   const historyRef = useRef<BoardData[]>([])
   const [tool, setTool] = useState<BoardTool>("pen")
+  // Pantallas táctiles: "Mover" deja deslizar la página con el dedo sin dibujar (activo por defecto en celular/tablet)
+  const [moving, setMoving] = useState(() => window.matchMedia("(pointer: coarse)").matches)
   const [penColor, setPenColor] = useState<PenColor>("blue")
   const [data, setData] = useState<BoardData>(initialData)
   const [historySize, setHistorySize] = useState(0)
@@ -493,14 +514,15 @@ function Whiteboard({ title, services, initialData, onDataChange, onEdit, onTogg
     <section className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 px-4 py-3">
         <div className="flex flex-wrap items-center gap-1 rounded-lg bg-slate-100 p-1">
+          <button onClick={() => setMoving(true)} className={`flex h-8 items-center gap-2 rounded-md px-3 text-[11px] font-semibold ${moving ? "bg-white text-navy-700 shadow-sm ring-1 ring-slate-200" : "text-slate-500 hover:text-slate-700"}`} title="Desplazar la página sin dibujar"><span className="text-sm">✋</span>Mover</button>
           {([{ id: "pen", label: "Lápiz", symbol: "⌁" }, { id: "marker", label: "Destacador", symbol: "▰" }, { id: "eraser", label: "Borrador", symbol: "◇" }] as const).map((item) => (
-            <button key={item.id} onClick={() => setTool(item.id)} className={`flex h-8 items-center gap-2 rounded-md px-3 text-[11px] font-semibold ${tool === item.id ? "bg-white text-navy-700 shadow-sm ring-1 ring-slate-200" : "text-slate-500 hover:text-slate-700"}`}>
+            <button key={item.id} onClick={() => { setTool(item.id); setMoving(false) }} className={`flex h-8 items-center gap-2 rounded-md px-3 text-[11px] font-semibold ${!moving && tool === item.id ? "bg-white text-navy-700 shadow-sm ring-1 ring-slate-200" : "text-slate-500 hover:text-slate-700"}`}>
               <span className="text-sm">{item.symbol}</span>{item.label}
             </button>
           ))}
           <span className="mx-1 h-5 w-px bg-slate-300" />
           {(Object.keys(PEN_COLORS) as PenColor[]).map((color) => (
-            <button key={color} onClick={() => { setPenColor(color); setTool("pen") }} title={`Lápiz ${color}`} className={`flex size-6 items-center justify-center rounded-full ${penColor === color && tool === "pen" ? "ring-2 ring-navy-300 ring-offset-2" : ""}`}>
+            <button key={color} onClick={() => { setPenColor(color); setTool("pen"); setMoving(false) }} title={`Lápiz ${color}`} className={`flex size-6 items-center justify-center rounded-full ${penColor === color && tool === "pen" ? "ring-2 ring-navy-300 ring-offset-2" : ""}`}>
               <span className="size-3.5 rounded-full" style={{ background: PEN_COLORS[color] }} />
             </button>
           ))}
@@ -537,7 +559,7 @@ function Whiteboard({ title, services, initialData, onDataChange, onEdit, onTogg
       >
         <canvas
           ref={canvasRef}
-          className="absolute inset-0 size-full touch-none cursor-crosshair"
+          className={`absolute inset-0 size-full ${moving ? "pointer-events-none" : "touch-none cursor-crosshair"}`}
           onPointerDown={(event) => {
             remember()
             drawingRef.current = true
@@ -606,6 +628,7 @@ function ProgramCard({ service, onEdit, onDuplicate, onToggleDone }: { service: 
   return (
     <article className={`flex overflow-hidden rounded-xl border bg-white shadow-sm transition-opacity ${service.done ? "opacity-60" : ""} ${is20(service) ? "border-blue-300" : "border-slate-200"}`}>
       <div className={`w-2 shrink-0 ${is20(service) ? "bg-blue-500" : "bg-slate-300"}`} title={is20(service) ? "Contenedor 20'" : undefined} />
+      <div className="flex min-w-0 flex-1 flex-col sm:flex-row">
       <div className="min-w-0 flex-1 p-4">
         <div className="flex flex-wrap items-center gap-1.5">
           <span className={`rounded px-2 py-0.5 text-[10px] font-extrabold ring-1 ring-inset ${style.badge}`}>{style.label}</span>
@@ -613,7 +636,7 @@ function ProgramCard({ service, onEdit, onDuplicate, onToggleDone }: { service: 
           {isSanAntonio(service) && <span className="rounded bg-violet-600 px-2 py-0.5 text-[10px] font-extrabold text-white">SAN ANTONIO</span>}
           <span className={`text-sm font-extrabold text-slate-900 ${strike}`}>{service.time || "Sin hora"}</span>
           <span className={`font-mono text-xs font-bold text-slate-500 ${strike}`}>{service.reference}</span>
-          <span className={`ml-auto rounded-full px-2.5 py-0.5 text-[10px] font-bold ring-1 ring-inset ${statusStyles[service.status]}`}>{service.status}</span>
+          <span className="ml-auto flex items-center gap-1.5"><TripBadge service={service} /><span className={`rounded-full px-2.5 py-0.5 text-[10px] font-bold ring-1 ring-inset ${statusStyles[service.status]}`}>{service.status}</span></span>
         </div>
         <div className={`mt-2 grid gap-x-6 gap-y-1 text-[12px] text-slate-700 md:grid-cols-2 ${strike}`}>
           <p><span className="text-[10px] font-bold uppercase text-slate-400">Cliente </span><strong className="text-slate-900">{service.forwarder || "—"}</strong>{service.finalClient && <span className="text-slate-500"> / {service.finalClient}</span>}</p>
@@ -627,10 +650,11 @@ function ProgramCard({ service, onEdit, onDuplicate, onToggleDone }: { service: 
         </div>
         {service.instructions && <p className="mt-2 rounded-md bg-amber-50 px-2.5 py-1.5 text-[11px] font-semibold text-amber-800 ring-1 ring-inset ring-amber-200">⚠ {service.instructions}</p>}
       </div>
-      <div className="flex shrink-0 flex-col justify-center gap-1.5 border-l border-slate-100 p-2">
+      <div className="flex shrink-0 flex-row justify-end gap-1.5 border-t border-slate-100 p-2 sm:flex-col sm:justify-center sm:border-l sm:border-t-0">
         <button onClick={onToggleDone} className={`rounded-md px-2.5 py-1.5 text-[10px] font-bold ${service.done ? "bg-emerald-600 text-white" : "border border-slate-200 text-slate-600 hover:bg-emerald-50"}`}>{service.done ? "✓ Finalizado" : "Finalizar"}</button>
         <button onClick={onDuplicate} className="flex items-center justify-center gap-1 rounded-md border border-slate-200 px-2.5 py-1.5 text-[10px] font-bold text-slate-600 hover:bg-slate-50"><Icon name="copy" className="size-3" />Duplicar</button>
         <button onClick={onEdit} className="rounded-md bg-navy-600 px-2.5 py-1.5 text-[10px] font-bold text-white hover:bg-navy-700">Editar</button>
+      </div>
       </div>
     </article>
   )
@@ -798,7 +822,19 @@ export default function CoordinationBoard() {
     ])
     const failure = servicesResult.error || boardsResult.error
     if (failure) setError(`No se pudo leer Coordinación: ${failure.message}. ¿Corriste la migración 20261119_coordination_fcl_lcl.sql?`)
-    if (!servicesResult.error) setServices((servicesResult.data || []).map(rowToService))
+    if (!servicesResult.error) {
+      const list = (servicesResult.data || []).map(rowToService)
+      // Servicios creados desde Nueva OT: el viaje del camionero manda el estado y el "finalizado"
+      const orderIds = list.map((service) => service.orderId).filter(Boolean)
+      const ordersResult = orderIds.length ? await supabase.from("orders").select("id, status").in("id", orderIds) : { data: [] as { id: string; status: string }[], error: null }
+      const tripById = new Map(((ordersResult.data || []) as { id: string; status: string }[]).map((order) => [order.id, order.status]))
+      setServices(list.map((service) => {
+        const tripStatus = tripById.get(service.orderId) || ""
+        if (tripStatus === "completed") return { ...service, tripStatus, done: true, status: "Entregado" }
+        if (tripStatus === "in_progress") return { ...service, tripStatus, status: "En tránsito" }
+        return { ...service, tripStatus }
+      }))
+    }
     if (!boardsResult.error) setBoards((boardsResult.data || []).map(rowToBoard))
     setLoading(false)
   }, [])
@@ -815,6 +851,8 @@ export default function CoordinationBoard() {
     // Servicios en tiempo real (Cristóbal y César ven los cambios del otro). Las pizarras abiertas no se recargan para no pisar el dibujo.
     const channel = supabase.channel("coordination-sync")
       .on("postgres_changes", { event: "*", schema: "public", table: "coordination_services" }, () => { window.clearTimeout(refetchTimer.current); refetchTimer.current = window.setTimeout(fetchAll, 300) })
+      // Avance del camionero (orders.status) y OTs nuevas desde Nueva OT
+      .on("postgres_changes", { event: "*", schema: "public", table: "orders" }, () => { window.clearTimeout(refetchTimer.current); refetchTimer.current = window.setTimeout(fetchAll, 300) })
       .subscribe()
     return () => { window.clearTimeout(refetchTimer.current); supabase.removeChannel(channel) }
   }, [fetchAll])
@@ -853,12 +891,12 @@ export default function CoordinationBoard() {
   // Duplicar = plantilla: copia la base del servicio a otra fecha y solo se editan los datos variables
   const duplicate = (service: Service) => setEditing({
     title: "Duplicar servicio",
-    service: { ...service, id: "", done: false, status: "Programado", serviceDate: service.mode === "fcl" ? addDays(service.serviceDate || localDay(), 1) : service.serviceDate, containerNumber: "", updated: "" },
+    service: { ...service, id: "", orderId: "", tripStatus: "", done: false, status: "Programado", serviceDate: service.mode === "fcl" ? addDays(service.serviceDate || localDay(), 1) : service.serviceDate, containerNumber: "", updated: "" },
   })
 
   const copyDay = async (from: string, to: string, list: Service[]) => {
     if (!to || !list.length) return
-    const rows = list.map((service) => serviceToRow({ ...service, id: "", serviceDate: to, done: false, status: "Programado", containerNumber: "" }))
+    const rows = list.map((service) => serviceToRow({ ...service, id: "", orderId: "", tripStatus: "", serviceDate: to, done: false, status: "Programado", containerNumber: "" }))
     const { error: copyError } = await supabase.from("coordination_services").insert(rows)
     if (copyError) { setError(`No se pudo copiar el día: ${copyError.message}`); return }
     setCopyTarget(null)

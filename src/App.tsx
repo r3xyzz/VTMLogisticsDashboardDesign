@@ -127,6 +127,15 @@ function AppContent() {
   const [userRole, setUserRole] = useState<string>('user');
   const [activeView, setActiveView] = useState<ActiveView>(() => getStoredActiveView() || 'dashboard');
   const [collapsed, setCollapsed] = useState(false);
+  // Menú lateral: fijo en pantallas grandes (lg, 1024px+); panel deslizable en celular y tablet
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [isDesktop, setIsDesktop] = useState(() => window.matchMedia('(min-width: 1024px)').matches);
+  useEffect(() => {
+    const query = window.matchMedia('(min-width: 1024px)');
+    const update = () => { setIsDesktop(query.matches); if (query.matches) setMobileMenuOpen(false); };
+    query.addEventListener('change', update);
+    return () => query.removeEventListener('change', update);
+  }, []);
 
   useEffect(() => {
     sessionStorage.setItem(activeViewStorageKey, activeView);
@@ -371,18 +380,32 @@ function AppContent() {
   const currentView = canAccessView(activeView) ? activeView : getFirstAvailableView(userPermissions);
 
   return (
-    <div className="flex h-screen overflow-hidden" style={{ fontFamily: "'Inter', system-ui, sans-serif" }}>
+    // 100dvh: en iOS/Android descuenta la barra del navegador (h-screen dejaba contenido tapado)
+    <div className="flex h-[100dvh] overflow-hidden" style={{ fontFamily: "'Inter', system-ui, sans-serif" }}>
+      {mobileMenuOpen && <div className="fixed inset-0 z-40 bg-slate-950/50 backdrop-blur-[1px] lg:hidden" onClick={() => setMobileMenuOpen(false)} />}
       <Sidebar
-        collapsed={collapsed}
+        collapsed={isDesktop && collapsed}
         onToggle={() => setCollapsed(c => !c)}
         activeView={currentView}
         onNavigate={handleNavigate}
         permissions={userPermissions}
         userRole={userRole}
+        mobileOpen={mobileMenuOpen}
+        onCloseMobile={() => setMobileMenuOpen(false)}
       />
-      <main className="flex-1 overflow-y-auto bg-slate-50">
-        {view[currentView]}
-      </main>
+      <div className="flex min-w-0 flex-1 flex-col">
+        {/* Barra superior solo en celular / tablet */}
+        <div className="flex h-12 flex-shrink-0 items-center gap-3 border-b border-white/10 px-3 lg:hidden" style={{ background: '#060d1a', paddingTop: 'env(safe-area-inset-top)' }}>
+          <button onClick={() => setMobileMenuOpen(true)} className="flex size-9 items-center justify-center rounded-lg text-slate-200 hover:bg-white/10" aria-label="Abrir menú">
+            <svg className="size-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" /></svg>
+          </button>
+          <img src={`${import.meta.env.BASE_URL}logo_empresa_VTM.png`} alt="VTM Logistics" className="h-5 w-auto" />
+          <span className="truncate text-sm font-semibold text-white">VTM Logistics</span>
+        </div>
+        <main className="min-w-0 flex-1 overflow-y-auto overflow-x-hidden bg-slate-50">
+          {view[currentView]}
+        </main>
+      </div>
     </div>
   );
 }

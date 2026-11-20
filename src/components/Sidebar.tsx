@@ -29,6 +29,9 @@ interface Props {
   onNavigate: (v: ActiveView) => void;
   permissions: UserPermissions;
   userRole: string;
+  // Celular / tablet: el menú es un panel que se abre con ☰ y se cierra al elegir un módulo
+  mobileOpen?: boolean;
+  onCloseMobile?: () => void;
 }
 
 interface NavItem {
@@ -90,7 +93,9 @@ export default function Sidebar({
   activeView, 
   onNavigate, 
   permissions,
-  userRole 
+  userRole,
+  mobileOpen = false,
+  onCloseMobile,
 }: Props) {
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
@@ -137,7 +142,7 @@ export default function Sidebar({
 
   return (
     <aside
-      className="flex flex-col h-full flex-shrink-0 transition-[width] duration-200 ease-out overflow-hidden"
+      className={`fixed inset-y-0 left-0 z-50 flex flex-col h-full flex-shrink-0 overflow-hidden transition-[width,transform] duration-200 ease-out lg:static lg:z-auto lg:translate-x-0 ${mobileOpen ? 'translate-x-0 shadow-2xl' : '-translate-x-full'}`}
       style={{
         width: collapsed ? 64 : 232,
         background: 'linear-gradient(180deg, #060d1a 0%, #102040 100%)',
@@ -181,7 +186,7 @@ export default function Sidebar({
             return (
               <button
                 key={item.id}
-                onClick={() => onNavigate(item.id)}
+                onClick={() => { onNavigate(item.id); onCloseMobile?.(); }}
                 title={collapsed ? item.label : undefined}
                 className="relative w-full flex items-center gap-3 px-4 h-10 text-left group transition-colors duration-100"
                 style={{
@@ -254,7 +259,7 @@ export default function Sidebar({
         )}
         <button
           onClick={onToggle}
-          className="w-full flex items-center justify-center h-9 transition-colors hover:bg-white/5"
+          className="hidden w-full lg:flex items-center justify-center h-9 transition-colors hover:bg-white/5"
           style={{ color: 'rgba(100,116,139,0.6)' }}
         >
           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
