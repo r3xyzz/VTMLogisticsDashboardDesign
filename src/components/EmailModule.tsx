@@ -1,7 +1,7 @@
 // src/components/EmailModule.tsx
 import { useEffect, useState } from 'react';
 import { useMsal } from '@azure/msal-react';
-import { loginRequest, msalInstance } from '../lib/msal';
+import { currentAccount, loginRequest, msalInstance } from '../lib/msal';
 import OutlookLogin from './OutlookLogin';
 import EmailList from './EmailList';
 
@@ -26,7 +26,7 @@ export default function EmailModule() {
                     try {
                         const silentResponse = await msalInstance.acquireTokenSilent({
                             ...loginRequest,
-                            account: accounts[0],
+                            account: currentAccount(msalInstance, accounts)!,
                         });
                         setAccessToken(silentResponse.accessToken);
                     } catch (error) {
@@ -86,7 +86,7 @@ export default function EmailModule() {
                     <div>
                         <h1 className="text-2xl font-bold text-slate-800">Correo Empresarial</h1>
                         <p className="text-sm text-slate-500">
-                            Conectado como: {accounts[0]?.username || 'Usuario'}
+                            Conectado como: {currentAccount(instance, accounts)?.username || 'Usuario'}
                         </p>
                     </div>
                     <button 

@@ -1,5 +1,5 @@
 // src/lib/msal.ts
-import { PublicClientApplication, LogLevel } from '@azure/msal-browser';
+import { PublicClientApplication, LogLevel, EventType, type AccountInfo, type AuthenticationResult, type IPublicClientApplication } from '@azure/msal-browser';
 
 export const msalConfig = {
     auth: {
@@ -31,3 +31,17 @@ export const loginRequest = {
 };
 
 export const msalInstance = new PublicClientApplication(msalConfig);
+
+// El navegador puede tener varias cuentas de Microsoft guardadas (supervisores, operaciones...).
+// La cuenta activa es la última con que se conectó: se usa siempre esa, no la primera de la lista.
+msalInstance.addEventCallback((event) => {
+    if ((event.eventType === EventType.LOGIN_SUCCESS || event.eventType === EventType.ACQUIRE_TOKEN_SUCCESS) && event.payload) {
+        const account = (event.payload as AuthenticationResult).account;
+        if (account) msalInstance.setActiveAccount(account);
+    }
+});
+
+export function currentAccount(instance: IPublicClientApplication, accounts: AccountInfo[]): AccountInfo | undefined {
+    const active = instance.getActiveAccount();
+    return (active && accounts.find((account) => account.homeAccountId === active.homeAccountId)) || accounts[0];
+}

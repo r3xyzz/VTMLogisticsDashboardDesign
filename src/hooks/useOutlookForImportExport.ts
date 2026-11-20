@@ -1,7 +1,8 @@
 // src/hooks/useOutlookForImportExport.ts
 import { useEffect, useState, useCallback } from 'react';
 import { useMsal } from '@azure/msal-react';
-import { loginRequest } from '../lib/msal';
+import { InteractionRequiredAuthError } from '@azure/msal-browser';
+import { currentAccount, loginRequest } from '../lib/msal';
 import { groupByConversation, parseTableFromEmail } from '../lib/outlookParser';
 
 export interface OutlookEmailForIE {
@@ -94,28 +95,32 @@ export function useOutlookForImportExport() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const userEmail = accounts[0]?.username || null;
-  const userName = accounts[0]?.name || userEmail?.split('@')[0] || 'Usuario';
+  // Cuenta activa (la última conectada), no la primera guardada en el navegador
+  const account = currentAccount(instance, accounts);
+  const userEmail = account?.username || null;
+  const userName = account?.name || userEmail?.split('@')[0] || 'Usuario';
 
   useEffect(() => {
     const getToken = async () => {
-      if (accounts.length === 0) {
+      if (!account) {
+        setAccessToken(null);
         setLoading(false);
         return;
       }
       try {
-        const response = await instance.acquireTokenSilent({
-          ...loginRequest,
-          account: accounts[0],
-        });
+        const response = await instance.acquireTokenSilent({ ...loginRequest, account });
         setAccessToken(response.accessToken);
       } catch (err) {
         console.warn('⚠️ [ImportExport] Token expirado o no disponible:', err);
+        setAccessToken(null);
+        setError(err instanceof InteractionRequiredAuthError
+          ? `La sesión de Outlook de ${account.username} expiró o falta autorizar permisos. Vuelve a conectar la cuenta.`
+          : `No se pudo conectar con Outlook (${account.username}): ${err instanceof Error ? err.message : 'error desconocido'}`);
         setLoading(false);
       }
     };
     getToken();
-  }, [instance, accounts]);
+  }, [instance, account?.homeAccountId]);
 
   const fetchEmails = useCallback(async () => {
     if (!accessToken) return;

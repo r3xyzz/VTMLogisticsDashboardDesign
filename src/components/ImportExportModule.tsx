@@ -447,6 +447,7 @@ export default function ImportExportModule() {
                 <span className="truncate max-w-[180px]" title={userEmail || ''}>
                   Conectado: <strong className="font-bold">{userName}</strong>
                 </span>
+                <button onClick={connectOutlook} className="ml-1 rounded-md border border-emerald-300 bg-white px-2 py-0.5 text-[10px] font-bold text-emerald-700 hover:bg-emerald-100" title="Conectar otro correo">Cambiar cuenta</button>
               </div>
             ) : (
               <button onClick={connectOutlook} className="hidden items-center gap-2 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-[11px] font-semibold text-blue-700 md:flex hover:bg-blue-100 transition-colors">
@@ -459,6 +460,7 @@ export default function ImportExportModule() {
       </header>
 
       <main className="mx-auto max-w-[1600px] space-y-4 p-5">
+        {outlookError && section !== "inbox" && <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-red-200 bg-red-50 px-4 py-2 text-[10px] font-semibold text-red-700"><span>Outlook: {outlookError}</span><button onClick={connectOutlook} className="rounded-md bg-red-600 px-3 py-1 text-[10px] font-bold text-white">Conectar de nuevo</button></div>}
         {saveError && <div className="flex items-center justify-between gap-3 rounded-lg border border-red-200 bg-red-50 px-4 py-2 text-[10px] font-semibold text-red-700"><span>{saveError}</span><button onClick={() => setSaveError(null)} className="text-sm">×</button></div>}
         
         {/* MÉTRICAS */}
