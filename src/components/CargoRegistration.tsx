@@ -462,7 +462,9 @@ export default function CargoRegistration() {
 
     } catch (err) {
       console.error(`❌ Error al guardar como ${status}:`, err);
-      setError(err instanceof Error ? err.message : 'Error al guardar la orden');
+      // Los errores de Supabase no siempre son Error: se muestra su mensaje y detalle reales
+      const e = err as { message?: string; details?: string; hint?: string; code?: string };
+      setError([e?.message || 'Error al guardar la orden', e?.details, e?.hint, e?.code && `(código ${e.code})`].filter(Boolean).join(' · '));
     }
   };
 
