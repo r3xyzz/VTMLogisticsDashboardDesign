@@ -1,15 +1,56 @@
 // src/components/EmailModule.tsx
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useMsal } from '@azure/msal-react';
 import { currentAccount, loginRequest, msalInstance } from '../lib/msal';
+import { supabase } from '../lib/supabase';
 import OutlookLogin from './OutlookLogin';
 import EmailList from './EmailList';
+
+interface ClientWithEmail {
+    id: string;
+    name: string;
+    emails: string[];
+}
+
+// contact_email puede traer varios correos separados por coma, punto y coma o espacios.
+const parseEmails = (value: string | null): string[] =>
+    (value || '')
+        .split(/[,;\s]+/)
+        .map(e => e.trim().toLowerCase())
+        .filter(e => e.includes('@'));
 
 export default function EmailModule() {
     const { instance, accounts } = useMsal();
     const [accessToken, setAccessToken] = useState<string | null>(null);
     const [filter, setFilter] = useState('todos');
     const [isInitializing, setIsInitializing] = useState(true);
+    const [clients, setClients] = useState<ClientWithEmail[]>([]);
+    const [selectedClientId, setSelectedClientId] = useState('');
+
+    useEffect(() => {
+        const loadClients = async () => {
+            const { data, error } = await supabase
+                .from('clients')
+                .select('id, name, contact_email')
+                .not('contact_email', 'is', null)
+                .order('name');
+            if (error) {
+                console.error('❌ Error cargando clientes para filtro de correo:', error);
+                return;
+            }
+            setClients(
+                (data || [])
+                    .map(c => ({ id: c.id, name: c.name, emails: parseEmails(c.contact_email) }))
+                    .filter(c => c.emails.length > 0)
+            );
+        };
+        loadClients();
+    }, []);
+
+    const clientEmails = useMemo(
+        () => clients.find(c => c.id === selectedClientId)?.emails ?? [],
+        [clients, selectedClientId]
+    );
 
     useEffect(() => {
         const initializeMsal = async () => {
@@ -128,12 +169,33 @@ export default function EmailModule() {
                     >
                         Cotización
                     </button>
+
+                    <select
+                        value={selectedClientId}
+                        onChange={e => setSelectedClientId(e.target.value)}
+                        className="px-3 py-2 rounded-lg text-sm font-semibold bg-white text-slate-600 border border-slate-200 hover:bg-slate-50 max-w-full sm:ml-auto"
+                        title="Filtrar por correos registrados en Clientes"
+                    >
+                        <option value="">Todos los clientes</option>
+                        {clients.map(c => (
+                            <option key={c.id} value={c.id}>
+                                {c.name}
+                            </option>
+                        ))}
+                    </select>
                 </div>
 
+                {clientEmails.length > 0 && (
+                    <p className="text-xs text-slate-500 mb-3 break-all">
+                        Mostrando correos de: {clientEmails.join(', ')}
+                    </p>
+                )}
+
                 <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-4">
-                    <EmailList 
+                    <EmailList
                         accessToken={accessToken}
                         filter={filter}
+                        clientEmails={clientEmails}
                         onConvertToOT={handleConvertToOT}
                     />
                 </div>

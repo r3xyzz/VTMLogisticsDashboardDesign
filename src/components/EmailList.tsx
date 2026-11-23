@@ -22,16 +22,24 @@ interface Email {
   isRead?: boolean;
 }
 
+const categoryKeywords: Record<string, string[]> = {
+  'carga': ['carga', 'envio', 'transporte', 'entrega', 'pack', 'contenedor', 'pallet', 'cargamento'],
+  'cotizacion': ['cotizacion', 'presupuesto', 'oferta', 'precio', 'valor', 'solicitud', 'cotizar']
+};
+
 // ✅ export default agregado para poder importarlo desde EmailModule
 export default function EmailList({ 
   accessToken, 
   filter,
-  onConvertToOT 
-}: { 
+  clientEmails = [],
+  onConvertToOT
+}: {
   accessToken: string;
   filter: string;
+  clientEmails?: string[];
   onConvertToOT: (email: Email) => void;
 }) {
+  const clientEmailsKey = clientEmails.join(',');
   const [emails, setEmails] = useState<Email[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -43,17 +51,26 @@ export default function EmailList({
       setError(null);
 
       let filterQuery = '';
-      switch (filter) {
-        case 'carga':
-          filterQuery = `?$top=50&$filter=contains(subject,'carga') or contains(subject,'envio') or contains(subject,'transporte') or contains(subject,'entrega') or contains(subject,'pack') or contains(subject,'contenedor') or contains(subject,'pallet')&$orderby=receivedDateTime desc`;
-          break;
-        case 'cotizacion':
-          filterQuery = `?$top=50&$filter=contains(subject,'cotizacion') or contains(subject,'presupuesto') or contains(subject,'oferta') or contains(subject,'precio') or contains(subject,'valor') or contains(subject,'solicitud')&$orderby=receivedDateTime desc`;
-          break;
-        default:
-          // ✅ Cambiado de 30 a 50 correos por defecto
-          filterQuery = `?$top=50&$orderby=receivedDateTime desc`;
-          break;
+      if (clientEmails.length > 0) {
+        // Filtro por cliente: remitente igual a alguno de los correos del cliente.
+        // Graph no permite $orderby junto a este $filter, así que se ordena localmente.
+        const fromExpr = clientEmails
+          .map(e => `from/emailAddress/address eq '${e.replace(/'/g, "''")}'`)
+          .join(' or ');
+        filterQuery = `?$top=100&$filter=${encodeURIComponent(fromExpr)}`;
+      } else {
+        switch (filter) {
+          case 'carga':
+            filterQuery = `?$top=50&$filter=contains(subject,'carga') or contains(subject,'envio') or contains(subject,'transporte') or contains(subject,'entrega') or contains(subject,'pack') or contains(subject,'contenedor') or contains(subject,'pallet')&$orderby=receivedDateTime desc`;
+            break;
+          case 'cotizacion':
+            filterQuery = `?$top=50&$filter=contains(subject,'cotizacion') or contains(subject,'presupuesto') or contains(subject,'oferta') or contains(subject,'precio') or contains(subject,'valor') or contains(subject,'solicitud')&$orderby=receivedDateTime desc`;
+            break;
+          default:
+            // ✅ Cambiado de 30 a 50 correos por defecto
+            filterQuery = `?$top=50&$orderby=receivedDateTime desc`;
+            break;
+        }
       }
 
       const response = await fetch(
@@ -71,7 +88,21 @@ export default function EmailList({
 
       const data = await response.json();
       console.log('📧 Correos obtenidos:', data.value?.length || 0);
-      setEmails(data.value || []);
+      let result: Email[] = data.value || [];
+      if (clientEmails.length > 0) {
+        // Cliente + categoría: se aplica la categoría localmente sobre el asunto.
+        const words = categoryKeywords[filter];
+        if (words) {
+          result = result.filter(m => {
+            const subject = (m.subject || '').toLowerCase();
+            return words.some(w => subject.includes(w));
+          });
+        }
+        result = [...result].sort(
+          (a, b) => new Date(b.receivedDateTime).getTime() - new Date(a.receivedDateTime).getTime()
+        );
+      }
+      setEmails(result);
       
     } catch (err) {
       console.error('❌ Error al obtener correos:', err);
@@ -85,7 +116,7 @@ export default function EmailList({
     if (accessToken) {
       fetchEmails();
     }
-  }, [accessToken, filter]);
+  }, [accessToken, filter, clientEmailsKey]);
 
   // ✅ Formatear fecha
   const formatDate = (dateStr: string) => {
@@ -107,12 +138,7 @@ export default function EmailList({
   const highlightText = (text: string) => {
     if (filter === 'todos' || !text) return text;
     
-    const keywords: Record<string, string[]> = {
-      'carga': ['carga', 'envio', 'transporte', 'entrega', 'pack', 'contenedor', 'pallet', 'cargamento'],
-      'cotizacion': ['cotizacion', 'presupuesto', 'oferta', 'precio', 'valor', 'solicitud', 'cotizar']
-    };
-    
-    const words = keywords[filter] || [];
+    const words = categoryKeywords[filter] || [];
     let highlighted = text;
     words.forEach(word => {
       const regex = new RegExp(`(${word})`, 'gi');
