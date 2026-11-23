@@ -20,7 +20,10 @@ interface Email {
   bodyPreview?: string;
   importance?: string;
   isRead?: boolean;
+  conversationId?: string;
 }
+
+const GRAPH_INBOX = 'https://graph.microsoft.com/v1.0/me/mailFolders/inbox/messages';
 
 const categoryKeywords: Record<string, string[]> = {
   'carga': ['carga', 'envio', 'transporte', 'entrega', 'pack', 'contenedor', 'pallet', 'cargamento'],
@@ -43,6 +46,31 @@ export default function EmailList({
   const [emails, setEmails] = useState<Email[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // Conversación desplegada dentro de un correo (se trae al abrirla)
+  const [openId, setOpenId] = useState<string | null>(null);
+  const [thread, setThread] = useState<Email[] | null>(null);
+
+  const toggleConversation = async (email: Email) => {
+    if (openId === email.id) { setOpenId(null); return; }
+    setOpenId(email.id);
+    setThread(null);
+    if (!email.conversationId) { setThread([email]); return; }
+    try {
+      // Sin $orderby: Graph no permite ordenar al filtrar por conversationId (se ordena aquí)
+      const query = new URLSearchParams({
+        $filter: `conversationId eq '${email.conversationId.replace(/'/g, "''")}'`,
+        $select: 'id,subject,from,receivedDateTime,bodyPreview,isRead',
+        $top: '50',
+      });
+      const response = await fetch(`https://graph.microsoft.com/v1.0/me/messages?${query.toString()}`, { headers: { Authorization: `Bearer ${accessToken}` } });
+      if (!response.ok) throw new Error(String(response.status));
+      const list: Email[] = (await response.json()).value || [];
+      setThread(list.sort((a, b) => b.receivedDateTime.localeCompare(a.receivedDateTime)));
+    } catch (err) {
+      console.warn('⚠️ No se pudo cargar la conversación:', err);
+      setThread([email]);
+    }
+  };
 
   // Función para obtener correos desde Microsoft Graph
   const fetchEmails = async () => {
@@ -73,8 +101,9 @@ export default function EmailList({
         }
       }
 
+      // Solo la Bandeja de entrada: los correos enviados por el usuario no aparecen
       const response = await fetch(
-        `https://graph.microsoft.com/v1.0/me/messages${filterQuery}`,
+        `${GRAPH_INBOX}${filterQuery}`,
         {
           headers: {
             'Authorization': `Bearer ${accessToken}`
@@ -284,13 +313,33 @@ export default function EmailList({
                   <button className="text-[11px] font-semibold px-3 py-1 rounded border text-slate-600 border-slate-200 hover:bg-slate-100 transition-colors">
                     Generar cotización
                   </button>
-                  <button 
-                    onClick={() => window.open(`https://outlook.office.com/mail/id/${email.id}`, '_blank')}
+                  <button
+                    onClick={() => toggleConversation(email)}
+                    className="text-[11px] font-semibold px-3 py-1 rounded border text-slate-600 border-slate-200 hover:bg-slate-100 transition-colors"
+                  >
+                    {openId === email.id ? 'Ocultar conversación' : 'Ver conversación'}
+                  </button>
+                  <button
+                    onClick={() => window.open(`https://outlook.office.com/mail/id/${encodeURIComponent(email.id)}`, '_blank')}
                     className="text-[11px] text-slate-400 px-2 py-1 hover:text-slate-600 transition-colors"
                   >
                     Ver en Outlook
                   </button>
                 </div>
+                {openId === email.id && (
+                  <ol className="mt-3 space-y-2 border-l-2 border-blue-100 pl-3">
+                    {!thread && <li className="text-[11px] text-slate-400">Cargando conversación…</li>}
+                    {thread?.map(message => (
+                      <li key={message.id} className={`rounded-lg border p-2.5 ${message.id === email.id ? 'border-blue-200 bg-blue-50/50' : 'border-slate-100 bg-slate-50'}`}>
+                        <div className="flex items-center justify-between gap-2 text-[10px]">
+                          <strong className="truncate text-slate-700">{getSenderName(message)}</strong>
+                          <span className="shrink-0 text-slate-400">{new Date(message.receivedDateTime).toLocaleString('es-CL', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}</span>
+                        </div>
+                        <p className="mt-1 text-[11px] text-slate-600">{message.bodyPreview || '(sin texto)'}</p>
+                      </li>
+                    ))}
+                  </ol>
+                )}
               </div>
             </div>
           );

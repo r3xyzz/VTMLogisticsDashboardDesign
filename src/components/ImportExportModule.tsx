@@ -383,14 +383,29 @@ export default function ImportExportModule() {
     () => groupByConversation(outlookEmails || []).map(mapConversationToOperation).filter(Boolean) as Operation[],
     [outlookEmails],
   )
-  // Bandeja "Correo procesado": se analiza cada correo una sola vez (no en cada clic de filtro)
-  const inboxEmails = useMemo(
-    () => (outlookEmails || []).flatMap((email) => {
-      const parsed = parseTableFromEmail(email.body?.content || "")
-      return parsed ? [{ email, parsed }] : []
-    }),
-    [outlookEmails],
-  )
+  // Bandeja "Correo procesado": se analiza cada correo una sola vez (no en cada clic de filtro).
+  // Solo correos recibidos (los enviados por la cuenta conectada se ocultan), cada uno por separado y del más nuevo al más antiguo.
+  const inboxEmails = useMemo(() => {
+    const me = (userEmail || "").toLowerCase()
+    return (outlookEmails || [])
+      .filter((email) => !me || (email.from?.emailAddress?.address || "").toLowerCase() !== me)
+      .flatMap((email) => {
+        const parsed = parseTableFromEmail(email.body?.content || "")
+        return parsed ? [{ email, parsed }] : []
+      })
+      .sort((a, b) => b.email.receivedDateTime.localeCompare(a.email.receivedDateTime))
+  }, [outlookEmails, userEmail])
+  // Conversación completa por hilo (incluye respuestas propias), para desplegarla dentro del último correo
+  const conversationOf = useMemo(() => {
+    const map = new Map<string, typeof outlookEmails>()
+    for (const email of outlookEmails || []) {
+      if (!email.conversationId) continue
+      map.set(email.conversationId, [...(map.get(email.conversationId) || []), email])
+    }
+    map.forEach((list) => list.sort((a, b) => b.receivedDateTime.localeCompare(a.receivedDateTime)))
+    return map
+  }, [outlookEmails])
+  const [openConversation, setOpenConversation] = useState<string | null>(null)
   // Base de cada ficha: el correo si está en el buzón; si no, la copia guardada en BD
   const baseOperations = useMemo(() => {
     const parsedIds = new Set(parsedOperations.map((operation) => operation.id))
@@ -678,13 +693,34 @@ export default function ImportExportModule() {
                           </div>
 
                           <div className="mt-3 flex gap-2">
-                            <button 
+                            <button
                               onClick={() => window.open(`https://outlook.office.com/mail/id/${encodeURIComponent(email.parentId || email.id)}`, '_blank')}
                               className="rounded-md border border-slate-200 px-3 py-1.5 text-[9px] font-bold text-slate-500 hover:bg-slate-100"
                             >
                               Ver en Outlook
                             </button>
+                            {(conversationOf.get(email.conversationId || "")?.length || 0) > 1 && (
+                              <button
+                                onClick={() => setOpenConversation(openConversation === email.id ? null : email.id)}
+                                className="rounded-md border border-navy-200 bg-navy-50 px-3 py-1.5 text-[9px] font-bold text-navy-700 hover:bg-navy-100"
+                              >
+                                {openConversation === email.id ? "Ocultar conversación" : `Ver conversación (${conversationOf.get(email.conversationId || "")!.length})`}
+                              </button>
+                            )}
                           </div>
+                          {openConversation === email.id && (
+                            <ol className="mt-3 max-h-72 space-y-2 overflow-y-auto border-l-2 border-navy-100 pl-3">
+                              {(conversationOf.get(email.conversationId || "") || []).map((message) => (
+                                <li key={message.id} className={`rounded-lg border p-2.5 ${message.id === email.id ? "border-navy-200 bg-navy-50" : "border-slate-100 bg-slate-50"}`}>
+                                  <div className="flex items-center justify-between gap-2 text-[9px]">
+                                    <strong className="truncate text-slate-700">{message.from?.emailAddress?.name || message.from?.emailAddress?.address || "Remitente"}</strong>
+                                    <span className="shrink-0 text-slate-400">{new Date(message.receivedDateTime).toLocaleString("es-CL", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}</span>
+                                  </div>
+                                  <p className="mt-1 line-clamp-3 text-[10px] text-slate-600">{(message.uniqueBody?.content || message.body?.content || "").replace(/<style[\s\S]*?<\/style>/gi, " ").replace(/<[^>]+>/g, " ").replace(/&nbsp;/g, " ").replace(/\s+/g, " ").trim().slice(0, 300) || "(sin texto)"}</p>
+                                </li>
+                              ))}
+                            </ol>
+                          )}
                         </div>
                       </div>
                     </article>

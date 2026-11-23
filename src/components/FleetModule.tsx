@@ -23,7 +23,7 @@ interface FleetFormData {
     has_gps: boolean;
 }
 
-const VEHICLE_TYPES = ['Truck', 'Van', '40FR', '20FR', '40HC', '20HC', 'Flatbed', 'Refrigerated'];
+const VEHICLE_TYPES = ['Truck', 'Boxer', 'Van', '40FR', '20FR', '40HC', '20HC', 'Flatbed', 'Refrigerated'];
 const STATUSES = ['available', 'in_route', 'maintenance', 'inactive'];
 
 // Conductor con los campos que cuentan para la documentación del vehículo

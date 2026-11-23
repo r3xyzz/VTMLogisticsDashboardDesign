@@ -33,6 +33,8 @@ interface Trip {
   origin: string; destination: string; appointment: string; status: string;
   rawStatus: string; fleetId: string | null;
   uploads: Partial<Record<DocumentKey, UploadValue>>
+  // Resumen operativo enviado por Coordinación (pallets, kilos, m³, hora y punto de retiro, contacto de entrega)
+  summary: { packages: string; pallets: string; weightKg: number | null; volumeCbm: number | null; pickupTime: string; pickup: string; delivery: string; deliveryContact: string; instructions: string }
 }
 
 const uploadDefinitions: { key: DocumentKey; step: number; title: string; description: string; accept: string; icon: IconName; phase: string }[] = [
@@ -62,9 +64,37 @@ function Status({ value }: { value: string }) {
   return <span className={`rounded-full px-2.5 py-1 text-[11px] font-semibold ring-1 ring-inset ${statusStyles[value] || "bg-slate-50 text-slate-700 ring-slate-200"}`}>{value}</span>
 }
 
+// Antes de cada foto: el chofer debe aceptar las reglas de calidad
+function PhotoRulesModal({ title, onAccept, onCancel }: { title: string; onAccept: () => void; onCancel: () => void }) {
+  return (
+    <div className="fixed inset-0 z-[100] flex items-end justify-center bg-slate-950/60 p-4 sm:items-center" onClick={onCancel}>
+      <div className="w-full max-w-md rounded-2xl bg-white p-5 shadow-2xl" onClick={(event) => event.stopPropagation()}>
+        <div className="flex items-center gap-3">
+          <div className="flex size-10 items-center justify-center rounded-full bg-amber-100 text-amber-700"><Icon name="camera" className="size-5" /></div>
+          <div><p className="text-[10px] font-bold uppercase tracking-wider text-amber-700">Antes de tomar la foto</p><p className="font-bold text-slate-900">{title}</p></div>
+        </div>
+        <ul className="mt-4 space-y-2 text-sm text-slate-700">
+          <li>✅ La foto debe salir <strong>nítida</strong>, sin movimiento y con buena luz.</li>
+          <li>✅ La guía o documento debe verse <strong>completo y legible</strong>.</li>
+          <li>🚫 Sin dedos tapando la guía (ni manos sucias o con grasa).</li>
+          <li>🚫 Sin manubrio, tablero, comida ni otros objetos en el encuadre.</li>
+        </ul>
+        <p className="mt-3 text-[11px] text-slate-500">Coordinación revisa cada foto antes de enviarla al cliente. Una foto mala se rechaza.</p>
+        <div className="mt-5 flex gap-2">
+          <button onClick={onCancel} className="flex-1 rounded-lg border border-slate-200 py-2.5 text-sm font-semibold text-slate-600">Cancelar</button>
+          <button onClick={onAccept} className="flex-1 rounded-lg bg-navy-600 py-2.5 text-sm font-bold text-white hover:bg-navy-700">Aceptar</button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function UploadCard({ definition, value, onUpload }: { definition: (typeof uploadDefinitions)[number]; value?: UploadValue; onUpload: (file: File) => void }) {
   const inputRef = useRef<HTMLInputElement>(null)
   const isImage = value?.type.startsWith("image/")
+  const [showRules, setShowRules] = useState(false)
+  // "Aceptar" abre la cámara/galería: sigue siendo un clic del usuario, el navegador lo permite
+  const pickFile = () => setShowRules(true)
 
   return (
     <article className={`overflow-hidden rounded-xl border bg-white transition-shadow hover:shadow-sm ${value ? "border-emerald-200" : "border-slate-200"}`}>
@@ -89,15 +119,16 @@ function UploadCard({ definition, value, onUpload }: { definition: (typeof uploa
             <Icon name={isImage ? "camera" : "document"} className="size-4 shrink-0 text-emerald-600" />
             <span className="min-w-0 flex-1 truncate text-xs font-medium text-slate-700">{value.name}</span>
             {value.url && <a href={value.url} download={value.name} className="rounded-md p-1.5 text-slate-400 hover:bg-white hover:text-navy-600" title="Descargar archivo"><Icon name="download" /></a>}
-            <button onClick={() => inputRef.current?.click()} className="text-xs font-semibold text-navy-500 hover:text-navy-700">Reemplazar</button>
+            <button onClick={pickFile} className="text-xs font-semibold text-navy-500 hover:text-navy-700">Reemplazar</button>
           </div>
         </div>
       ) : (
-        <button onClick={() => inputRef.current?.click()} className="mx-4 mb-4 flex w-[calc(100%-2rem)] items-center justify-center gap-2 rounded-lg border border-dashed border-slate-300 bg-slate-50 py-4 text-xs font-semibold text-slate-600 transition-colors hover:border-navy-300 hover:bg-navy-50 hover:text-navy-600">
+        <button onClick={pickFile} className="mx-4 mb-4 flex w-[calc(100%-2rem)] items-center justify-center gap-2 rounded-lg border border-dashed border-slate-300 bg-slate-50 py-4 text-xs font-semibold text-slate-600 transition-colors hover:border-navy-300 hover:bg-navy-50 hover:text-navy-600">
           <Icon name="upload" /> Seleccionar archivo
         </button>
       )}
       <input ref={inputRef} type="file" accept={definition.accept} className="hidden" onChange={(event) => { const file = event.target.files?.[0]; if (file) onUpload(file); event.target.value = ""; }} />
+      {showRules && <PhotoRulesModal title={definition.title} onCancel={() => setShowRules(false)} onAccept={() => { setShowRules(false); inputRef.current?.click() }} />}
     </article>
   )
 }
@@ -202,6 +233,12 @@ export default function CamionerosModule() {
         providerIds.length ? supabase.from('providers').select('id, name, vehicle_plate').in('id', providerIds) : Promise.resolve({ data: [] as any[] }),
       ]);
       const providerById = new Map((providerRows || []).map((p: any) => [p.id, p]));
+      // Datos que agrega Coordinación (César) sobre la OT asignada
+      const orderIds = rows.map((o: any) => o.id);
+      const { data: coordRows } = orderIds.length
+        ? await supabase.from('coordination_services').select('*').in('order_id', orderIds)
+        : { data: [] as any[] };
+      const coordByOrder = new Map((coordRows || []).map((c: any) => [c.order_id, c]));
       const driverName = new Map((driverRows || []).map((d: any) => [d.id, d.full_name as string]));
       const truckName = new Map((fleetRows || []).map((v: any) => [v.id, [v.plate, v.brand, v.model].filter(Boolean).join(' · ')]));
 
@@ -220,7 +257,21 @@ export default function CamionerosModule() {
           // OT subcontratada: el transportista es el proveedor
           driver: driverName.get(order.driver_id) || (providerById.get(order.provider_id) ? `Proveedor: ${providerById.get(order.provider_id).name}` : "Sin chofer asignado"), initials: (order.client?.name || "XX").substring(0, 2).toUpperCase(),
           truck: truckName.get(order.fleet_id) || providerById.get(order.provider_id)?.vehicle_plate || "Sin vehículo asignado", route: `${order.origin} → ${order.destination}`, origin: order.origin, destination: order.destination,
-          appointment: new Date(order.service_date).toLocaleDateString('es-CL'), status: getStatusLabel(order.status), rawStatus: order.status, fleetId: order.fleet_id ?? null, uploads
+          appointment: new Date(order.service_date).toLocaleDateString('es-CL'), status: getStatusLabel(order.status), rawStatus: order.status, fleetId: order.fleet_id ?? null, uploads,
+          summary: (() => {
+            const c: any = coordByOrder.get(order.id) || {};
+            return {
+              packages: c.packages || (order.quantity ? `${order.quantity} ${order.package_type || ''}`.trim() : ''),
+              pallets: c.pallets || (order.package_type === 'Pallets' && order.quantity ? String(order.quantity) : ''),
+              weightKg: c.weight_kg ?? order.weight_kg ?? null,
+              volumeCbm: c.volume_cbm ?? order.volume_cbm ?? null,
+              pickupTime: c.time || '',
+              pickup: c.pickup || order.origin || '',
+              delivery: c.delivery || order.destination || '',
+              deliveryContact: c.delivery_contact || '',
+              instructions: c.special_instructions || '',
+            };
+          })(),
         }
       });
 
@@ -264,7 +315,10 @@ export default function CamionerosModule() {
       else if (key === 'completedPod') updateData.pod_final_url = publicUrl;
       else if (key === 'deliveryEvidence') updateData.delivery_evidence_url = publicUrl;
 
-      const { data: existingDoc } = await supabase.from('documents').select('id').eq('order_id', selected.id).maybeSingle();
+      const { data: existingDoc } = await supabase.from('documents').select('*').eq('order_id', selected.id).maybeSingle();
+      // Foto nueva o reemplazada: queda "por revisar" en POD (no se envía al cliente sin aprobación)
+      const reviewKey = { emptyPod: 'pod_empty', loadEvidence: 'load_evidence', completedPod: 'pod_final', deliveryEvidence: 'delivery_evidence' }[key];
+      if (existingDoc && 'review' in existingDoc) updateData.review = { ...(existingDoc.review || {}), [reviewKey]: false };
 
       let dbError;
       if (existingDoc) {
@@ -382,6 +436,28 @@ export default function CamionerosModule() {
                     <div className="hidden items-center gap-2 text-slate-300 sm:flex"><span className="h-px w-8 bg-slate-200" /><Icon name="arrow" /><span className="h-px w-8 bg-slate-200" /></div>
                     <div className="sm:text-right"><p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Entrega · {selected.appointment}</p><p className="mt-1 text-sm font-semibold text-slate-900">{selected.destination}</p></div>
                   </div>
+                </article>
+
+                <article className="rounded-xl border border-slate-200 bg-white p-5">
+                  <p className="text-base font-bold text-slate-950">Resumen de la ruta</p>
+                  <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-5">
+                    {[
+                      ["Hora de retiro", selected.summary.pickupTime || "Por confirmar"],
+                      ["Bultos", selected.summary.packages || "—"],
+                      ["Pallets", selected.summary.pallets || "—"],
+                      ["Peso", selected.summary.weightKg ? `${Number(selected.summary.weightKg).toLocaleString("es-CL")} kg` : "—"],
+                      ["Volumen", selected.summary.volumeCbm ? `${Number(selected.summary.volumeCbm).toLocaleString("es-CL")} m³` : "—"],
+                    ].map(([label, value]) => (
+                      <div key={label} className="rounded-lg bg-slate-50 p-3"><p className="text-[9px] font-bold uppercase tracking-wider text-slate-400">{label}</p><p className="mt-1 text-sm font-bold text-slate-900">{value}</p></div>
+                    ))}
+                  </div>
+                  <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                    <div className="rounded-lg border border-slate-200 p-3"><p className="text-[9px] font-bold uppercase tracking-wider text-slate-400">Punto de retiro</p><p className="mt-1 text-sm font-semibold text-slate-900">{selected.summary.pickup || "—"}</p></div>
+                    <div className="rounded-lg border border-slate-200 p-3"><p className="text-[9px] font-bold uppercase tracking-wider text-slate-400">Dirección de entrega</p><p className="mt-1 text-sm font-semibold text-slate-900">{selected.summary.delivery || "—"}</p>
+                      {selected.summary.deliveryContact && <a href={`tel:${selected.summary.deliveryContact.replace(/[^0-9+]/g, "")}`} className="mt-1 block text-xs font-bold text-navy-600">📞 {selected.summary.deliveryContact}</a>}
+                    </div>
+                  </div>
+                  {selected.summary.instructions && <p className="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800 ring-1 ring-inset ring-amber-200">⚠ {selected.summary.instructions}</p>}
                 </article>
 
                 <article className="rounded-xl border border-slate-200 bg-white p-5">

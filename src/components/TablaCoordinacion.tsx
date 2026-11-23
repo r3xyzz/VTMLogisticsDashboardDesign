@@ -31,6 +31,10 @@ type Service = {
   containerSize: string // 20, 40, 40HC
   cargo: string // tipo de mercancía
   packages: string // cantidad de bultos
+  pallets: string
+  weightKg: string
+  volumeCbm: string
+  zone: string // comuna o zona para consolidar rutas (Recoleta, Peñalolén, centro sur...)
   dimensions: string
   stackable: boolean
   stacking: string
@@ -143,6 +147,10 @@ function rowToService(row: any): Service {
     containerSize: row.container_size || "",
     cargo: row.cargo || "",
     packages: row.packages || "",
+    pallets: row.pallets || "",
+    weightKg: row.weight_kg != null ? String(row.weight_kg) : "",
+    volumeCbm: row.volume_cbm != null ? String(row.volume_cbm) : "",
+    zone: row.zone || "",
     dimensions: row.dimensions || "",
     stackable: !!row.stackable,
     stacking: row.stacking || "",
@@ -165,6 +173,15 @@ function rowToService(row: any): Service {
   }
 }
 
+// "1.234,5" / "120,5" / "120.5" -> número (null si está vacío)
+function toNumber(value: string): number | null {
+  let text = (value || "").trim().replace(/\s/g, "")
+  if (!text) return null
+  if (text.includes(",") && text.includes(".")) text = text.replace(/\./g, "")
+  const n = parseFloat(text.replace(",", "."))
+  return Number.isFinite(n) ? n : null
+}
+
 function serviceToRow(service: Service) {
   return {
     cargo_mode: service.mode,
@@ -181,6 +198,10 @@ function serviceToRow(service: Service) {
     container_size: service.containerSize || null,
     cargo: service.cargo,
     packages: service.packages || null,
+    pallets: service.pallets || null,
+    weight_kg: toNumber(service.weightKg),
+    volume_cbm: toNumber(service.volumeCbm),
+    zone: service.zone.trim() || null,
     dimensions: service.dimensions,
     stackable: service.stackable,
     stacking: service.stacking,
@@ -214,7 +235,7 @@ function rowToBoard(row: any): Board {
 
 const newService = (mode: CargoMode, serviceDate: string): Service => ({
   id: "", mode, type: "impo", serviceDate, time: "", forwarder: "", finalClient: "", reference: "", shippingLine: "", containerNumber: "",
-  containerSize: mode === "fcl" ? "40" : "", cargo: "", packages: "", dimensions: "", stackable: false, stacking: "", stackingTone: "safe",
+  containerSize: mode === "fcl" ? "40" : "", cargo: "", packages: "", pallets: "", weightKg: "", volumeCbm: "", zone: "", dimensions: "", stackable: false, stacking: "", stackingTone: "safe",
   pickup: "", pickupContact: "", delivery: "", deliveryDate: "", deliveryContact: "", instructions: "", driver: "", plate: "", trailer: "",
   status: "Programado", done: false, orderId: "", tripStatus: "", source: "", updated: "",
 })
@@ -378,6 +399,7 @@ function BoardCard({ service, onEdit, onToggleDone }: { service: Service; onEdit
       <div className="flex flex-wrap items-center gap-1">
         {service.containerSize && <span className={`rounded px-1.5 py-0.5 text-[9px] font-bold text-white ${is20(service) ? "bg-blue-600" : "bg-slate-600"}`}>{service.containerSize}'</span>}
         {isSanAntonio(service) && <span className="rounded bg-violet-600 px-1.5 py-0.5 text-[9px] font-bold text-white">SAN ANTONIO</span>}
+        {service.zone && <span className="rounded bg-teal-600 px-1.5 py-0.5 text-[9px] font-bold text-white">{service.zone}</span>}
         <TripBadge service={service} />
         <span className="ml-auto font-bold text-slate-700">{service.time || "Sin hora"}</span>
       </div>
@@ -712,6 +734,113 @@ function MonthCalendar({ month, onMonth, selected, onSelect, counts, undatedCoun
   )
 }
 
+// ---------- Asignación por zona (LCL) ----------
+const ZONES = ["Centro", "Centro sur", "Recoleta", "Peñalolén", "Pudahuel", "Quilicura", "Maipú", "San Bernardo", "Lo Espejo", "Las Condes", "Valparaíso", "San Antonio"]
+type DriverOption = { id: string; full_name: string; current_fleet_id: string | null }
+type VehicleOption = { id: string; plate: string; internal_code: string | null }
+
+// Coordinación agrupa las cargas por comuna/zona, marca varias y las asigna en bloque a un camión y chofer.
+// Al confirmar, cada carga queda como OT del chofer (Mis Viajes) con el resumen de pallets, kilos, m³, hora y retiro.
+function ZoneAssignPanel({ services, drivers, vehicles, onAssign, onEdit }: {
+  services: Service[]
+  drivers: DriverOption[]
+  vehicles: VehicleOption[]
+  onAssign: (ids: string[], driver: DriverOption, vehicle: VehicleOption | null) => Promise<void>
+  onEdit: (service: Service) => void
+}) {
+  const [selected, setSelected] = useState<Set<string>>(new Set())
+  const [driverId, setDriverId] = useState("")
+  const [vehicleId, setVehicleId] = useState("")
+  const [assigning, setAssigning] = useState(false)
+  const groups = useMemo(() => {
+    const map = new Map<string, Service[]>()
+    for (const service of services) {
+      const zone = service.zone.trim() || "Sin zona"
+      map.set(zone, [...(map.get(zone) || []), service])
+    }
+    return [...map.entries()].sort(([a], [b]) => (a === "Sin zona" ? 1 : b === "Sin zona" ? -1 : a.localeCompare(b)))
+  }, [services])
+  const picked = services.filter((service) => selected.has(service.id))
+  const sum = (key: "weightKg" | "volumeCbm" | "pallets") => picked.reduce((total, service) => total + (toNumber(service[key]) || 0), 0)
+  const toggle = (id: string) => setSelected((current) => { const next = new Set(current); if (next.has(id)) next.delete(id); else next.add(id); return next })
+  const toggleZone = (list: Service[]) => setSelected((current) => {
+    const next = new Set(current)
+    const all = list.every((service) => next.has(service.id))
+    list.forEach((service) => { if (all) next.delete(service.id); else next.add(service.id) })
+    return next
+  })
+  const chooseDriver = (id: string) => {
+    setDriverId(id)
+    const fleetId = drivers.find((driver) => driver.id === id)?.current_fleet_id
+    if (fleetId && vehicles.some((vehicle) => vehicle.id === fleetId)) setVehicleId(fleetId)
+  }
+  const assign = async () => {
+    const driver = drivers.find((item) => item.id === driverId)
+    if (!driver || !picked.length) return
+    setAssigning(true)
+    await onAssign(picked.map((service) => service.id), driver, vehicles.find((vehicle) => vehicle.id === vehicleId) || null)
+    setAssigning(false)
+    setSelected(new Set())
+  }
+
+  return (
+    <section className="rounded-xl border border-slate-200 bg-white shadow-sm">
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 px-4 py-3">
+        <div>
+          <p className="text-sm font-bold text-slate-900">Asignación por zona</p>
+          <p className="text-[10px] text-slate-500">Marca las cargas de una misma ruta y asígnalas en bloque. Se envían solas a la cuenta del chofer.</p>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <select value={driverId} onChange={(e) => chooseDriver(e.target.value)} className="h-9 rounded-lg border border-slate-200 bg-white px-2 text-xs">
+            <option value="">Chofer…</option>
+            {drivers.map((driver) => <option key={driver.id} value={driver.id}>{driver.full_name}</option>)}
+          </select>
+          <select value={vehicleId} onChange={(e) => setVehicleId(e.target.value)} className="h-9 rounded-lg border border-slate-200 bg-white px-2 text-xs">
+            <option value="">Camión…</option>
+            {vehicles.map((vehicle) => <option key={vehicle.id} value={vehicle.id}>{[vehicle.internal_code, vehicle.plate].filter(Boolean).join(" · ")}</option>)}
+          </select>
+          <button disabled={!picked.length || !driverId || assigning} onClick={assign} className="h-9 rounded-lg bg-teal-600 px-3 text-xs font-bold text-white hover:bg-teal-700 disabled:opacity-40">
+            {assigning ? "Asignando…" : `Asignar ${picked.length || ""} y enviar al chofer`}
+          </button>
+        </div>
+      </div>
+      {picked.length > 0 && (
+        <div className="flex flex-wrap gap-4 border-b border-slate-100 bg-teal-50 px-4 py-2 text-[11px] font-semibold text-teal-900">
+          <span>{picked.length} cargas</span>
+          <span>{sum("pallets").toLocaleString("es-CL")} pallets</span>
+          <span>{sum("weightKg").toLocaleString("es-CL")} kg</span>
+          <span>{sum("volumeCbm").toLocaleString("es-CL", { maximumFractionDigits: 2 })} m³</span>
+          <button onClick={() => setSelected(new Set())} className="ml-auto text-teal-700 hover:underline">Limpiar selección</button>
+        </div>
+      )}
+      <div className="grid gap-3 p-4 md:grid-cols-2 xl:grid-cols-3">
+        {groups.length === 0 && <p className="text-xs text-slate-400">Sin cargas activas.</p>}
+        {groups.map(([zone, list]) => (
+          <div key={zone} className="rounded-lg border border-slate-200">
+            <button onClick={() => toggleZone(list)} className="flex w-full items-center justify-between rounded-t-lg bg-slate-50 px-3 py-2 text-left">
+              <span className="text-xs font-bold text-slate-800">{zone}</span>
+              <span className="text-[10px] font-semibold text-slate-500">{list.length} · marcar todas</span>
+            </button>
+            <ul className="divide-y divide-slate-100">
+              {list.map((service) => (
+                <li key={service.id} className={`flex items-start gap-2 px-3 py-2 text-[11px] ${selected.has(service.id) ? "bg-teal-50" : ""}`}>
+                  <input type="checkbox" checked={selected.has(service.id)} onChange={() => toggle(service.id)} className="mt-0.5 size-4 accent-teal-600" />
+                  <button onClick={() => onEdit({ ...service })} className="min-w-0 flex-1 text-left">
+                    <p className="truncate font-bold text-slate-800">{service.forwarder || "Sin cliente"} <span className="font-normal text-slate-400">{service.time}</span></p>
+                    <p className="truncate text-slate-500">{service.delivery || "Sin dirección de entrega"}</p>
+                    <p className="truncate text-slate-400">{[service.pallets && `${service.pallets} pallets`, service.packages && `${service.packages} bultos`, service.weightKg && `${service.weightKg} kg`, service.volumeCbm && `${service.volumeCbm} m³`].filter(Boolean).join(" · ") || "—"}</p>
+                    <p className={`truncate font-semibold ${service.driver ? "text-slate-700" : "text-orange-600"}`}>{service.driver ? `${service.driver}${service.plate ? ` · ${service.plate}` : ""}` : "Sin chofer"}</p>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </div>
+        ))}
+      </div>
+    </section>
+  )
+}
+
 // ---------- Formulario ----------
 const editInput = "w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-slate-800 outline-none placeholder:text-slate-300 focus:border-navy-300 focus:ring-2 focus:ring-navy-100"
 const fieldLabel = "mb-1 block text-[9px] font-bold uppercase tracking-wider text-slate-500"
@@ -741,6 +870,7 @@ function EditServiceModal({ service, title, onChange, onClose, onSave, onDelete,
         </div>
         <datalist id="coord-drivers">{drivers.map((name) => <option key={name} value={name} />)}</datalist>
         <datalist id="coord-plates">{plates.map((plate) => <option key={plate} value={plate} />)}</datalist>
+        <datalist id="coord-zones">{ZONES.map((zone) => <option key={zone} value={zone} />)}</datalist>
         <div className="max-h-[calc(92vh-128px)] space-y-5 overflow-y-auto p-5">
           <div className="grid gap-4 md:grid-cols-3 xl:grid-cols-4">
             <label><span className={fieldLabel}>Operación</span><select className={editInput} value={service.type} onChange={(e) => set("type", e.target.value as ServiceType)}><option value="impo">Importación</option><option value="expo">Exportación</option></select></label>
@@ -760,12 +890,16 @@ function EditServiceModal({ service, title, onChange, onClose, onSave, onDelete,
             <label className="md:col-span-2"><span className={fieldLabel}>Tipo de mercancía</span><input className={editInput} value={service.cargo} onChange={(e) => set("cargo", e.target.value)} /></label>
             <label><span className={fieldLabel}>Cantidad de bultos</span><input className={editInput} value={service.packages} onChange={(e) => set("packages", e.target.value)} /></label>
             <label><span className={fieldLabel}>Dimensiones / peso</span><input className={editInput} value={service.dimensions} onChange={(e) => set("dimensions", e.target.value)} /></label>
+            <label><span className={fieldLabel}>Pallets</span><input className={editInput} inputMode="numeric" value={service.pallets} onChange={(e) => set("pallets", e.target.value)} /></label>
+            <label><span className={fieldLabel}>Peso (kg)</span><input className={editInput} inputMode="decimal" value={service.weightKg} onChange={(e) => set("weightKg", e.target.value)} /></label>
+            <label><span className={fieldLabel}>Volumen (m³)</span><input className={editInput} inputMode="decimal" value={service.volumeCbm} onChange={(e) => set("volumeCbm", e.target.value)} /></label>
+            <label><span className={fieldLabel}>Zona / comuna de entrega</span><input className={editInput} list="coord-zones" value={service.zone} onChange={(e) => set("zone", e.target.value)} placeholder="Recoleta, Peñalolén..." /></label>
 
             <label className="md:col-span-2"><span className={fieldLabel}>Lugar de retiro</span><input className={editInput} value={service.pickup} onChange={(e) => set("pickup", e.target.value)} placeholder="Depósito, puerto San Antonio..." /></label>
             <label className="md:col-span-2"><span className={fieldLabel}>Contacto de retiro</span><input className={editInput} value={service.pickupContact} onChange={(e) => set("pickupContact", e.target.value)} /></label>
-            <label className="md:col-span-2"><span className={fieldLabel}>Lugar de entrega</span><input className={editInput} value={service.delivery} onChange={(e) => set("delivery", e.target.value)} /></label>
+            <label className="md:col-span-2"><span className={fieldLabel}>Dirección exacta de entrega</span><input className={editInput} value={service.delivery} onChange={(e) => set("delivery", e.target.value)} placeholder="Calle, número, comuna" /></label>
             <label><span className={fieldLabel}>Fecha de entrega</span><input type="date" className={editInput} value={service.deliveryDate} onChange={(e) => set("deliveryDate", e.target.value)} /></label>
-            <label><span className={fieldLabel}>Contacto de entrega</span><input className={editInput} value={service.deliveryContact} onChange={(e) => set("deliveryContact", e.target.value)} /></label>
+            <label><span className={fieldLabel}>Teléfono / contacto de entrega</span><input className={editInput} value={service.deliveryContact} onChange={(e) => set("deliveryContact", e.target.value)} placeholder="+56 9 ..." /></label>
 
             <label className="md:col-span-3 xl:col-span-4"><span className={fieldLabel}>Instrucciones especiales</span><input className={editInput} value={service.instructions} onChange={(e) => set("instructions", e.target.value)} placeholder="Encarpar, llevar cadenas, llamar antes de llegar..." /></label>
 
@@ -809,6 +943,8 @@ export default function CoordinationBoard() {
   const [boardSave, setBoardSave] = useState<Record<string, string>>({})
   const [drivers, setDrivers] = useState<string[]>([])
   const [plates, setPlates] = useState<string[]>([])
+  const [driverOptions, setDriverOptions] = useState<DriverOption[]>([])
+  const [vehicleOptions, setVehicleOptions] = useState<VehicleOption[]>([])
   const saveTimers = useRef<Record<string, number>>({})
   const refetchTimer = useRef<number | undefined>(undefined)
 
@@ -842,11 +978,15 @@ export default function CoordinationBoard() {
   useEffect(() => {
     fetchAll()
     Promise.all([
-      supabase.from("drivers").select("full_name").order("full_name"),
-      supabase.from("fleet").select("plate").order("plate"),
+      supabase.from("drivers").select("id, full_name, current_fleet_id, is_active").order("full_name"),
+      supabase.from("fleet").select("id, plate, internal_code").order("plate"),
     ]).then(([driversResult, fleetResult]) => {
-      setDrivers((driversResult.data || []).map((row: { full_name: string }) => row.full_name))
-      setPlates((fleetResult.data || []).map((row: { plate: string }) => row.plate))
+      const driverRows = (driversResult.data || []) as (DriverOption & { is_active: boolean | null })[]
+      const fleetRows = (fleetResult.data || []) as VehicleOption[]
+      setDrivers(driverRows.map((row) => row.full_name))
+      setPlates(fleetRows.map((row) => row.plate))
+      setDriverOptions(driverRows.filter((row) => row.is_active !== false))
+      setVehicleOptions(fleetRows)
     })
     // Servicios en tiempo real (Cristóbal y César ven los cambios del otro). Las pizarras abiertas no se recargan para no pisar el dibujo.
     const channel = supabase.channel("coordination-sync")
@@ -886,6 +1026,63 @@ export default function CoordinationBoard() {
     setServices((current) => current.map((item) => item.id === service.id ? { ...item, done: !item.done } : item))
     const { error: toggleError } = await supabase.from("coordination_services").update({ done: !service.done, updated_at: new Date().toISOString() }).eq("id", service.id)
     if (toggleError) { setError(`No se pudo actualizar: ${toggleError.message}`); await fetchAll() }
+  }
+
+  // Asignación en bloque: cada carga queda como OT del chofer (la ve en Mis Viajes con su resumen)
+  const assignBulk = async (ids: string[], driver: DriverOption, vehicle: VehicleOption | null) => {
+    const session = (await supabase.auth.getSession()).data.session
+    const failures: string[] = []
+    for (const [index, service] of services.filter((item) => ids.includes(item.id)).entries()) {
+      let orderId = service.orderId
+      if (orderId) {
+        const { data: current } = await supabase.from("orders").select("status").eq("id", orderId).maybeSingle()
+        const { error: orderError } = await supabase.from("orders").update({
+          driver_id: driver.id, fleet_id: vehicle?.id ?? null, provider_id: null,
+          ...(current?.status === "draft" ? { status: "pending" } : {}),
+        }).eq("id", orderId)
+        if (orderError) { failures.push(`${service.reference || service.forwarder}: ${orderError.message}`); continue }
+      } else {
+        const packages = parseInt(service.packages) || parseInt(service.pallets) || 0
+        const { data: created, error: createError } = await supabase.from("orders").insert([{
+          order_number: `OT-${Date.now()}${index}`,
+          client_id: null,
+          client_contact: service.forwarder || null,
+          service_type: `${service.pickup || "Sin retiro"}/${service.delivery || "Sin entrega"}`,
+          service_date: service.serviceDate || localDay(),
+          quantity: packages,
+          package_type: service.pallets ? "Pallets" : "Bultos",
+          weight_kg: toNumber(service.weightKg) || 0,
+          volume_cbm: toNumber(service.volumeCbm) || 0,
+          container_number: service.containerNumber || null,
+          cargo_mode: service.mode,
+          operation_type: service.type,
+          description: [service.cargo, service.instructions].filter(Boolean).join(" · ") || null,
+          origin: service.pickup || "Sin retiro",
+          destination: service.delivery || "Sin entrega",
+          is_inside_triangle: true,
+          sold_value: 0, purchased_value: 0, profit: 0,
+          status: "pending", priority: "normal",
+          request_kind: "tarifado",
+          client_status: "Carga en bodega de despacho",
+          created_by: session?.user?.id ?? null,
+          driver_id: driver.id,
+          fleet_id: vehicle?.id ?? null,
+        }]).select("id").single()
+        if (createError || !created) { failures.push(`${service.reference || service.forwarder}: ${createError?.message || "sin respuesta"}`); continue }
+        orderId = created.id
+      }
+      const { error: serviceError } = await supabase.from("coordination_services").update({
+        driver: driver.full_name, plate: vehicle?.plate || service.plate, order_id: orderId,
+        updated: new Date().toLocaleString("es-CL", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" }),
+        updated_at: new Date().toISOString(),
+      }).eq("id", service.id)
+      if (serviceError) failures.push(`${service.reference || service.forwarder}: ${serviceError.message}`)
+    }
+    if (vehicle) await supabase.from("fleet").update({ status: "in_route" }).eq("id", vehicle.id)
+    if (failures.length) setError(`No se pudieron asignar: ${failures.join(" | ")}`)
+    const ok = ids.length - failures.length
+    if (ok > 0) setToast(`${ok} cargas asignadas a ${driver.full_name}${vehicle ? ` · ${vehicle.internal_code || vehicle.plate}` : ""}. Ya están en Mis Viajes del chofer.`)
+    await fetchAll()
   }
 
   // Duplicar = plantilla: copia la base del servicio a otra fecha y solo se editan los datos variables
@@ -945,7 +1142,7 @@ export default function CoordinationBoard() {
 
   // ---------- Vistas ----------
   const query = search.trim().toLowerCase()
-  const matches = (service: Service) => !query || [service.reference, service.forwarder, service.finalClient, service.containerNumber, service.shippingLine, service.pickup, service.delivery, service.driver, service.cargo].join(" ").toLowerCase().includes(query)
+  const matches = (service: Service) => !query || [service.reference, service.forwarder, service.finalClient, service.containerNumber, service.shippingLine, service.pickup, service.delivery, service.driver, service.cargo, service.zone].join(" ").toLowerCase().includes(query)
   const fclServices = useMemo(() => services.filter((service) => service.mode === "fcl"), [services])
   const lclServices = useMemo(() => services.filter((service) => service.mode === "lcl"), [services])
   const counts = useMemo(() => {
@@ -1102,6 +1299,8 @@ export default function CoordinationBoard() {
                 <button onClick={() => exportImage("Carga suelta (LCL)", formatLong(localDay()), lclActive, `servicios-lcl-${localDay()}.png`)} className={toolbarButton}><Icon name="image" className="size-3.5" />Imagen WhatsApp</button>
               </div>
             </div>
+
+            <ZoneAssignPanel services={lclActive} drivers={driverOptions} vehicles={vehicleOptions} onAssign={assignBulk} onEdit={(service) => setEditing({ title: "Editar servicio", service })} />
 
             {lclBoard ? (
               <Whiteboard

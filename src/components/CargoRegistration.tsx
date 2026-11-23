@@ -24,6 +24,8 @@ const ROUTES = [
 ];
 
 const TRUCKS = [
+  // Tarifa referencial de la Boxer: ajustar al valor real acordado
+  { label: 'Camioneta Boxer — 1.5 t', cap: 1500, fuelRate: 7, rate: 35000 },
   { label: 'Camión 3/4 — 3.5 t',  cap: 3500,  fuelRate: 10, rate: 45000 },
   { label: 'Camión Mediano — 7 t', cap: 7000,  fuelRate: 14, rate: 72000 },
   { label: 'Camión Semi — 15 t',   cap: 15000, fuelRate: 20, rate: 120000 },
@@ -31,7 +33,21 @@ const TRUCKS = [
 ];
 
 const PKGS = ['Cajas', 'Cajón', 'Pallets', 'Bultos', 'Carga General', 'Carga Refrigerada', 'Maquinaria', 'Contenedor 20"', 'Contenedor 40"'];
-const CITIES = ['Valparaíso', 'Santiago', 'San Antonio', 'Viña del Mar', 'Quilpué', 'Pudahuel', 'Lo Espejo', 'Rancagua'];
+const CITIES = ['Valparaíso', 'Santiago', 'San Antonio', 'San Vicente', 'Viña del Mar', 'Quilpué', 'Pudahuel', 'Lo Espejo', 'Rancagua', 'La Serena', 'Concepción', 'Talcahuano'];
+
+// Números escritos a la chilena: "120,5" o "1.234,5" -> 120.5 / 1234.5 (input type=number los dejaba en 0)
+export const parseDecimal = (value: string): number => {
+  let text = (value || '').trim().replace(/\s/g, '');
+  if (text.includes(',') && text.includes('.')) text = text.replace(/\./g, '');
+  const n = parseFloat(text.replace(',', '.'));
+  return Number.isFinite(n) ? n : 0;
+};
+const m3 = (n: number) => n.toLocaleString('es-CL', { minimumFractionDigits: 2, maximumFractionDigits: 3 });
+
+type Piece = { qty: string; l: string; a: string; h: string };
+const emptyPiece = (): Piece => ({ qty: '', l: '', a: '', h: '' });
+// Volumen de una fila: cantidad (vacía = 1) × L × A × H en cm -> m³
+const pieceCbm = (p: Piece) => (parseInt(p.qty) || 1) * parseDecimal(p.l) * parseDecimal(p.a) * parseDecimal(p.h) / 1_000_000;
 
 // ✅ PRECIO POR DEFECTO (se usará si la API falla)
 const DIESEL_CLP_DEFAULT = 1600; // respaldo si Bencina en Línea no responde y no hay precio guardado
@@ -134,6 +150,39 @@ interface FleetVehicle {
     status: string | null;
 }
 
+// Formulario vacío de Nueva OT
+const emptyForm = () => ({
+  clientId: '',
+  clientCode: '',
+  contact: '',
+  origin: '',
+  destination: '',
+  routeIdx: 0,
+  truckIdx: 0,
+  driverId: '', // 🆕 Campo para el chofer
+  fleetId: '', // Vehículo real de la flota asignado al viaje
+  providerId: '', // Transportista tercero (modo subcontrato)
+  pkg: 'Cajas',
+  qty: '',
+  kg: '',
+  pieces: [emptyPiece()] as Piece[], // medidas por bulto (pueden ser distintas)
+  declaredCbm: '', // cubicaje total informado (BL / cliente): no lo cambian las filas
+  // tarifado = carga con tarifa acordada (OT directa) · cotizacion = flete fuera de tarifado
+  requestKind: 'tarifado' as 'tarifado' | 'cotizacion',
+  agreedRate: '',
+  mode: 'propia' as 'propia' | 'sub',
+  subCost: '',
+  notes: '',
+  priority: 'normal' as 'normal' | 'urgente',
+  // Coordinación: la OT confirmada aparece en la pestaña FCL o LCL
+  cargoMode: 'lcl' as 'fcl' | 'lcl',
+  operationType: 'impo' as 'impo' | 'expo',
+  serviceDate: localToday(),
+  pickupTime: '',
+  containerNumber: '',
+  containerSize: '40',
+});
+
 export default function CargoRegistration() {
   const [clients, setClients] = useState<Client[]>([]);
   const [drivers, setDrivers] = useState<Driver[]>([]); // 🆕 Estado para choferes
@@ -150,35 +199,10 @@ export default function CargoRegistration() {
   const [loadingDiesel, setLoadingDiesel] = useState(true);
   const [dieselInfo, setDieselInfo] = useState<DieselSummary | null>(null);
 
-  const [f, setF] = useState({
-    clientId: '',
-    clientCode: '',
-    contact: '',
-    origin: '',
-    destination: '',
-    routeIdx: 0,
-    truckIdx: 0,
-    driverId: '', // 🆕 Campo para el chofer
-    fleetId: '', // Vehículo real de la flota asignado al viaje
-    providerId: '', // Transportista tercero (modo subcontrato)
-    pkg: 'Cajas',
-    qty: '',
-    kg: '',
-    l: '',
-    a: '',
-    h: '',
-    mode: 'propia' as 'propia' | 'sub',
-    subCost: '',
-    notes: '',
-    priority: 'normal' as 'normal' | 'urgente',
-    // Coordinación: la OT confirmada aparece en la pestaña FCL o LCL
-    cargoMode: 'lcl' as 'fcl' | 'lcl',
-    operationType: 'impo' as 'impo' | 'expo',
-    serviceDate: localToday(),
-    pickupTime: '',
-    containerNumber: '',
-    containerSize: '40',
-  });
+  const [f, setF] = useState(emptyForm);
+  const set = <K extends keyof typeof f>(k: K, v: typeof f[K]) => setF(p => ({ ...p, [k]: v }));
+  const setPiece = (index: number, key: keyof Piece, value: string) =>
+    setF(p => ({ ...p, pieces: p.pieces.map((piece, i) => i === index ? { ...piece, [key]: value } : piece) }));
 
   // ✅ Cargar clientes, choferes y precio del diésel al montar el componente
   useEffect(() => {
@@ -273,16 +297,16 @@ export default function CargoRegistration() {
     }
   }
 
-  const set = <K extends keyof typeof f>(k: K, v: typeof f[K]) => setF(p => ({ ...p, [k]: v }));
-
   const route = ROUTES[f.routeIdx];
   const truck = TRUCKS[f.truckIdx];
 
-  const vol = f.l && f.a && f.h
-    ? parseFloat(f.l) * parseFloat(f.a) * parseFloat(f.h) / 1_000_000
-    : 0;
-  const qty = parseInt(f.qty) || 1;
-  const kg = parseFloat(f.kg) || 0;
+  // Cubicaje: suma de las filas de medidas vs total declarado. Se cobra el mayor.
+  const measuredCbm = f.pieces.reduce((sum, p) => sum + pieceCbm(p), 0);
+  const declaredCbm = parseDecimal(f.declaredCbm);
+  const chargeableCbm = Math.max(measuredCbm, declaredCbm);
+  const cbmDiff = measuredCbm - declaredCbm;
+  const kg = parseDecimal(f.kg);
+  const isQuote = f.requestKind === 'cotizacion';
   const overweight = kg > truck.cap;
 
   // ✅ CÁLCULOS USANDO EL PRECIO DEL DIÉSEL OBTENIDO DE LA API
@@ -291,12 +315,14 @@ export default function CargoRegistration() {
   const tollCst   = route.toll;
   const laborCst  = 18000;
   const opCost    = dieselCst + tollCst + laborCst;
-  const revenue   = truck.rate;
+  const agreedRate = parseDecimal(f.agreedRate);
+  // Carga tarifada: manda la tarifa acordada; si no se ingresa, la referencial del camión
+  const revenue   = !isQuote && agreedRate > 0 ? agreedRate : truck.rate;
   const grossMargin = revenue - opCost;
 
   const subBase  = parseFloat(f.subCost) || 0;
   const margin20 = subBase * 0.2;
-  const subTotal = subBase + margin20;
+  const subTotal = !isQuote && agreedRate > 0 ? agreedRate : subBase + margin20;
 
   // ─── OT -> COORDINACIÓN ─────────────────────────────────────────────────
   async function createCoordinationService(order: { id: string; order_number: string }): Promise<string | null> {
@@ -318,7 +344,10 @@ export default function CargoRegistration() {
       reference: order.order_number,
       cargo: [f.qty && `${f.qty} ${f.pkg}`, f.kg && `${f.kg} kg`].filter(Boolean).join(' · '),
       packages: f.qty || null,
-      dimensions: f.kg ? `${f.kg} kg` : '',
+      dimensions: [f.kg && `${f.kg} kg`, chargeableCbm > 0 && `${m3(chargeableCbm)} m³`].filter(Boolean).join(' · '),
+      weight_kg: kg || null,
+      volume_cbm: chargeableCbm > 0 ? Number(chargeableCbm.toFixed(3)) : null,
+      pallets: f.pkg === 'Pallets' ? (f.qty || null) : null,
       stackable: false,
       stacking: '',
       stacking_tone: 'safe',
@@ -343,13 +372,20 @@ export default function CargoRegistration() {
   const saveOrder = async (status: 'pending' | 'draft') => {
     setError(null);
     setSuccess(false);
-    
+
+    // Cotización fuera de tarifado: solo cliente y ruta (no va a Coordinación ni al chofer)
+    if (isQuote && status === 'pending') {
+      if (!f.clientId) throw new Error('Por favor selecciona un cliente');
+      if (!f.origin || !f.destination) throw new Error('Por favor selecciona origen y destino');
+      status = 'draft';
+    }
+
     // Validaciones solo si NO es borrador
     if (status === 'pending') {
       if (!f.clientId) throw new Error('Por favor selecciona un cliente');
       if (!f.origin || !f.destination) throw new Error('Por favor selecciona origen y destino');
       if (!f.qty || parseInt(f.qty) <= 0) throw new Error('Por favor ingresa la cantidad de bultos');
-      if (!f.kg || parseFloat(f.kg) <= 0) throw new Error('Por favor ingresa el peso total');
+      if (kg <= 0) throw new Error('Por favor ingresa el peso total');
       // 🆕 Validar que se asigne un chofer si es flota propia
       if (f.mode === 'propia' && !f.driverId) throw new Error('Por favor asigna un chofer para el viaje');
       if (f.mode === 'propia' && !f.fleetId) throw new Error('Por favor asigna un vehículo de la flota');
@@ -369,8 +405,13 @@ export default function CargoRegistration() {
         service_date: f.serviceDate || localToday(),
         quantity: parseInt(f.qty) || 0,
         package_type: f.pkg || null,
-        weight_kg: parseFloat(f.kg) || 0,
-        volume_cbm: (vol * qty) || 0,
+        weight_kg: kg || 0,
+        volume_cbm: Number(chargeableCbm.toFixed(3)) || 0,
+        declared_cbm: declaredCbm > 0 ? declaredCbm : null,
+        measured_cbm: measuredCbm > 0 ? Number(measuredCbm.toFixed(3)) : null,
+        cargo_pieces: f.pieces.filter(p => p.l || p.a || p.h),
+        request_kind: f.requestKind,
+        client_status: isQuote ? null : 'Carga en bodega de despacho',
         container_number: f.cargoMode === 'fcl' ? (f.containerNumber.trim().toUpperCase() || null) : null,
         cargo_mode: f.cargoMode,
         operation_type: f.operationType,
@@ -380,7 +421,7 @@ export default function CargoRegistration() {
         is_inside_triangle: true,
         sold_value: f.mode === 'propia' ? (revenue || 0) : (subTotal || 0),
         purchased_value: f.mode === 'sub' ? (subBase || 0) : 0,
-        profit: f.mode === 'propia' ? (grossMargin || 0) : (margin20 || 0),
+        profit: f.mode === 'propia' ? (grossMargin || 0) : ((subTotal - subBase) || 0),
         status: status, // ✅ 'pending' o 'draft'
         priority: f.priority,
         created_by: session?.user?.id || null,
@@ -414,13 +455,8 @@ export default function CargoRegistration() {
       console.log('✅ Orden creada:', data);
       setSuccess(true);
       
-      // Limpiar formulario
-      setF({
-        clientId: '', clientCode: '', contact: '', origin: '', destination: '',
-        routeIdx: 0, truckIdx: 0, driverId: '', fleetId: '', providerId: '', pkg: 'Cajas', qty: '', kg: '', l: '', a: '', h: '',
-        mode: 'propia', subCost: '', notes: '', priority: 'normal',
-        cargoMode: 'lcl', operationType: 'impo', serviceDate: localToday(), pickupTime: '', containerNumber: '', containerSize: '40',
-      });
+      // Limpiar formulario (se mantiene el tipo de solicitud elegido)
+      setF({ ...emptyForm(), requestKind: f.requestKind });
 
       setTimeout(() => setSuccess(false), 5000);
 
@@ -428,6 +464,33 @@ export default function CargoRegistration() {
       console.error(`❌ Error al guardar como ${status}:`, err);
       setError(err instanceof Error ? err.message : 'Error al guardar la orden');
     }
+  };
+
+  // Abre Gmail (sesión iniciada en el navegador) con la cotización precargada; el usuario revisa y envía
+  const sendQuoteByGmail = () => {
+    const client = clients.find(c => c.id === f.clientId);
+    const total = f.mode === 'propia' ? revenue : subTotal;
+    const lines = [
+      `Estimado/a ${client?.contact_name || client?.name || 'cliente'}:`,
+      '',
+      isQuote ? 'Adjuntamos la cotización solicitada:' : 'Confirmamos el servicio solicitado:',
+      '',
+      `Ruta: ${f.origin || '—'} → ${f.destination || '—'}`,
+      `Fecha: ${f.serviceDate ? f.serviceDate.split('-').reverse().join('/') : '—'}`,
+      `Carga: ${[f.qty && `${f.qty} ${f.pkg}`, kg > 0 && `${kg.toLocaleString('es-CL')} kg`, chargeableCbm > 0 && `${m3(chargeableCbm)} m³`].filter(Boolean).join(' · ') || '—'}`,
+      f.cargoMode === 'fcl' && f.containerNumber ? `Contenedor: ${f.containerNumber} (${f.containerSize}')` : '',
+      `Valor neto: ${total > 0 ? clp(total) : 'por confirmar'} + IVA`,
+      f.notes ? `Observaciones: ${f.notes}` : '',
+      '',
+      'Quedamos atentos a su confirmación.',
+      '',
+      'Saludos,',
+      'VTM Logistics',
+    ].filter((line, i, all) => line !== '' || all[i - 1] !== '');
+    const to = (f.contact.includes('@') ? f.contact : '').trim();
+    const subject = `${isQuote ? 'Cotización' : 'Orden de servicio'} VTM · ${f.origin || ''} → ${f.destination || ''}`.trim();
+    const url = `https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent(to)}&su=${encodeURIComponent(subject)}&body=${encodeURIComponent(lines.join('\n'))}`;
+    window.open(url, '_blank', 'noopener');
   };
 
   const handle = async (e: React.FormEvent) => {
@@ -459,11 +522,15 @@ export default function CargoRegistration() {
         style={{ background: 'rgba(248,250,252,0.95)', backdropFilter: 'blur(8px)', borderBottom: '1px solid #e2e8f0' }}
       >
         <div>
-          <h1 className="text-[15px] font-bold text-slate-900 leading-none">Registro de Carga · Cotizador</h1>
-          <p className="text-[11px] text-slate-400 mt-0.5">Nueva Orden de Transporte — complete los datos del servicio</p>
+          <h1 className="text-[15px] font-bold text-slate-900 leading-none">{isQuote ? 'Cotizador · Fuera de tarifado' : 'Nueva Orden de Servicio · Tarifado'}</h1>
+          <p className="text-[11px] text-slate-400 mt-0.5">{isQuote ? 'Fletes especiales (otras ciudades, puerto a puerto): se guarda como cotización' : 'Carga con tarifa acordada: pasa directo a orden de servicio y Coordinación'}</p>
         </div>
         <div className="flex items-center gap-2">
-          <span className="font-mono text-[11px] text-slate-400 bg-slate-100 border border-slate-200 px-2.5 py-1 rounded-lg">OT-2451</span>
+          <div className="flex rounded-lg border border-slate-200 bg-white p-0.5">
+            {([['tarifado', 'Orden de servicio'], ['cotizacion', 'Cotización']] as const).map(([kind, label]) => (
+              <button key={kind} type="button" onClick={() => set('requestKind', kind)} className={`rounded-md px-3 py-1 text-[11px] font-bold transition-colors ${f.requestKind === kind ? 'bg-blue-600 text-white' : 'text-slate-500 hover:bg-slate-50'}`}>{label}</button>
+            ))}
+          </div>
           <button
             type="button"
             onClick={() => set('priority', f.priority === 'urgente' ? 'normal' : 'urgente')}
@@ -700,12 +767,12 @@ export default function CargoRegistration() {
                   </div>
                   <div>
                     <Lbl req>Cantidad (unidades)</Lbl>
-                    <input type="number" min="1" className={inp} placeholder="0" value={f.qty} onChange={e => set('qty', e.target.value)} required={!savingDraft} />
+                    <input type="number" min="1" className={inp} placeholder="0" value={f.qty} onChange={e => set('qty', e.target.value)} required={!savingDraft && !isQuote} />
                   </div>
                   <div>
                     <Lbl req>Peso total (kg)</Lbl>
                     <div className="relative">
-                      <input type="number" min="1" className={inp + (overweight && f.kg ? ' border-red-300 focus:border-red-400 focus:ring-red-300/30' : '')} placeholder="0" value={f.kg} onChange={e => set('kg', e.target.value)} required={!savingDraft} />
+                      <input type="text" inputMode="decimal" className={inp + (overweight && f.kg ? ' border-red-300 focus:border-red-400 focus:ring-red-300/30' : '')} placeholder="0" value={f.kg} onChange={e => set('kg', e.target.value)} required={!savingDraft && !isQuote} />
                       <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] text-slate-400 font-mono">kg</span>
                     </div>
                     {overweight && f.kg && (
@@ -713,37 +780,61 @@ export default function CargoRegistration() {
                     )}
                   </div>
                   <div>
-                    <Lbl>Dimensiones por bulto (cm)</Lbl>
-                    <div className="flex items-center gap-1.5">
-                      <input type="number" className={inp + ' text-center'} placeholder="L" value={f.l} onChange={e => set('l', e.target.value)} />
-                      <span className="text-slate-300 text-sm font-bold flex-shrink-0">×</span>
-                      <input type="number" className={inp + ' text-center'} placeholder="A" value={f.a} onChange={e => set('a', e.target.value)} />
-                      <span className="text-slate-300 text-sm font-bold flex-shrink-0">×</span>
-                      <input type="number" className={inp + ' text-center'} placeholder="H" value={f.h} onChange={e => set('h', e.target.value)} />
+                    <Lbl>Cubicaje total declarado (m³)</Lbl>
+                    <div className="relative">
+                      <input type="text" inputMode="decimal" className={inp} placeholder="Ej: 6,23 (dato del BL)" value={f.declaredCbm} onChange={e => set('declaredCbm', e.target.value)} />
+                      <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] text-slate-400 font-mono">m³</span>
                     </div>
+                    <p className="text-[10px] text-slate-400 mt-1">Lo que informa el cliente o el BL. Las medidas de abajo no lo modifican.</p>
                   </div>
                 </div>
 
-                {vol > 0 && (
-                  <div className="mt-3 grid grid-cols-2 gap-2">
-                    <div className="flex items-center gap-2.5 bg-blue-50 border border-blue-100 rounded-lg px-3 py-2.5">
-                      <svg className="w-4 h-4 text-blue-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.75} d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4" />
-                      </svg>
-                      <div>
-                        <div className="text-[9px] font-bold text-blue-600 uppercase tracking-wide">Vol. por bulto</div>
-                        <div className="font-mono text-[13px] font-bold text-blue-800">{vol.toFixed(3)} m³</div>
-                      </div>
+                {/* Medidas por bulto: siempre visibles, una fila por cada medida distinta */}
+                <div className="mt-4">
+                  <div className="flex items-center justify-between mb-2">
+                    <Lbl>Medidas por bulto (cm) · acepta decimales con coma</Lbl>
+                    <button type="button" onClick={() => set('pieces', [...f.pieces, emptyPiece()])} className="text-[11px] font-bold text-blue-600 hover:text-blue-800">+ Agregar medida</button>
+                  </div>
+                  <div className="space-y-2">
+                    {f.pieces.map((piece, index) => {
+                      const rowCbm = pieceCbm(piece);
+                      return (
+                        <div key={index} className="grid grid-cols-[70px_1fr_auto_1fr_auto_1fr_90px_28px] items-center gap-1.5">
+                          <input type="number" min="1" className={inp + ' text-center px-1'} placeholder="Cant." title="Cantidad de bultos con esta medida" value={piece.qty} onChange={e => setPiece(index, 'qty', e.target.value)} />
+                          <input type="text" inputMode="decimal" className={inp + ' text-center px-1'} placeholder="Largo" value={piece.l} onChange={e => setPiece(index, 'l', e.target.value)} />
+                          <span className="text-slate-300 text-sm font-bold">×</span>
+                          <input type="text" inputMode="decimal" className={inp + ' text-center px-1'} placeholder="Ancho" value={piece.a} onChange={e => setPiece(index, 'a', e.target.value)} />
+                          <span className="text-slate-300 text-sm font-bold">×</span>
+                          <input type="text" inputMode="decimal" className={inp + ' text-center px-1'} placeholder="Alto" value={piece.h} onChange={e => setPiece(index, 'h', e.target.value)} />
+                          <span className="font-mono text-[11px] font-bold text-blue-800 text-right">{rowCbm > 0 ? `${m3(rowCbm)} m³` : '—'}</span>
+                          <button type="button" disabled={f.pieces.length === 1} onClick={() => set('pieces', f.pieces.filter((_, i) => i !== index))} className="text-slate-300 hover:text-red-500 disabled:opacity-30 text-lg leading-none" title="Quitar fila">×</button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {(measuredCbm > 0 || declaredCbm > 0) && (
+                  <div className="mt-3 grid grid-cols-1 sm:grid-cols-3 gap-2">
+                    <div className="bg-slate-50 border border-slate-200 rounded-lg px-3 py-2.5">
+                      <div className="text-[9px] font-bold text-slate-500 uppercase tracking-wide">Declarado (cliente / BL)</div>
+                      <div className="font-mono text-[13px] font-bold text-slate-800">{declaredCbm > 0 ? `${m3(declaredCbm)} m³` : '—'}</div>
                     </div>
-                    <div className="flex items-center gap-2.5 bg-indigo-50 border border-indigo-100 rounded-lg px-3 py-2.5">
-                      <svg className="w-4 h-4 text-indigo-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.75} d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 11h.01M12 11h.01M15 11h.01M4 20h16a2 2 0 002-2V6a2 2 0 00-2-2H4a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                      </svg>
-                      <div>
-                        <div className="text-[9px] font-bold text-indigo-600 uppercase tracking-wide">Vol. total ({qty} uds.)</div>
-                        <div className="font-mono text-[13px] font-bold text-indigo-800">{(vol * qty).toFixed(3)} m³</div>
-                      </div>
+                    <div className="bg-blue-50 border border-blue-100 rounded-lg px-3 py-2.5">
+                      <div className="text-[9px] font-bold text-blue-600 uppercase tracking-wide">Medido (suma de medidas)</div>
+                      <div className="font-mono text-[13px] font-bold text-blue-800">{measuredCbm > 0 ? `${m3(measuredCbm)} m³` : '—'}</div>
                     </div>
+                    <div className="rounded-lg px-3 py-2.5 border" style={{ background: '#eef2ff', borderColor: '#c7d2fe' }}>
+                      <div className="text-[9px] font-bold text-indigo-600 uppercase tracking-wide">A cobrar (el mayor)</div>
+                      <div className="font-mono text-[13px] font-bold text-indigo-800">{m3(chargeableCbm)} m³</div>
+                    </div>
+                    {declaredCbm > 0 && measuredCbm > 0 && Math.abs(cbmDiff) >= 0.005 && (
+                      <p className={`sm:col-span-3 text-[11px] font-semibold rounded-lg px-3 py-2 ${cbmDiff > 0 ? 'bg-amber-50 text-amber-800 border border-amber-200' : 'bg-slate-50 text-slate-600 border border-slate-200'}`}>
+                        {cbmDiff > 0
+                          ? `⚠ Las medidas suman ${m3(measuredCbm)} m³, ${m3(cbmDiff)} m³ más que lo declarado (${m3(declaredCbm)} m³). Respaldo para cobrar el volumen real.`
+                          : `Las medidas suman ${m3(measuredCbm)} m³, menos que lo declarado (${m3(declaredCbm)} m³). Se cobra lo declarado.`}
+                      </p>
+                    )}
                   </div>
                 )}
               </Card>
@@ -885,6 +976,16 @@ export default function CargoRegistration() {
                     </div>
                   </div>
 
+                  {!isQuote && (
+                    <div className="px-5 pt-4">
+                      <Lbl>Tarifa acordada con el cliente (CLP, neto)</Lbl>
+                      <div className="relative">
+                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-[12px] font-mono">$</span>
+                        <input type="text" inputMode="decimal" className={inp + ' pl-7'} placeholder={`Referencial ${clp(f.mode === 'propia' ? truck.rate : subBase + margin20)}`} value={f.agreedRate} onChange={e => set('agreedRate', e.target.value)} />
+                      </div>
+                      <p className="text-[10px] text-slate-400 mt-1">Si la ruta no tiene tarifa, cambia a "Cotización".</p>
+                    </div>
+                  )}
                   <div className="px-5 py-4 space-y-0 divide-y divide-slate-50">
                     {f.mode === 'propia' ? (
                       <>
@@ -897,7 +998,7 @@ export default function CargoRegistration() {
                         <CostLine label="Mano de obra / viático" value={clp(laborCst)} />
                         <CostLine label="Costo operativo total" value={clp(opCost)} bold />
                         <div className="pt-3 pb-1">
-                          <CostLine label="Tarifa al cliente" value={clp(revenue)} note={truck.label} />
+                          <CostLine label="Tarifa al cliente" value={clp(revenue)} note={!isQuote && agreedRate > 0 ? 'Tarifa acordada' : truck.label} />
                         </div>
                         <div className="pt-2">
                           <CostLine
@@ -914,11 +1015,11 @@ export default function CargoRegistration() {
                         <CostLine label="Costo proveedor (base)" value={subBase > 0 ? clp(subBase) : '—'} />
                         <CostLine label="Margen VTM (20%)" value={margin20 > 0 ? clp(margin20) : '—'} />
                         <div className="pt-2">
-                          <CostLine label="Total cotización" value={subTotal > 0 ? clp(subTotal) : '—'} bold />
+                          <CostLine label={isQuote ? 'Total cotización' : 'Total al cliente'} value={subTotal > 0 ? clp(subTotal) : '—'} bold />
                         </div>
-                        {margin20 > 0 && (
+                        {subTotal - subBase > 0 && subBase > 0 && (
                           <div className="pt-2">
-                            <CostLine label="Ganancia VTM" value={clp(margin20)} bold highlight="blue" />
+                            <CostLine label="Ganancia VTM" value={clp(subTotal - subBase)} bold highlight="blue" />
                           </div>
                         )}
                       </>
@@ -946,7 +1047,7 @@ export default function CargoRegistration() {
                       className="w-full py-2.5 rounded-xl text-[13px] font-bold text-white transition-all hover:opacity-90 active:scale-[0.98] disabled:opacity-50"
                       style={{ background: 'linear-gradient(135deg,#163358,#2558a0)' }}
                     >
-                      {saving ? '⏳ Registrando...' : '💾 Registrar OT y Cotizar'}
+                      {saving ? '⏳ Registrando...' : isQuote ? '💾 Guardar cotización' : '💾 Registrar orden de servicio'}
                     </button>
                     <button
                       type="button"
@@ -958,6 +1059,7 @@ export default function CargoRegistration() {
                     </button>
                     <button
                       type="button"
+                      onClick={sendQuoteByGmail}
                       className="w-full py-2 rounded-xl text-[12px] font-semibold text-blue-600 hover:text-blue-800 transition-colors"
                     >
                       ✉ Enviar cotización al cliente
