@@ -1,3 +1,6 @@
+// @ts-nocheck
+// Esta función corre en Deno (Supabase Edge Functions), no en Vite/Node: el TypeScript del
+// editor no conoce `Deno` ni las importaciones por URL, por eso se desactiva su revisión aquí.
 // supabase/functions/send-client-notifications/index.ts
 // Envía los correos de estado al cliente (sin fotos) que encola el trigger de documents.
 //
