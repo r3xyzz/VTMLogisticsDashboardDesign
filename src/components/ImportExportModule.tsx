@@ -147,7 +147,7 @@ export function DaySummary({ operations, type, activeDay, onSelectDay }: { opera
           return (
             <button key={key} onClick={() => onSelectDay(key)} className={tileClass(active)}>
               <p className={`text-[9px] font-bold uppercase tracking-wider ${active ? "opacity-80" : theme.label}`}>{key === todayKey ? theme.today : theme.tile}</p>
-              <p className="mt-1 text-sm font-bold">{formatShortDay(schedules.get(dayOps[0].id)!.date!)}</p>
+              <p className="mt-1 text-sm font-bold">{(() => { const date = schedules.get(dayOps[0]?.id)?.date; return date ? formatShortDay(date) : key })()}</p>
               <p className={`mt-1 text-[9px] ${active ? "opacity-80" : theme.detail}`}>{countLabel(dayOps.length)}{times.length ? ` · ${times.join(", ")}` : ""}</p>
             </button>
           )
@@ -316,6 +316,26 @@ const withCountdown = (operation: Operation): Operation => {
 const isUrgent = (operation: Operation) => operation.countdown != null && operation.countdown >= 0 && operation.countdown <= 2
 const countdownLabel = (days?: number) => days == null ? "Sin fecha" : days === 0 ? "HOY" : days < 0 ? "Pasada" : `${days} ${days === 1 ? "día" : "días"}`
 
+// Fichas guardadas en BD o borradores antiguos pueden venir incompletos: se rellenan para que la vista nunca lea un campo inexistente
+const TEXT_DEFAULTS = { client: "Desconocido", owner: "Por definir", reference: "S/R", container: "S/N", size: "Por definir", eta: "Por definir", port: "Por definir", origin: "—", destination: "—", driver: "Por asignar", plate: "—", seal: "—", weight: "—", deadline: "Sin fecha" } as const
+const normalizeOperation = (operation: Operation): Operation => {
+  const fixed = { ...operation } as Operation
+  for (const [key, fallback] of Object.entries(TEXT_DEFAULTS)) {
+    const value = (fixed as Record<string, unknown>)[key]
+    ;(fixed as Record<string, unknown>)[key] = value == null || typeof value === "object" ? fallback : String(value)
+  }
+  for (const key of ["loadingAt", "gateOut", "stackingAt", "booking", "shippingLine", "depot", "provider"] as const) {
+    const value = fixed[key]
+    if (value != null && typeof value !== "string") (fixed as Record<string, unknown>)[key] = typeof value === "object" ? undefined : String(value)
+  }
+  if (fixed.type !== "impo" && fixed.type !== "expo") fixed.type = "impo"
+  if (!statusStyles[fixed.status]) fixed.status = "Standby"
+  fixed.documents = Array.isArray(fixed.documents) ? fixed.documents : []
+  fixed.steps = Array.isArray(fixed.steps) ? fixed.steps : []
+  fixed.thread = Array.isArray(fixed.thread) ? fixed.thread : undefined
+  return fixed
+}
+
 const sameValue = (a: unknown, b: unknown) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null)
 // Campos de `next` que difieren de `base`
 const diffOperation = (next: Operation, base?: Operation): Partial<Operation> =>
@@ -363,15 +383,25 @@ export default function ImportExportModule() {
     () => groupByConversation(outlookEmails || []).map(mapConversationToOperation).filter(Boolean) as Operation[],
     [outlookEmails],
   )
+  // Bandeja "Correo procesado": se analiza cada correo una sola vez (no en cada clic de filtro)
+  const inboxEmails = useMemo(
+    () => (outlookEmails || []).flatMap((email) => {
+      const parsed = parseTableFromEmail(email.body?.content || "")
+      return parsed ? [{ email, parsed }] : []
+    }),
+    [outlookEmails],
+  )
   // Base de cada ficha: el correo si está en el buzón; si no, la copia guardada en BD
   const baseOperations = useMemo(() => {
     const parsedIds = new Set(parsedOperations.map((operation) => operation.id))
-    const savedOnly = Object.values(records).filter((record) => !parsedIds.has(record.operation_id)).map((record) => record.snapshot)
+    const savedOnly = Object.values(records)
+      .filter((record) => !parsedIds.has(record.operation_id) && record.snapshot && typeof record.snapshot === "object")
+      .map((record) => ({ ...record.snapshot, id: record.operation_id }))
     return [...parsedOperations, ...savedOnly]
   }, [parsedOperations, records])
   const savedBase = (operation: Operation) => ({ ...operation, ...records[operation.id]?.overrides })
   const allOperations = useMemo(
-    () => baseOperations.map((operation) => withCountdown({ ...operation, ...records[operation.id]?.overrides, ...edits[operation.id] })),
+    () => baseOperations.map((operation) => withCountdown(normalizeOperation({ ...operation, ...records[operation.id]?.overrides, ...edits[operation.id] }))),
     [baseOperations, records, edits],
   )
   const updateOperation = (operation: Operation) => {
@@ -608,10 +638,7 @@ export default function ImportExportModule() {
                   </div>
                 )}
 
-                {isConnected && outlookEmails.map((email) => {
-                  const parsed = parseTableFromEmail(email.body?.content || "");
-                  if (!parsed) return null;
-
+                {isConnected && inboxEmails.map(({ email, parsed }) => {
                   return (
                     <article key={email.id} className="p-5 hover:bg-slate-50">
                       <div className="flex items-start gap-4">

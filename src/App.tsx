@@ -15,6 +15,7 @@ import DriversModule from './components/DriversModule';
 import ClientsModule from './components/ClientsModule';
 import CalculationsModule from './components/CalculationsModule';
 import Login from './components/Login';
+import ErrorBoundary from './components/ui/ErrorBoundary';
 import EmailModule from './components/EmailModule';
 import FacturacionModule from './components/FacturacionModule';
 import CamionerosModule from './components/Camioneros';
@@ -403,7 +404,9 @@ function AppContent() {
           <span className="truncate text-sm font-semibold text-white">VTM Logistics</span>
         </div>
         <main className="min-w-0 flex-1 overflow-y-auto overflow-x-hidden bg-slate-50">
-          {view[currentView]}
+          <ErrorBoundary key={currentView} name={currentView}>
+            {view[currentView]}
+          </ErrorBoundary>
         </main>
       </div>
     </div>
