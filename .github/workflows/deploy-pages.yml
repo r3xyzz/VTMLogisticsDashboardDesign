@@ -22,7 +22,11 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
+      # lfs: los .png (logo) se guardan con Git LFS (.gitattributes); sin esto se publica
+      # el archivo "puntero" de texto en vez de la imagen y el logo no carga
       - uses: actions/checkout@v4
+        with:
+          lfs: true
 
       - uses: actions/setup-node@v4
         with:
