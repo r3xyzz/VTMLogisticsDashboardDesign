@@ -1,9 +1,12 @@
 // src/lib/outlookParser.ts
 import type { OutlookEmailForIE } from '../hooks/useOutlookForImportExport';
 
+export type CargoMode = "fcl" | "lcl"
+
 export type Operation = {
   id: string
   type: "impo" | "expo"
+  cargoMode?: CargoMode // FCL = carga de contenedor · LCL = carga suelta
   client: string
   owner: string
   reference: string
@@ -68,6 +71,9 @@ const FIELD_SYNONYMS = {
   viaje: ["viaje", "voyage"],
   ets: ["ets", "etd"],
   bodega: ["direccion de bodega", "direccion"],
+  // Solo para distinguir FCL/LCL (no cuentan para decidir si es carga)
+  tipoCarga: ["tipo de carga", "tipo carga", "modalidad"],
+  bultos: ["cantidad de bultos", "n bultos", "bultos"],
 } as const;
 
 type ParsedField = keyof typeof FIELD_SYNONYMS;
@@ -203,6 +209,30 @@ export function detectOperationType(subject: string, body: string, parsed: Recor
   return impo > expo ? "impo" : "expo";
 }
 
+// N° de contenedor ISO 6346: 4 letras + 7 dígitos (ej. MSCU 123456-7)
+const CONTAINER_NUMBER = /\b[A-Z]{4}\s*-?\s*\d{6}\s*-?\s*\d\b/i;
+// Tamaños de contenedor: 20' / 40 HC / 40DV / 45 pies...
+const CONTAINER_SIZE = /\b(20|40|45)\s*(st|dv|dc|hc|hq|rf|nor|ft|pies)\b|\b(20|40|45)\s*'/i;
+
+// FCL (contenedor) o LCL (carga suelta). Manda el campo "Tipo de carga"; después el asunto/cuerpo;
+// después las señales indirectas (n° de contenedor o tamaño => FCL; bultos sin contenedor => LCL).
+export function detectCargoMode(subject: string, text: string, parsed: Record<string, string>): CargoMode {
+  const tipo = normalize(parsed.tipoCarga || "");
+  if (/\blcl\b|suelta|consolidad/.test(tipo)) return "lcl";
+  if (/\bfcl\b|contenedor|full/.test(tipo)) return "fcl";
+  const all = normalize(`${subject} ${text}`);
+  const lcl = /\b(lcl|carga suelta|desconsolidacion)\b/.test(all);
+  const fcl = /\bfcl\b/.test(all);
+  if (lcl !== fcl) return lcl ? "lcl" : "fcl";
+  if (CONTAINER_NUMBER.test(parsed.container || "") || CONTAINER_SIZE.test(`${subject} ${text}`)) return "fcl";
+  if (parsed.bultos) return "lcl";
+  return parsed.container ? "fcl" : "lcl";
+}
+
+// Para fichas guardadas antes de existir cargoMode
+export const cargoModeOf = (op: Pick<Operation, "cargoMode" | "container" | "size">): CargoMode =>
+  op.cargoMode ?? (CONTAINER_NUMBER.test(op.container || "") || CONTAINER_SIZE.test(op.size || "") ? "fcl" : "lcl");
+
 export function mapEmailToOperation(email: OutlookEmailForIE): Operation | null {
   return mapConversationToOperation([email]);
 }
@@ -248,7 +278,8 @@ export function mapConversationToOperation(messages: OutlookEmailForIE[]): Opera
   const subjectDecides = SUBJECT_IMPO.test(subjectNorm) || SUBJECT_EXPO.test(subjectNorm);
   const hint = ordered.find((message) => message.typeHint)?.typeHint;
   const type = !subjectDecides && hint ? hint : detectOperationType(email.subject || "", allText, parsed);
-  
+  const cargoMode = detectCargoMode(email.subject || "", allText, parsed);
+
   // Extraemos el remitente real del cuerpo (para reenvíos)
   const realSender = extractSenderFromBody(html);
   // Si el correo es directo, usa el `from` de Graph; si es reenviado, usa el que sacamos del texto.
@@ -257,6 +288,7 @@ export function mapConversationToOperation(messages: OutlookEmailForIE[]): Opera
   return {
     id: email.conversationId || email.id, // estable aunque lleguen mensajes nuevos al hilo
     type,
+    cargoMode,
     client: senderName,
     owner: parsed.dAga || "Por definir",
     reference: parsed.refCronos || parsed.refDR || email.subject || "S/R",

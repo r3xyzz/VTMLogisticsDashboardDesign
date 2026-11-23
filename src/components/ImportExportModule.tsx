@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { supabase } from "../lib/supabase"
 import { useOutlookForImportExport } from "../hooks/useOutlookForImportExport"
-import { parseTableFromEmail, groupByConversation, mapConversationToOperation, loadingSchedule, dayKey, type Operation, type ThreadMessage } from "../lib/outlookParser"
+import { parseTableFromEmail, groupByConversation, mapConversationToOperation, loadingSchedule, dayKey, cargoModeOf, type CargoMode, type Operation, type ThreadMessage } from "../lib/outlookParser"
 
 type OperationType = "impo" | "expo"
 type OperationStatus = "Standby" | "Vacío" | "Full / Cargado" | "En tránsito" | "Entregado"
@@ -63,6 +63,7 @@ function OperationEditor({ operation, onUpdate }: { operation: Operation; onUpda
   return (
     <div className="grid grid-cols-2 gap-2">
       <label><span className={labelClass}>Tipo</span><select className={inputClass} value={operation.type} onChange={(event) => onUpdate({ ...operation, type: event.target.value as OperationType })}><option value="impo">Importación</option><option value="expo">Exportación</option></select></label>
+      <label><span className={labelClass}>Tipo de carga</span><select className={inputClass} value={cargoModeOf(operation)} onChange={(event) => onUpdate({ ...operation, cargoMode: event.target.value as CargoMode })}><option value="fcl">Contenedor (FCL)</option><option value="lcl">Carga suelta (LCL)</option></select></label>
       <label><span className={labelClass}>Estado</span><select className={inputClass} value={operation.status} onChange={(event) => onUpdate({ ...operation, status: event.target.value as OperationStatus })}>{STATUSES.map((status) => <option key={status}>{status}</option>)}</select></label>
       <label><span className={labelClass}>Clase contenedor</span><select className={inputClass} value={operation.containerClass ?? ""} onChange={(event) => onUpdate({ ...operation, containerClass: (event.target.value || undefined) as Operation["containerClass"] })}><option value="">—</option><option>Clase A</option><option>Clase M</option></select></label>
       {TEXT_FIELDS.map(([key, label]) => <label key={key}><span className={labelClass}>{label}</span><input className={inputClass} value={operation[key] ?? ""} onChange={(event) => onUpdate({ ...operation, [key]: event.target.value })} /></label>)}
@@ -408,6 +409,24 @@ export default function ImportExportModule() {
     onDiscard: () => discardOperation(operation.id),
   })
 
+  // Filtro FCL/LCL: cada cuenta de Outlook recuerda el suyo (ej. Cristóbal ve contenedores, Marcial carga suelta)
+  const cargoModeKey = `vtm-ie-cargo-mode:${(userEmail || "sin-cuenta").toLowerCase()}`
+  const [cargoFilter, setCargoFilter] = useState<"all" | CargoMode>("all")
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem(cargoModeKey)
+      setCargoFilter(stored === "fcl" || stored === "lcl" ? stored : "all")
+    } catch { setCargoFilter("all") }
+  }, [cargoModeKey])
+  const changeCargoFilter = (mode: "all" | CargoMode) => {
+    setCargoFilter(mode)
+    try { localStorage.setItem(cargoModeKey, mode) } catch { /* almacenamiento no disponible */ }
+  }
+  const modeOperations = useMemo(
+    () => cargoFilter === "all" ? allOperations : allOperations.filter((operation) => cargoModeOf(operation) === cargoFilter),
+    [allOperations, cargoFilter],
+  )
+
   // Estados locales
   const [section, setSection] = useState<Section>("operations")
   const [typeFilter, setTypeFilter] = useState<"all" | OperationType>("all")
@@ -416,13 +435,13 @@ export default function ImportExportModule() {
   const [selectedId, setSelectedId] = useState(allOperations[0]?.id || "")
 
   // Filtros
-  const clients = ["Todos", ...Array.from(new Set(allOperations.map((operation) => operation.client)))]
-  const filtered = useMemo(() => allOperations.filter((operation) => {
+  const clients = ["Todos", ...Array.from(new Set(modeOperations.map((operation) => operation.client)))]
+  const filtered = useMemo(() => modeOperations.filter((operation) => {
     const query = search.toLowerCase()
     return (typeFilter === "all" || operation.type === typeFilter)
       && (clientFilter === "Todos" || operation.client === clientFilter)
       && [operation.client, operation.owner, operation.reference, operation.container, operation.port].join(" ").toLowerCase().includes(query)
-  }), [typeFilter, clientFilter, search, allOperations])
+  }), [typeFilter, clientFilter, search, modeOperations])
 
   // Importaciones: orden por fecha/hora de retiro y filtro por día (mismo panel que exportación)
   const [impoDay, setImpoDay] = useState("Todos")
@@ -487,7 +506,10 @@ export default function ImportExportModule() {
             <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
               <div className="flex flex-wrap items-center gap-3">
                 <div className="flex rounded-lg bg-slate-100 p-1">
-                  {([{ id: "all", label: "Todas", count: allOperations.length }, { id: "impo", label: "Importaciones", count: allOperations.filter((item) => item.type === "impo").length }, { id: "expo", label: "Exportaciones", count: allOperations.filter((item) => item.type === "expo").length }] as const).map((tab) => <button key={tab.id} onClick={() => { setTypeFilter(tab.id); if (tab.id !== "all") setSelectedId(allOperations.find((item) => item.type === tab.id)?.id ?? selectedId) }} className={`flex h-8 items-center gap-2 rounded-md px-3 text-[11px] font-bold ${typeFilter === tab.id ? tab.id === "expo" ? "bg-red-500 text-white shadow-sm" : tab.id === "impo" ? "bg-slate-900 text-white shadow-sm" : "bg-white text-navy-700 shadow-sm" : "text-slate-500"}`}>{tab.label}<span className={`rounded-full px-1.5 py-0.5 text-[8px] ${typeFilter === tab.id ? "bg-white/15" : "bg-slate-200"}`}>{tab.count}</span></button>)}
+                  {([{ id: "all", label: "Todas", count: modeOperations.length }, { id: "impo", label: "Importaciones", count: modeOperations.filter((item) => item.type === "impo").length }, { id: "expo", label: "Exportaciones", count: modeOperations.filter((item) => item.type === "expo").length }] as const).map((tab) => <button key={tab.id} onClick={() => { setTypeFilter(tab.id); if (tab.id !== "all") setSelectedId(modeOperations.find((item) => item.type === tab.id)?.id ?? selectedId) }} className={`flex h-8 items-center gap-2 rounded-md px-3 text-[11px] font-bold ${typeFilter === tab.id ? tab.id === "expo" ? "bg-red-500 text-white shadow-sm" : tab.id === "impo" ? "bg-slate-900 text-white shadow-sm" : "bg-white text-navy-700 shadow-sm" : "text-slate-500"}`}>{tab.label}<span className={`rounded-full px-1.5 py-0.5 text-[8px] ${typeFilter === tab.id ? "bg-white/15" : "bg-slate-200"}`}>{tab.count}</span></button>)}
+                </div>
+                <div className="flex rounded-lg bg-slate-100 p-1" title="Se recuerda para la cuenta de Outlook conectada">
+                  {([{ id: "all", label: "Toda la carga" }, { id: "fcl", label: "Contenedor (FCL)" }, { id: "lcl", label: "Carga suelta (LCL)" }] as const).map((mode) => <button key={mode.id} onClick={() => changeCargoFilter(mode.id)} className={`flex h-8 items-center gap-2 rounded-md px-3 text-[11px] font-bold ${cargoFilter === mode.id ? "bg-navy-600 text-white shadow-sm" : "text-slate-500"}`}>{mode.label}<span className={`rounded-full px-1.5 py-0.5 text-[8px] ${cargoFilter === mode.id ? "bg-white/15" : "bg-slate-200"}`}>{mode.id === "all" ? allOperations.length : allOperations.filter((item) => cargoModeOf(item) === mode.id).length}</span></button>)}
                 </div>
                 <label className="flex h-9 min-w-64 flex-1 items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 text-slate-400 focus-within:border-navy-300 focus-within:bg-white"><Icon name="search" /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Buscar BL, booking, contenedor o cliente..." className="w-full bg-transparent text-xs text-slate-800 outline-none" /></label>
                 <select value={clientFilter} onChange={(event) => setClientFilter(event.target.value)} className="h-9 rounded-lg border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-600 outline-none">{clients.map((client) => <option key={client}>{client}</option>)}</select>
@@ -498,7 +520,7 @@ export default function ImportExportModule() {
 
             {typeFilter === "expo" ? (
               <ExportBoard
-                operations={allOperations}
+                operations={modeOperations}
                 selectedId={selectedId}
                 onSelect={setSelectedId}
                 onUpdate={updateOperation}
@@ -513,7 +535,7 @@ export default function ImportExportModule() {
                       <div className={`w-1.5 shrink-0 ${operation.type === "expo" ? "bg-red-500" : "bg-slate-950"}`} />
                       <div className="min-w-0 flex-1 p-4">
                         <div className="flex flex-wrap items-start justify-between gap-3">
-                          <div className="flex items-start gap-3"><div className={`flex size-10 items-center justify-center rounded-lg ${operation.type === "expo" ? "bg-red-50 text-red-600" : "bg-slate-100 text-slate-900"}`}><Icon name={operation.type === "expo" ? "ship" : "anchor"} className="size-5" /></div><div><div className="flex items-center gap-2"><span className={`text-[8px] font-bold uppercase tracking-widest ${operation.type === "expo" ? "text-red-600" : "text-slate-600"}`}>{operation.type === "expo" ? "Exportación" : "Importación"}</span><span className="text-[9px] text-slate-300">•</span><span className="font-mono text-[10px] font-bold text-slate-500">{operation.reference}</span></div><p className="mt-1 text-sm font-bold text-slate-950">{operation.client} <span className="font-medium text-slate-400">/ {operation.owner}</span></p><p className="mt-1 font-mono text-[10px] text-slate-500">{operation.container} · {operation.size}</p></div></div>
+                          <div className="flex items-start gap-3"><div className={`flex size-10 items-center justify-center rounded-lg ${operation.type === "expo" ? "bg-red-50 text-red-600" : "bg-slate-100 text-slate-900"}`}><Icon name={operation.type === "expo" ? "ship" : "anchor"} className="size-5" /></div><div><div className="flex items-center gap-2"><span className={`text-[8px] font-bold uppercase tracking-widest ${operation.type === "expo" ? "text-red-600" : "text-slate-600"}`}>{operation.type === "expo" ? "Exportación" : "Importación"}</span><span className={`rounded px-1.5 py-0.5 text-[8px] font-bold ${cargoModeOf(operation) === "lcl" ? "bg-amber-50 text-amber-700" : "bg-blue-50 text-blue-700"}`}>{cargoModeOf(operation) === "lcl" ? "LCL" : "FCL"}</span><span className="text-[9px] text-slate-300">•</span><span className="font-mono text-[10px] font-bold text-slate-500">{operation.reference}</span></div><p className="mt-1 text-sm font-bold text-slate-950">{operation.client} <span className="font-medium text-slate-400">/ {operation.owner}</span></p><p className="mt-1 font-mono text-[10px] text-slate-500">{operation.container} · {operation.size}</p></div></div>
                           <div className="text-right"><span className={`inline-flex rounded-full px-2.5 py-1 text-[9px] font-bold ring-1 ring-inset ${statusStyles[operation.status]}`}>{operation.status}</span><p className={`mt-2 text-[10px] font-bold ${isUrgent(operation) ? "text-red-600" : "text-slate-500"}`}>{operation.deadline}</p>{operation.type === "impo" && <p className="mt-1 text-[10px] font-bold capitalize text-slate-700">Retiro: {impoTools.whenLabel(operation)}</p>}</div>
                         </div>
                         <div className="mt-4 grid grid-cols-[1fr_auto_1fr_auto] items-center gap-3 border-t border-slate-100 pt-3">
