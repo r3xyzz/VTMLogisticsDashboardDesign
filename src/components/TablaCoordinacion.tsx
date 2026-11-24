@@ -42,7 +42,8 @@ type Service = {
   pickup: string
   pickupContact: string
   delivery: string
-  deliveryDate: string // YYYY-MM-DD
+  deliveryDate: string // YYYY-MM-DD (entregar a más tardar)
+  deliveryTime: string // HH:MM (entregar a más tardar)
   deliveryContact: string
   instructions: string // instrucciones especiales (encarpar...)
   driver: string
@@ -159,6 +160,7 @@ function rowToService(row: any): Service {
     pickupContact: row.pickup_contact || "",
     delivery: row.delivery || "",
     deliveryDate: row.delivery_date || "",
+    deliveryTime: row.delivery_time || "",
     deliveryContact: row.delivery_contact || "",
     instructions: row.special_instructions || "",
     driver: row.driver || "",
@@ -210,6 +212,8 @@ function serviceToRow(service: Service) {
     pickup_contact: service.pickupContact,
     delivery: service.delivery,
     delivery_date: service.deliveryDate || null,
+    // Solo se envía si tiene valor: así no falla si aún no se corre la migración 20261124b
+    ...(service.deliveryTime ? { delivery_time: service.deliveryTime } : {}),
     delivery_contact: service.deliveryContact,
     special_instructions: service.instructions || null,
     driver: service.driver,
@@ -236,7 +240,7 @@ function rowToBoard(row: any): Board {
 const newService = (mode: CargoMode, serviceDate: string): Service => ({
   id: "", mode, type: "impo", serviceDate, time: "", forwarder: "", finalClient: "", reference: "", shippingLine: "", containerNumber: "",
   containerSize: mode === "fcl" ? "40" : "", cargo: "", packages: "", pallets: "", weightKg: "", volumeCbm: "", zone: "", dimensions: "", stackable: false, stacking: "", stackingTone: "safe",
-  pickup: "", pickupContact: "", delivery: "", deliveryDate: "", deliveryContact: "", instructions: "", driver: "", plate: "", trailer: "",
+  pickup: "", pickupContact: "", delivery: "", deliveryDate: "", deliveryTime: "", deliveryContact: "",instructions: "", driver: "", plate: "", trailer: "",
   status: "Programado", done: false, orderId: "", tripStatus: "", source: "", updated: "",
 })
 
@@ -898,7 +902,8 @@ function EditServiceModal({ service, title, onChange, onClose, onSave, onDelete,
             <label className="md:col-span-2"><span className={fieldLabel}>Lugar de retiro</span><input className={editInput} value={service.pickup} onChange={(e) => set("pickup", e.target.value)} placeholder="Depósito, puerto San Antonio..." /></label>
             <label className="md:col-span-2"><span className={fieldLabel}>Contacto de retiro</span><input className={editInput} value={service.pickupContact} onChange={(e) => set("pickupContact", e.target.value)} /></label>
             <label className="md:col-span-2"><span className={fieldLabel}>Dirección exacta de entrega</span><input className={editInput} value={service.delivery} onChange={(e) => set("delivery", e.target.value)} placeholder="Calle, número, comuna" /></label>
-            <label><span className={fieldLabel}>Fecha de entrega</span><input type="date" className={editInput} value={service.deliveryDate} onChange={(e) => set("deliveryDate", e.target.value)} /></label>
+            <label><span className={fieldLabel}>Entregar a más tardar · fecha</span><input type="date" className={editInput} value={service.deliveryDate} onChange={(e) => set("deliveryDate", e.target.value)} /></label>
+            <label><span className={fieldLabel}>Entregar a más tardar · hora</span><input type="time" className={editInput} value={service.deliveryTime} onChange={(e) => set("deliveryTime", e.target.value)} /></label>
             <label><span className={fieldLabel}>Teléfono / contacto de entrega</span><input className={editInput} value={service.deliveryContact} onChange={(e) => set("deliveryContact", e.target.value)} placeholder="+56 9 ..." /></label>
 
             <label className="md:col-span-3 xl:col-span-4"><span className={fieldLabel}>Instrucciones especiales</span><input className={editInput} value={service.instructions} onChange={(e) => set("instructions", e.target.value)} placeholder="Encarpar, llevar cadenas, llamar antes de llegar..." /></label>

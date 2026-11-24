@@ -179,6 +179,11 @@ const emptyForm = () => ({
   operationType: 'impo' as 'impo' | 'expo',
   serviceDate: localToday(),
   pickupTime: '',
+  pickupPlace: '', // dirección exacta de retiro (la ciudad es "Origen")
+  deliveryPlace: '', // dirección exacta de entrega (la ciudad es "Destino")
+  deliveryDate: '', // entregar a más tardar (fecha)
+  deliveryTime: '', // entregar a más tardar (hora)
+  deliveryContact: '',
   containerNumber: '',
   containerSize: '40',
 });
@@ -353,10 +358,12 @@ export default function CargoRegistration() {
       stacking_tone: 'safe',
       container_number: f.cargoMode === 'fcl' ? (f.containerNumber.trim().toUpperCase() || null) : null,
       container_size: f.cargoMode === 'fcl' ? (f.containerSize || null) : null,
-      pickup: f.origin || '',
+      pickup: [f.pickupPlace.trim(), f.origin].filter(Boolean).join(', '),
       pickup_contact: f.contact || '',
-      delivery: f.destination || '',
-      delivery_contact: '',
+      delivery: [f.deliveryPlace.trim(), f.destination].filter(Boolean).join(', '),
+      delivery_date: f.deliveryDate || null,
+      ...(f.deliveryTime ? { delivery_time: f.deliveryTime } : {}),
+      delivery_contact: f.deliveryContact.trim(),
       special_instructions: f.notes || null,
       driver: f.mode === 'propia' ? (driver?.full_name || '') : (provider ? `Subcontrato: ${provider.name}` : ''),
       plate: f.mode === 'propia' ? (vehicle?.plate || '') : (provider?.vehicle_plate || ''),
@@ -649,12 +656,20 @@ export default function CargoRegistration() {
                     </select>
                   </div>
                   <div>
-                    <Lbl req>Fecha del servicio</Lbl>
+                    <Lbl req>Fecha de retiro</Lbl>
                     <input type="date" className={inp} value={f.serviceDate} onChange={e => set('serviceDate', e.target.value)} required={!savingDraft} />
                   </div>
                   <div>
                     <Lbl>Hora de retiro</Lbl>
                     <input type="time" className={inp} value={f.pickupTime} onChange={e => set('pickupTime', e.target.value)} />
+                  </div>
+                  <div>
+                    <Lbl>Entregar a más tardar · fecha</Lbl>
+                    <input type="date" className={inp} min={f.serviceDate || undefined} value={f.deliveryDate} onChange={e => set('deliveryDate', e.target.value)} />
+                  </div>
+                  <div>
+                    <Lbl>Entregar a más tardar · hora</Lbl>
+                    <input type="time" className={inp} value={f.deliveryTime} onChange={e => set('deliveryTime', e.target.value)} />
                   </div>
                   {f.cargoMode === 'fcl' && (
                     <>
@@ -710,6 +725,18 @@ export default function CargoRegistration() {
                         .filter(c => c !== f.origin || !f.origin)
                         .map(c => <option key={c} value={c}>{c}</option>)}
                     </select>
+                  </div>
+                  <div>
+                    <Lbl>Lugar / dirección de retiro</Lbl>
+                    <input className={inp} placeholder="Bodega, calle y número" value={f.pickupPlace} onChange={e => set('pickupPlace', e.target.value)} />
+                  </div>
+                  <div>
+                    <Lbl>Lugar / dirección de entrega</Lbl>
+                    <input className={inp} placeholder="Calle, número, comuna" value={f.deliveryPlace} onChange={e => set('deliveryPlace', e.target.value)} />
+                  </div>
+                  <div className="col-span-2">
+                    <Lbl>Teléfono / contacto en destino</Lbl>
+                    <input className={inp} placeholder="+56 9 ..." value={f.deliveryContact} onChange={e => set('deliveryContact', e.target.value)} />
                   </div>
                   <div className="col-span-2">
                     <Lbl>Ruta estimada</Lbl>

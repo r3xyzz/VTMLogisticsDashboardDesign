@@ -34,7 +34,12 @@ interface Trip {
   rawStatus: string; fleetId: string | null;
   uploads: Partial<Record<DocumentKey, UploadValue>>
   // Resumen operativo enviado por Coordinación (pallets, kilos, m³, hora y punto de retiro, contacto de entrega)
-  summary: { packages: string; pallets: string; weightKg: number | null; volumeCbm: number | null; pickupTime: string; pickup: string; delivery: string; deliveryContact: string; instructions: string }
+  summary: {
+    packages: string; pallets: string; weightKg: number | null; volumeCbm: number | null
+    pickupDate: string; pickupTime: string; pickupCity: string; pickup: string
+    deliveryDate: string; deliveryTime: string; deliveryCity: string; delivery: string
+    deliveryContact: string; instructions: string
+  }
 }
 
 const uploadDefinitions: { key: DocumentKey; step: number; title: string; description: string; accept: string; icon: IconName; phase: string }[] = [
@@ -43,6 +48,20 @@ const uploadDefinitions: { key: DocumentKey; step: number; title: string; descri
   { key: "completedPod", step: 3, title: "POD completo y firmado/sellado", description: "POD con nombre, fecha, hora, firma y sellos del receptor.", accept: ".pdf,image/*", icon: "document", phase: "En destino" },
   { key: "deliveryEvidence", step: 4, title: "Evidencia de descarga", description: "Foto de la mercadería descargada en el lugar de entrega.", accept: "image/*", icon: "camera", phase: "En destino" },
 ]
+
+// "2026-11-24" -> "lun 24/11/2026" sin el desfase de zona horaria de new Date("YYYY-MM-DD")
+const formatDay = (day: string) => {
+  if (!/^\d{4}-\d{2}-\d{2}/.test(day || "")) return ""
+  const [y, m, d] = day.slice(0, 10).split("-").map(Number)
+  return new Date(y, m - 1, d).toLocaleDateString("es-CL", { weekday: "short", day: "2-digit", month: "2-digit", year: "numeric" })
+}
+// Plazo vencido: fecha (y hora, si hay) de entrega ya pasó
+const isOverdue = (day: string, time: string) => {
+  if (!day) return false
+  const [y, m, d] = day.slice(0, 10).split("-").map(Number)
+  const [hh, mm] = (time || "23:59").split(":").map(Number)
+  return new Date(y, m - 1, d, hh || 0, mm || 0) < new Date()
+}
 
 const getStatusLabel = (status: string) => {
     if (status === 'completed') return 'Completado';
@@ -257,7 +276,7 @@ export default function CamionerosModule() {
           // OT subcontratada: el transportista es el proveedor
           driver: driverName.get(order.driver_id) || (providerById.get(order.provider_id) ? `Proveedor: ${providerById.get(order.provider_id).name}` : "Sin chofer asignado"), initials: (order.client?.name || "XX").substring(0, 2).toUpperCase(),
           truck: truckName.get(order.fleet_id) || providerById.get(order.provider_id)?.vehicle_plate || "Sin vehículo asignado", route: `${order.origin} → ${order.destination}`, origin: order.origin, destination: order.destination,
-          appointment: new Date(order.service_date).toLocaleDateString('es-CL'), status: getStatusLabel(order.status), rawStatus: order.status, fleetId: order.fleet_id ?? null, uploads,
+          appointment: formatDay(order.service_date),status: getStatusLabel(order.status), rawStatus: order.status, fleetId: order.fleet_id ?? null, uploads,
           summary: (() => {
             const c: any = coordByOrder.get(order.id) || {};
             return {
@@ -265,9 +284,14 @@ export default function CamionerosModule() {
               pallets: c.pallets || (order.package_type === 'Pallets' && order.quantity ? String(order.quantity) : ''),
               weightKg: c.weight_kg ?? order.weight_kg ?? null,
               volumeCbm: c.volume_cbm ?? order.volume_cbm ?? null,
+              pickupDate: c.service_date || order.service_date || '',
               pickupTime: c.time || '',
-              pickup: c.pickup || order.origin || '',
-              delivery: c.delivery || order.destination || '',
+              pickupCity: order.origin || '',
+              pickup: c.pickup || '',
+              deliveryDate: c.delivery_date || '',
+              deliveryTime: c.delivery_time || '',
+              deliveryCity: order.destination || '',
+              delivery: c.delivery || '',
               deliveryContact: c.delivery_contact || '',
               instructions: c.special_instructions || '',
             };
@@ -432,18 +456,17 @@ export default function CamionerosModule() {
                     </div>
                   </div>
                   <div className="grid gap-4 p-5 sm:grid-cols-[1fr_auto_1fr] sm:items-center">
-                    <div><p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Retiro</p><p className="mt-1 text-sm font-semibold text-slate-900">{selected.origin}</p></div>
+                    <div><p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Retiro · {selected.appointment}</p><p className="mt-1 text-sm font-semibold text-slate-900">{selected.origin}</p></div>
                     <div className="hidden items-center gap-2 text-slate-300 sm:flex"><span className="h-px w-8 bg-slate-200" /><Icon name="arrow" /><span className="h-px w-8 bg-slate-200" /></div>
-                    <div className="sm:text-right"><p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Entrega · {selected.appointment}</p><p className="mt-1 text-sm font-semibold text-slate-900">{selected.destination}</p></div>
+                    <div className="sm:text-right"><p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Entrega{selected.summary.deliveryDate ? ` · hasta ${formatDay(selected.summary.deliveryDate)}` : ""}</p><p className="mt-1 text-sm font-semibold text-slate-900">{selected.destination}</p></div>
                   </div>
                 </article>
 
                 <article className="rounded-xl border border-slate-200 bg-white p-5">
                   <p className="text-base font-bold text-slate-950">Resumen de la ruta</p>
-                  <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-5">
+                  <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
                     {[
-                      ["Hora de retiro", selected.summary.pickupTime || "Por confirmar"],
-                      ["Bultos", selected.summary.packages || "—"],
+["Bultos", selected.summary.packages || "—"],
                       ["Pallets", selected.summary.pallets || "—"],
                       ["Peso", selected.summary.weightKg ? `${Number(selected.summary.weightKg).toLocaleString("es-CL")} kg` : "—"],
                       ["Volumen", selected.summary.volumeCbm ? `${Number(selected.summary.volumeCbm).toLocaleString("es-CL")} m³` : "—"],
@@ -451,11 +474,25 @@ export default function CamionerosModule() {
                       <div key={label} className="rounded-lg bg-slate-50 p-3"><p className="text-[9px] font-bold uppercase tracking-wider text-slate-400">{label}</p><p className="mt-1 text-sm font-bold text-slate-900">{value}</p></div>
                     ))}
                   </div>
-                  <div className="mt-3 grid gap-2 sm:grid-cols-2">
-                    <div className="rounded-lg border border-slate-200 p-3"><p className="text-[9px] font-bold uppercase tracking-wider text-slate-400">Punto de retiro</p><p className="mt-1 text-sm font-semibold text-slate-900">{selected.summary.pickup || "—"}</p></div>
-                    <div className="rounded-lg border border-slate-200 p-3"><p className="text-[9px] font-bold uppercase tracking-wider text-slate-400">Dirección de entrega</p><p className="mt-1 text-sm font-semibold text-slate-900">{selected.summary.delivery || "—"}</p>
-                      {selected.summary.deliveryContact && <a href={`tel:${selected.summary.deliveryContact.replace(/[^0-9+]/g, "")}`} className="mt-1 block text-xs font-bold text-navy-600">📞 {selected.summary.deliveryContact}</a>}
-                    </div>
+                  <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                    {([
+                      { kind: "Retiro", title: "Ir a retirar", tone: "border-blue-200 bg-blue-50/50", accent: "text-blue-700", date: selected.summary.pickupDate, time: selected.summary.pickupTime, city: selected.summary.pickupCity, place: selected.summary.pickup, overdue: false },
+                      { kind: "Entrega", title: "Entregar a más tardar", tone: "border-red-200 bg-red-50/50", accent: "text-red-700", date: selected.summary.deliveryDate, time: selected.summary.deliveryTime, city: selected.summary.deliveryCity, place: selected.summary.delivery, overdue: selected.rawStatus !== "completed" && isOverdue(selected.summary.deliveryDate, selected.summary.deliveryTime) },
+                    ]).map((stop) => (
+                      <div key={stop.kind} className={`rounded-xl border p-4 ${stop.tone}`}>
+                        <div className="flex items-center justify-between gap-2">
+                          <p className={`text-[10px] font-bold uppercase tracking-wider ${stop.accent}`}>{stop.kind} · {stop.title}</p>
+                          {stop.overdue && <span className="rounded-full bg-red-600 px-2 py-0.5 text-[9px] font-bold text-white">Plazo vencido</span>}
+                        </div>
+                        <div className="mt-2 grid grid-cols-2 gap-2">
+                          <div><p className="text-[9px] font-bold uppercase text-slate-400">Fecha</p><p className="text-sm font-bold capitalize text-slate-900">{formatDay(stop.date) || "Por confirmar"}</p></div>
+                          <div><p className="text-[9px] font-bold uppercase text-slate-400">Hora</p><p className="text-sm font-bold text-slate-900">{stop.time || "Por confirmar"}</p></div>
+                          <div><p className="text-[9px] font-bold uppercase text-slate-400">Ciudad</p><p className="text-sm font-semibold text-slate-900">{stop.city || "—"}</p></div>
+                          <div><p className="text-[9px] font-bold uppercase text-slate-400">Lugar</p><p className="text-sm font-semibold text-slate-900">{stop.place && stop.place !== stop.city ? stop.place : "Por confirmar"}</p></div>
+                        </div>
+                        {stop.kind === "Entrega" && selected.summary.deliveryContact && <a href={`tel:${selected.summary.deliveryContact.replace(/[^0-9+]/g, "")}`} className="mt-2 block text-xs font-bold text-navy-600">📞 {selected.summary.deliveryContact}</a>}
+                      </div>
+                    ))}
                   </div>
                   {selected.summary.instructions && <p className="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800 ring-1 ring-inset ring-amber-200">⚠ {selected.summary.instructions}</p>}
                 </article>
