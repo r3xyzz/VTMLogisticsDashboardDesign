@@ -13,7 +13,13 @@ interface Props { onNavigate: (v: ActiveView) => void }
 
 /* ─── FUNCIÓN PARA CONSTRUIR KPIS ────────────────────────────────────────── */
 
-function buildKpis(diesel: DieselSummary | null, dieselError: string | null) {
+// Total de facturas = suma de la columna "Total" de Facturación (tabla invoices)
+type InvoiceSummary = { total: number; count: number } | null
+const formatClpShort = (value: number) => Math.abs(value) >= 1_000_000
+    ? `$${(value / 1_000_000).toLocaleString('es-CL', { maximumFractionDigits: 2 })}M`
+    : `$${Math.round(value).toLocaleString('es-CL')}`
+
+function buildKpis(diesel: DieselSummary | null, dieselError: string | null, invoices: InvoiceSummary) {
     let priceDisplay = 'Cargando...';
     let priceDelta = 'Actualizando...';
     const priceUp = null;
@@ -52,9 +58,9 @@ function buildKpis(diesel: DieselSummary | null, dieselError: string | null) {
             accent: '#ea580c', accentBg: '#fff7ed',
         },
         {
-            label: 'Margen Operativo · Ago',
-            value: '$4.82M',
-            delta: 'CLP estimado al 18/08',
+            label: 'Margen Operativo',
+            value: invoices ? formatClpShort(invoices.total) : 'Cargando...',
+            delta: invoices ? `Total de ${invoices.count} facturas · $${Math.round(invoices.total).toLocaleString('es-CL')}` : 'Facturación',
             up: true,
             icon: 'M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z',
             accent: '#2558a0', accentBg: '#eff6ff',
@@ -149,6 +155,23 @@ export default function Dashboard({ onNavigate }: Props) {
     const shownTrips = tripsView === 'hoy' ? todayTrips : tripsView === 'proximos' ? futureTrips : trips;
     const dayLabel = (day: string) => day === todayKey ? 'Hoy' : day ? new Date(`${day}T12:00:00`).toLocaleDateString('es-CL', { weekday: 'short', day: '2-digit', month: '2-digit' }).replace(',', '') : 'Sin fecha';
 
+    // ✅ TOTAL DE FACTURAS (mismo cálculo que la columna Total de Facturación: total, o neto + IVA)
+    const [invoiceSummary, setInvoiceSummary] = useState<InvoiceSummary>(null);
+    useEffect(() => {
+        const load = async () => {
+            const { data, error } = await supabase.from('invoices').select('total, monto, iva');
+            if (error) { console.error('Error cargando facturas:', error); return; }
+            const rows = (data || []) as { total: number | null; monto: number | null; iva: number | null }[];
+            const total = rows.reduce((sum, row) => sum + Number(row.total ?? (Number(row.monto || 0) + Number(row.iva || 0))), 0);
+            setInvoiceSummary({ total, count: rows.length });
+        };
+        load();
+        const channel = supabase.channel(`dashboard-invoices-${Date.now()}-${Math.random().toString(36).slice(2)}`)
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'invoices' }, () => load())
+            .subscribe();
+        return () => { supabase.removeChannel(channel); };
+    }, []);
+
     // ✅ ESTADO PARA ALERTAS
     const [dismissed, setDismiss] = useState<Set<number>>(new Set())
     const [activeAlerts] = useState(alerts.length)
@@ -165,7 +188,7 @@ export default function Dashboard({ onNavigate }: Props) {
     }, []);
 
     // ✅ CONSTRUIR KPIS CON EL PRECIO
-    const kpis = buildKpis(diesel, dieselError);
+    const kpis = buildKpis(diesel, dieselError, invoiceSummary);
 
     // ✅ RENDERIZADO
     return (
