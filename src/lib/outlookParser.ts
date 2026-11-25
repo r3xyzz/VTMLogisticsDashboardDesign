@@ -214,17 +214,37 @@ const CONTAINER_NUMBER = /\b[A-Z]{4}\s*-?\s*\d{6}\s*-?\s*\d\b/i;
 // Tamaños de contenedor: 20' / 40 HC / 40DV / 45 pies...
 const CONTAINER_SIZE = /\b(20|40|45)\s*(st|dv|dc|hc|hq|rf|nor|ft|pies)\b|\b(20|40|45)\s*'/i;
 
-// FCL (contenedor) o LCL (carga suelta). Manda el campo "Tipo de carga"; después el asunto/cuerpo;
-// después las señales indirectas (n° de contenedor o tamaño => FCL; bultos sin contenedor => LCL).
-export function detectCargoMode(subject: string, text: string, parsed: Record<string, string>): CargoMode {
+// FCL (contenedor) o LCL (carga suelta).
+// Orden de decisión:
+//   1. Campo "Tipo de carga" / "Modalidad" de la tabla.
+//   2. Mención explícita en el hilo, del mensaje MÁS NUEVO al más antiguo (el último que lo dice manda):
+//      LCL: "LCL", "carga suelta", "consolidado/a", "desconsolidación", "less than container", "bultos/pallets sueltos"
+//      FCL: "FCL", "FLC" (error de tipeo común), "full container", "contenedor completo/full/de 20/40", "carga en contenedor"
+//   3. Señales indirectas: n° o tamaño de contenedor => FCL; la palabra "contenedor" => FCL; bultos sin contenedor => LCL.
+const LCL_EXPLICIT = /\b(lcl|carga suelta|cargas sueltas|consolidad[oa]s?|carga consolidada|desconsolidacion|less than (a )?container( load)?|(bultos|pallets|cajas) sueltos?)\b/
+const FCL_EXPLICIT = /\b(fcl|flc|full container( load)?|contenedor (completo|full|lleno|de (20|40|45))|contenedores (completos|de (20|40|45))|carga (en|de) contenedor|en contenedor(es)? (de )?(20|40|45))\b/
+const FCL_WEAK = /\b(contenedor(es)?|container(s)?|cntr)\b/
+
+function explicitMode(text: string): CargoMode | null {
+  const t = normalize(text)
+  const lcl = LCL_EXPLICIT.test(t)
+  const fcl = FCL_EXPLICIT.test(t)
+  return lcl === fcl ? null : lcl ? "lcl" : "fcl"
+}
+
+export function detectCargoMode(subject: string, text: string, parsed: Record<string, string>, messagesNewestFirst: string[] = []): CargoMode {
   const tipo = normalize(parsed.tipoCarga || "");
   if (/\blcl\b|suelta|consolidad/.test(tipo)) return "lcl";
-  if (/\bfcl\b|contenedor|full/.test(tipo)) return "fcl";
-  const all = normalize(`${subject} ${text}`);
-  const lcl = /\b(lcl|carga suelta|desconsolidacion)\b/.test(all);
-  const fcl = /\bfcl\b/.test(all);
-  if (lcl !== fcl) return lcl ? "lcl" : "fcl";
+  if (/\bfcl\b|\bflc\b|contenedor|full/.test(tipo)) return "fcl";
+  // El mensaje más nuevo que lo diga explícitamente manda (la conversación puede corregir el tipo)
+  for (const message of messagesNewestFirst) {
+    const mode = explicitMode(message)
+    if (mode) return mode
+  }
+  const fromAll = explicitMode(`${subject} ${text}`)
+  if (fromAll) return fromAll
   if (CONTAINER_NUMBER.test(parsed.container || "") || CONTAINER_SIZE.test(`${subject} ${text}`)) return "fcl";
+  if (FCL_WEAK.test(normalize(`${subject} ${text}`))) return "fcl";
   if (parsed.bultos) return "lcl";
   return parsed.container ? "fcl" : "lcl";
 }
@@ -278,7 +298,9 @@ export function mapConversationToOperation(messages: OutlookEmailForIE[]): Opera
   const subjectDecides = SUBJECT_IMPO.test(subjectNorm) || SUBJECT_EXPO.test(subjectNorm);
   const hint = ordered.find((message) => message.typeHint)?.typeHint;
   const type = !subjectDecides && hint ? hint : detectOperationType(email.subject || "", allText, parsed);
-  const cargoMode = detectCargoMode(email.subject || "", allText, parsed);
+  // Asunto + lo nuevo de cada mensaje, del más reciente al más antiguo
+  const messagesNewestFirst = [...ordered].reverse().map((m, index, list) => `${index === list.length - 1 ? m.subject || "" : ""} ${htmlToText(m.uniqueBody?.content || m.body?.content || "")}`)
+  const cargoMode = detectCargoMode(email.subject || "", allText, parsed, messagesNewestFirst);
 
   // Extraemos el remitente real del cuerpo (para reenvíos)
   const realSender = extractSenderFromBody(html);

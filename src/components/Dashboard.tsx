@@ -19,7 +19,10 @@ const formatClpShort = (value: number) => Math.abs(value) >= 1_000_000
     ? `$${(value / 1_000_000).toLocaleString('es-CL', { maximumFractionDigits: 2 })}M`
     : `$${Math.round(value).toLocaleString('es-CL')}`
 
-function buildKpis(diesel: DieselSummary | null, dieselError: string | null, invoices: InvoiceSummary) {
+// Flota real (tabla fleet, la misma de Flota · Vehículos y Jefatura de Patio)
+type FleetSummary = { inRoute: number; available: number; maintenance: number; inactive: number; total: number } | null
+
+function buildKpis(diesel: DieselSummary | null, dieselError: string | null, invoices: InvoiceSummary, fleet: FleetSummary) {
     let priceDisplay = 'Cargando...';
     let priceDelta = 'Actualizando...';
     const priceUp = null;
@@ -43,8 +46,8 @@ function buildKpis(diesel: DieselSummary | null, dieselError: string | null, inv
         },
         {
             label: 'Flota en Ruta / Total',
-            value: '14 / 18',
-            delta: '4 disponibles',
+            value: fleet ? `${fleet.inRoute} / ${fleet.total}` : 'Cargando...',
+            delta: fleet ? [`${fleet.available} disponibles`, fleet.maintenance && `${fleet.maintenance} en mantención`, fleet.inactive && `${fleet.inactive} fuera de servicio`].filter(Boolean).join(' · ') : 'Flota · Vehículos',
             up: null,
             icon: 'M9 17a2 2 0 11-4 0 2 2 0 014 0zM19 17a2 2 0 11-4 0 2 2 0 014 0zM13 16V6a1 1 0 00-1-1H4a1 1 0 00-1 1v10a1 1 0 001 1h1m8-1a1 1 0 01-1 1H9m4-1V8a1 1 0 011-1h2.586a1 1 0 01.707.293l3.414 3.414a1 1 0 01.293.707V16a1 1 0 01-1 1h-1m-6-1a1 1 0 001 1h1M5 17a2 2 0 104 0m-4 0a2 2 0 114 0m6 0a2 2 0 104 0m-4 0a2 2 0 114 0',
             accent: '#16a34a', accentBg: '#f0fdf4',
@@ -172,6 +175,23 @@ export default function Dashboard({ onNavigate }: Props) {
         return () => { supabase.removeChannel(channel); };
     }, []);
 
+    // ✅ FLOTA REAL: en ruta lo marca la OT; disponible / mantención / fuera de servicio se gestionan en Flota y Jefatura de Patio
+    const [fleetSummary, setFleetSummary] = useState<FleetSummary>(null);
+    useEffect(() => {
+        const load = async () => {
+            const { data, error } = await supabase.from('fleet').select('status');
+            if (error) { console.error('Error cargando flota:', error); return; }
+            const statuses = ((data || []) as { status: string | null }[]).map(row => row.status || 'available');
+            const count = (status: string) => statuses.filter(s => s === status).length;
+            setFleetSummary({ inRoute: count('in_route'), available: count('available'), maintenance: count('maintenance'), inactive: count('inactive'), total: statuses.length });
+        };
+        load();
+        const channel = supabase.channel(`dashboard-fleet-${Date.now()}-${Math.random().toString(36).slice(2)}`)
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'fleet' }, () => load())
+            .subscribe();
+        return () => { supabase.removeChannel(channel); };
+    }, []);
+
     // ✅ ESTADO PARA ALERTAS
     const [dismissed, setDismiss] = useState<Set<number>>(new Set())
     const [activeAlerts] = useState(alerts.length)
@@ -188,7 +208,7 @@ export default function Dashboard({ onNavigate }: Props) {
     }, []);
 
     // ✅ CONSTRUIR KPIS CON EL PRECIO
-    const kpis = buildKpis(diesel, dieselError, invoiceSummary);
+    const kpis = buildKpis(diesel, dieselError, invoiceSummary, fleetSummary);
 
     // ✅ RENDERIZADO
     return (
