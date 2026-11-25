@@ -15,7 +15,9 @@ type PenColor = "black" | "blue" | "red" | "purple"
 type Point = { x: number; y: number }
 type Stroke = { tool: BoardTool; color: PenColor; points: Point[] }
 type BoardNote = { id: number; x: number; y: number; text: string; tone: "yellow" | "blue" | "green" }
-type BoardData = { strokes: Stroke[]; notes: BoardNote[]; positions: Record<string, Point> }
+// Texto libre escrito directo sobre la pizarra (sin recuadro de nota)
+type BoardText = { id: number; x: number; y: number; text: string; bold: boolean; w?: number } // w: ancho del recuadro (px)
+type BoardData = { strokes: Stroke[]; notes: BoardNote[]; texts: BoardText[]; positions: Record<string, Point> }
 
 type Service = {
   id: string
@@ -41,6 +43,7 @@ type Service = {
   stackingTone: "urgent" | "warning" | "safe" | "done"
   pickup: string
   pickupContact: string
+  stops: string[] // paradas intermedias (ruta de hasta 4 puntos: retiro → parada 1 → parada 2 → entrega)
   delivery: string
   deliveryDate: string // YYYY-MM-DD (entregar a más tardar)
   deliveryTime: string // HH:MM (entregar a más tardar)
@@ -98,7 +101,9 @@ const MONTH_LABEL = (date: Date) => capitalizeFirst(date.toLocaleDateString("es-
 
 // ---------- Marcadores visuales ----------
 const is20 = (service: Service) => service.containerSize.trim().startsWith("20")
-const isSanAntonio = (service: Service) => /san\s*antonio/i.test([service.pickup, service.delivery, service.pickupContact, service.deliveryContact].join(" "))
+const isSanAntonio = (service: Service) => /san\s*antonio/i.test([service.pickup, ...service.stops, service.delivery, service.pickupContact, service.deliveryContact].join(" "))
+// Retiro → parada 1 → parada 2 → entrega
+const routeLine = (service: Service) => [service.pickup, ...service.stops, service.delivery].filter(Boolean).join(" → ")
 const TYPE_STYLE: Record<ServiceType, { label: string; badge: string; header: string; canvas: string }> = {
   expo: { label: "EXPO", badge: "bg-red-50 text-red-700 ring-red-200", header: "bg-red-500", canvas: "#ef4444" },
   impo: { label: "IMPO", badge: "bg-slate-100 text-slate-800 ring-slate-300", header: "bg-slate-800", canvas: "#1e293b" },
@@ -158,6 +163,7 @@ function rowToService(row: any): Service {
     stackingTone: (row.stacking_tone as Service["stackingTone"]) || "safe",
     pickup: row.pickup || "",
     pickupContact: row.pickup_contact || "",
+    stops: Array.isArray(row.stops) ? row.stops.filter(Boolean) : [],
     delivery: row.delivery || "",
     deliveryDate: row.delivery_date || "",
     deliveryTime: row.delivery_time || "",
@@ -210,6 +216,8 @@ function serviceToRow(service: Service) {
     stacking_tone: service.stackingTone,
     pickup: service.pickup,
     pickup_contact: service.pickupContact,
+    // Solo se envía si hay paradas: así no falla si aún no se corre la migración 20261125
+    ...(service.stops.some((stop) => stop.trim()) ? { stops: service.stops.map((stop) => stop.trim()).filter(Boolean) } : {}),
     delivery: service.delivery,
     delivery_date: service.deliveryDate || null,
     // Solo se envía si tiene valor: así no falla si aún no se corre la migración 20261124b
@@ -228,19 +236,19 @@ function serviceToRow(service: Service) {
   }
 }
 
-const emptyBoardData = (): BoardData => ({ strokes: [], notes: [], positions: {} })
+const emptyBoardData = (): BoardData => ({ strokes: [], notes: [], texts: [], positions: {} })
 function rowToBoard(row: any): Board {
   const data = row.data || {}
   return {
     id: row.id, mode: row.cargo_mode, boardDate: row.board_date, name: row.name, updatedAt: row.updated_at, updatedBy: row.updated_by,
-    data: { strokes: data.strokes || [], notes: data.notes || [], positions: data.positions || {} },
+    data: { strokes: data.strokes || [], notes: data.notes || [], texts: data.texts || [], positions: data.positions || {} },
   }
 }
 
 const newService = (mode: CargoMode, serviceDate: string): Service => ({
   id: "", mode, type: "impo", serviceDate, time: "", forwarder: "", finalClient: "", reference: "", shippingLine: "", containerNumber: "",
   containerSize: mode === "fcl" ? "40" : "", cargo: "", packages: "", pallets: "", weightKg: "", volumeCbm: "", zone: "", dimensions: "", stackable: false, stacking: "", stackingTone: "safe",
-  pickup: "", pickupContact: "", delivery: "", deliveryDate: "", deliveryTime: "", deliveryContact: "",instructions: "", driver: "", plate: "", trailer: "",
+  pickup: "", pickupContact: "", stops: [], delivery: "", deliveryDate: "", deliveryTime: "", deliveryContact: "",instructions: "", driver: "", plate: "", trailer: "",
   status: "Programado", done: false, orderId: "", tripStatus: "", source: "", updated: "",
 })
 
@@ -262,6 +270,7 @@ function exportExcel(services: Service[], fileName: string) {
     Mercancía: s.cargo,
     Bultos: s.packages,
     Retiro: s.pickup,
+    Paradas: s.stops.join(" → "),
     Entrega: s.delivery,
     "Fecha entrega": s.deliveryDate ? formatShort(s.deliveryDate) : "",
     Instrucciones: s.instructions,
@@ -301,6 +310,7 @@ function drawProgramImage(title: string, subtitle: string, services: Service[]):
       ...(s.mode === "fcl" ? [{ label: "Contenedor", value: [s.containerNumber, s.containerSize && `${s.containerSize}'`, s.shippingLine].filter(Boolean).join(" · ") }] : []),
       { label: "Mercancía", value: [s.cargo, s.packages && `${s.packages} bultos`].filter(Boolean).join(" · ") },
       { label: "Retiro", value: [s.time, s.pickup].filter(Boolean).join(" · "), color: isSanAntonio(s) && /san\s*antonio/i.test(s.pickup) ? "#7c3aed" : undefined },
+      ...(s.stops.length ? [{ label: "Paradas", value: s.stops.join(" → ") }] : []),
       { label: "Entrega", value: [s.delivery, s.deliveryDate && `(${formatShort(s.deliveryDate)})`].filter(Boolean).join(" "), color: s.deliveryDate ? "#dc2626" : undefined },
       ...(s.instructions ? [{ label: "Instrucciones", value: s.instructions, color: "#b45309" }] : []),
       { label: "Conductor", value: [s.driver || "Por asignar", s.plate && `Camión ${s.plate}`, s.trailer && `Rampla ${s.trailer}`].filter(Boolean).join(" · ") },
@@ -411,6 +421,7 @@ function BoardCard({ service, onEdit, onToggleDone }: { service: Service; onEdit
       {service.mode === "fcl" && <p className="truncate font-mono text-slate-600">{[service.containerNumber, service.shippingLine].filter(Boolean).join(" · ") || "—"}</p>}
       <p className="truncate text-slate-600">{[service.cargo, service.packages && `${service.packages} bultos`].filter(Boolean).join(" · ") || "—"}</p>
       <p className="truncate text-slate-700"><strong>Retiro:</strong> {service.pickup || "—"}</p>
+      {service.stops.length > 0 && <p className="truncate text-slate-700"><strong>Paradas:</strong> {service.stops.join(" → ")}</p>}
       <p className="truncate text-slate-700"><strong>Entrega:</strong> {service.delivery || "—"} {service.deliveryDate && <span className="font-bold text-red-600">({formatShort(service.deliveryDate)})</span>}</p>
       {service.instructions && <p className="truncate font-semibold text-amber-700">⚠ {service.instructions}</p>}
       <div className="flex items-center justify-between border-t border-slate-100 pt-1.5">
@@ -436,13 +447,30 @@ function Whiteboard({ title, services, initialData, onDataChange, onEdit, onTogg
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const boardRef = useRef<HTMLDivElement>(null)
   const drawingRef = useRef(false)
-  const dragRef = useRef<{ kind: "note" | "card"; id: string; offsetX: number; offsetY: number } | null>(null)
+  const dragRef = useRef<{ kind: "note" | "card" | "text"; id: string; offsetX: number; offsetY: number } | null>(null)
   const historyRef = useRef<BoardData[]>([])
   const [tool, setTool] = useState<BoardTool>("pen")
   // Pantallas táctiles: "Mover" deja deslizar la página con el dedo sin dibujar (activo por defecto en celular/tablet)
   const [moving, setMoving] = useState(() => window.matchMedia("(pointer: coarse)").matches)
   const [penColor, setPenColor] = useState<PenColor>("blue")
   const [data, setData] = useState<BoardData>(initialData)
+  // "Texto": el próximo toque/clic en el lienzo crea un texto ahí mismo
+  const [placingText, setPlacingText] = useState(false)
+  const [focusTextId, setFocusTextId] = useState<number | null>(null)
+  useEffect(() => {
+    if (focusTextId === null) return
+    // El foco se da después del clic (el navegador mueve el foco al terminar el mousedown).
+    // focusTextId se limpia dentro del timeout: limpiarlo antes cancelaba el timeout y el recuadro nunca recibía el foco.
+    const timer = window.setTimeout(() => {
+      document.querySelector<HTMLTextAreaElement>(`[data-text-id="${focusTextId}"]`)?.focus()
+      setFocusTextId(null)
+    }, 0)
+    return () => window.clearTimeout(timer)
+  }, [focusTextId])
+  // Un recuadro recién creado no se borra si pierde el foco en ese mismo instante
+  const createdRef = useRef<{ id: number; at: number } | null>(null)
+  const updateText = (id: number, patch: Partial<BoardText>) => update({ ...data, texts: data.texts.map((item) => item.id === id ? { ...item, ...patch } : item) })
+  const removeText = (id: number) => update({ ...data, texts: data.texts.filter((item) => item.id !== id) })
   const [historySize, setHistorySize] = useState(0)
 
   // Cada cambio se guarda (el padre hace autoguardado)
@@ -512,7 +540,7 @@ function Whiteboard({ title, services, initialData, onDataChange, onEdit, onTogg
         ["CLIENTE", [s.forwarder, s.finalClient].filter(Boolean).join(" / ")],
         ["CONTENEDOR", [s.containerNumber, s.shippingLine].filter(Boolean).join(" · ")],
         ["MERCANCÍA", [s.cargo, s.packages && `${s.packages} bultos`].filter(Boolean).join(" · ")],
-        ["RETIRO", s.pickup],
+        ["RETIRO", [s.pickup, ...s.stops].filter(Boolean).join(" → ")],
         ["ENTREGA", [s.delivery, s.deliveryDate && `(${formatShort(s.deliveryDate)})`].filter(Boolean).join(" "), s.deliveryDate ? "#dc2626" : undefined],
         ["INSTRUCC.", s.instructions, "#b45309"],
         ["CONDUCTOR", [s.driver || "Por asignar", s.plate, s.trailer].filter(Boolean).join(" · ")],
@@ -533,6 +561,20 @@ function Whiteboard({ title, services, initialData, onDataChange, onEdit, onTogg
       ctx.fillStyle = text; ctx.font = "600 12px Inter, sans-serif"
       note.text.split("\n").forEach((line, index) => ctx.fillText(line.slice(0, 32), note.x + 12, note.y + 30 + index * 18))
     })
+    data.texts.forEach((item) => {
+      ctx.fillStyle = "#0f172a"; ctx.font = `${item.bold ? 700 : 500} 15px Inter, sans-serif`
+      const maxWidth = (item.w ?? 360) - 12
+      const lines: string[] = []
+      for (const paragraph of item.text.split("\n")) {
+        let line = ""
+        for (const word of paragraph.split(" ")) {
+          const next = line ? `${line} ${word}` : word
+          if (ctx.measureText(next).width > maxWidth && line) { lines.push(line); line = word } else line = next
+        }
+        lines.push(line)
+      }
+      lines.forEach((line, index) => ctx.fillText(line, item.x + 7, item.y + 18 + index * 20))
+    })
     await shareCanvas(output, `pizarra-${title.toLowerCase().replace(/[^a-z0-9]+/g, "-")}.png`)
   }
 
@@ -540,9 +582,9 @@ function Whiteboard({ title, services, initialData, onDataChange, onEdit, onTogg
     <section className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 px-4 py-3">
         <div className="flex flex-wrap items-center gap-1 rounded-lg bg-slate-100 p-1">
-          <button onClick={() => setMoving(true)} className={`flex h-8 items-center gap-2 rounded-md px-3 text-[11px] font-semibold ${moving ? "bg-white text-navy-700 shadow-sm ring-1 ring-slate-200" : "text-slate-500 hover:text-slate-700"}`} title="Desplazar la página sin dibujar"><span className="text-sm">✋</span>Mover</button>
+          <button onClick={() => { setMoving(true); setPlacingText(false) }} className={`flex h-8 items-center gap-2 rounded-md px-3 text-[11px] font-semibold ${moving ? "bg-white text-navy-700 shadow-sm ring-1 ring-slate-200" : "text-slate-500 hover:text-slate-700"}`} title="Desplazar la página sin dibujar"><span className="text-sm">✋</span>Mover</button>
           {([{ id: "pen", label: "Lápiz", symbol: "⌁" }, { id: "marker", label: "Destacador", symbol: "▰" }, { id: "eraser", label: "Borrador", symbol: "◇" }] as const).map((item) => (
-            <button key={item.id} onClick={() => { setTool(item.id); setMoving(false) }} className={`flex h-8 items-center gap-2 rounded-md px-3 text-[11px] font-semibold ${!moving && tool === item.id ? "bg-white text-navy-700 shadow-sm ring-1 ring-slate-200" : "text-slate-500 hover:text-slate-700"}`}>
+            <button key={item.id} onClick={() => { setTool(item.id); setMoving(false); setPlacingText(false) }} className={`flex h-8 items-center gap-2 rounded-md px-3 text-[11px] font-semibold ${!moving && !placingText && tool === item.id ? "bg-white text-navy-700 shadow-sm ring-1 ring-slate-200" : "text-slate-500 hover:text-slate-700"}`}>
               <span className="text-sm">{item.symbol}</span>{item.label}
             </button>
           ))}
@@ -553,17 +595,18 @@ function Whiteboard({ title, services, initialData, onDataChange, onEdit, onTogg
             </button>
           ))}
           <span className="mx-1 h-5 w-px bg-slate-300" />
-          <button onClick={addNote} className="flex h-8 items-center gap-2 rounded-md px-3 text-[11px] font-semibold text-slate-600 hover:bg-white hover:text-navy-700"><span className="text-base leading-none">T</span> Nota</button>
+          <button onClick={() => { setPlacingText(true); setMoving(false) }} title="Toca o haz clic en el lienzo donde quieras escribir" className={`flex h-8 items-center gap-2 rounded-md px-3 text-[11px] font-semibold ${placingText ? "bg-white text-navy-700 shadow-sm ring-1 ring-slate-200" : "text-slate-600 hover:bg-white hover:text-navy-700"}`}><span className="font-serif text-base font-bold leading-none">T</span> Texto</button>
+          <button onClick={addNote} className="flex h-8 items-center gap-2 rounded-md px-3 text-[11px] font-semibold text-slate-600 hover:bg-white hover:text-navy-700"><span className="text-base leading-none">▤</span> Nota</button>
         </div>
         <div className="flex items-center gap-2">
           <span className="text-[10px] font-semibold text-slate-400">{saveLabel}</span>
           <button onClick={undo} disabled={historySize === 0} className="h-8 rounded-lg border border-slate-200 px-3 text-[11px] font-semibold text-slate-500 disabled:opacity-40">Deshacer</button>
-          <button onClick={() => { remember(); update({ ...data, strokes: [], notes: [] }) }} className="h-8 rounded-lg border border-slate-200 px-3 text-[11px] font-semibold text-red-600 hover:bg-red-50">Limpiar</button>
+          <button onClick={() => { remember(); update({ ...data, strokes: [], notes: [], texts: [] }) }} className="h-8 rounded-lg border border-slate-200 px-3 text-[11px] font-semibold text-red-600 hover:bg-red-50">Limpiar</button>
           <button onClick={exportPng} className="flex h-8 items-center gap-2 rounded-lg bg-navy-600 px-3 text-[11px] font-semibold text-white hover:bg-navy-700"><Icon name="image" className="size-3.5" />Imagen</button>
         </div>
       </div>
       <div className="flex items-center justify-between border-b border-slate-100 bg-slate-50 px-5 py-2">
-        <p className="text-[10px] text-slate-500">Dibuja o raya sobre el lienzo. Arrastra tarjetas y notas desde su franja superior. Se guarda solo.</p>
+        <p className="text-[10px] text-slate-500">{placingText ? "Toca el lienzo donde quieras escribir." : "Dibuja o raya sobre el lienzo. Con Texto escribes directo en la pizarra. Arrastra tarjetas, notas y textos para moverlos. Se guarda solo."}</p>
         <p className="text-[9px] font-semibold uppercase tracking-wider text-slate-400">{title}</p>
       </div>
       <div
@@ -575,7 +618,9 @@ function Whiteboard({ title, services, initialData, onDataChange, onEdit, onTogg
           const board = boardRef.current
           if (!drag || !board) return
           const point = pointFromEvent(event)
-          if (drag.kind === "note") {
+          if (drag.kind === "text") {
+            setData((current) => ({ ...current, texts: current.texts.map((item) => String(item.id) === drag.id ? { ...item, x: Math.max(0, Math.min(point.x - drag.offsetX, board.clientWidth - 40)), y: Math.max(0, Math.min(point.y - drag.offsetY, board.clientHeight - 24)) } : item) }))
+          } else if (drag.kind === "note") {
             setData((current) => ({ ...current, notes: current.notes.map((note) => String(note.id) === drag.id ? { ...note, x: Math.max(0, Math.min(point.x - drag.offsetX, board.clientWidth - 224)), y: Math.max(0, Math.min(point.y - drag.offsetY, board.clientHeight - 124)) } : note) }))
           } else {
             setData((current) => ({ ...current, positions: { ...current.positions, [drag.id]: { x: Math.max(0, Math.min(point.x - drag.offsetX, board.clientWidth - CARD_W)), y: Math.max(0, Math.min(point.y - drag.offsetY, board.clientHeight - CARD_H)) } } }))
@@ -585,9 +630,21 @@ function Whiteboard({ title, services, initialData, onDataChange, onEdit, onTogg
       >
         <canvas
           ref={canvasRef}
-          className={`absolute inset-0 size-full ${moving ? "pointer-events-none" : "touch-none cursor-crosshair"}`}
+          className={`absolute inset-0 size-full ${moving ? "pointer-events-none" : placingText ? "touch-none cursor-text" : "touch-none cursor-crosshair"}`}
           onPointerDown={(event) => {
             remember()
+            if (placingText) {
+              // Sin esto el mousedown del clic le quita el foco al recuadro nuevo y se borraba por estar vacío
+              event.preventDefault()
+              const point = pointFromEvent(event)
+              const id = Date.now()
+              const boardWidth = boardRef.current?.clientWidth ?? 800
+              createdRef.current = { id, at: Date.now() }
+              update({ ...data, texts: [...data.texts, { id, x: Math.min(point.x, Math.max(0, boardWidth - 200)), y: Math.max(0, point.y - 10), text: "", bold: false, w: Math.min(420, boardWidth - point.x - 16) }] })
+              setPlacingText(false)
+              setFocusTextId(id)
+              return
+            }
             drawingRef.current = true
             event.currentTarget.setPointerCapture(event.pointerId)
             setData((current) => ({ ...current, strokes: [...current.strokes, { tool, color: penColor, points: [pointFromEvent(event)] }] }))
@@ -618,6 +675,46 @@ function Whiteboard({ title, services, initialData, onDataChange, onEdit, onTogg
               </div>
               <BoardCard service={service} onEdit={() => onEdit({ ...service })} onToggleDone={() => onToggleDone(service)} />
             </article>
+          )
+        })}
+        {data.texts.map((item) => {
+          return (
+            <div key={item.id} className="group absolute z-20" style={{ left: item.x, top: item.y }}>
+              <div className="absolute -top-8 left-0 flex items-center gap-0.5 rounded-md bg-slate-900 p-0.5 text-white opacity-0 shadow-lg transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
+                <span
+                  className="cursor-move touch-none rounded px-2 py-1 text-[10px] font-bold hover:bg-white/10"
+                  title="Arrastra para mover"
+                  onPointerDown={(event) => {
+                    event.preventDefault()
+                    remember()
+                    const rect = event.currentTarget.parentElement!.parentElement!.getBoundingClientRect()
+                    dragRef.current = { kind: "text", id: String(item.id), offsetX: event.clientX - rect.left, offsetY: event.clientY - rect.top }
+                    event.currentTarget.setPointerCapture(event.pointerId)
+                  }}
+                >✥ Mover</span>
+                <button onPointerDown={(event) => event.preventDefault()} onClick={() => { remember(); updateText(item.id, { bold: !item.bold }) }} className={`rounded px-2 py-1 text-[11px] font-black ${item.bold ? "bg-white text-slate-900" : "hover:bg-white/10"}`} title="Negrita">B</button>
+                <button onPointerDown={(event) => event.preventDefault()} onClick={() => { remember(); removeText(item.id) }} className="rounded px-2 py-1 text-[11px] hover:bg-red-500" title="Borrar texto">×</button>
+              </div>
+              {/* Recuadro transparente: el texto baja de línea solo y el alto crece; el ancho se ajusta arrastrando la esquina */}
+              <textarea
+                data-text-id={item.id}
+                ref={(element) => { if (element) { element.style.height = "auto"; element.style.height = `${element.scrollHeight + 2}px` } }}
+                value={item.text}
+                rows={1}
+                placeholder="Escribe aquí…"
+                onFocus={remember}
+                onChange={(event) => updateText(item.id, { text: event.target.value })}
+                onPointerUp={(event) => { const width = event.currentTarget.offsetWidth; if (Math.abs(width - (item.w ?? 360)) > 4) updateText(item.id, { w: width }) }}
+                onBlur={(event) => {
+                  if (event.target.value.trim()) return
+                  const created = createdRef.current
+                  if (created?.id === item.id && Date.now() - created.at < 600) { event.target.focus(); return }
+                  removeText(item.id)
+                }}
+                style={{ width: item.w ?? 360, minWidth: 120, maxWidth: (boardRef.current?.clientWidth ?? 1200) - item.x - 8 }}
+                className={`block resize-x overflow-hidden whitespace-pre-wrap break-words rounded border border-dashed border-slate-300/70 bg-transparent px-1.5 py-0.5 text-[15px] leading-snug text-slate-900 outline-none placeholder:text-slate-400 hover:border-slate-400 focus:border-navy-400 ${item.bold ? "font-bold" : "font-medium"}`}
+              />
+            </div>
           )
         })}
         {data.notes.map((note) => (
@@ -671,6 +768,7 @@ function ProgramCard({ service, onEdit, onDuplicate, onToggleDone }: { service: 
             : <p><span className="text-[10px] font-bold uppercase text-slate-400">Naviera </span>{service.shippingLine || "—"}</p>}
           <p><span className="text-[10px] font-bold uppercase text-slate-400">Mercancía </span>{service.cargo || "—"}{service.packages && <span> · <strong>{service.packages}</strong> bultos</span>}</p>
           <p><span className="text-[10px] font-bold uppercase text-slate-400">Retiro </span><span className={/san\s*antonio/i.test(service.pickup) ? "font-bold text-violet-700" : ""}>{service.pickup || "—"}</span></p>
+          {service.stops.length > 0 && <p className="md:col-span-2"><span className="text-[10px] font-bold uppercase text-slate-400">Ruta </span><span className="font-semibold">{routeLine(service)}</span> <span className="text-[10px] font-bold text-navy-600">· {service.stops.length + 2} puntos</span></p>}
           <p><span className="text-[10px] font-bold uppercase text-slate-400">Entrega </span><span className={/san\s*antonio/i.test(service.delivery) ? "font-bold text-violet-700" : ""}>{service.delivery || "—"}</span>{service.deliveryDate && <strong className="text-red-600"> · {formatShort(service.deliveryDate)}</strong>}</p>
           <p><span className="text-[10px] font-bold uppercase text-slate-400">Conductor </span>{service.driver ? <strong>{service.driver}</strong> : <span className="font-semibold text-orange-600">Por asignar</span>}{(service.plate || service.trailer) && <span className="font-mono text-slate-500"> · {[service.plate && `Camión ${service.plate}`, service.trailer && `Rampla ${service.trailer}`].filter(Boolean).join(" · ")}</span>}</p>
         </div>
@@ -901,6 +999,9 @@ function EditServiceModal({ service, title, onChange, onClose, onSave, onDelete,
 
             <label className="md:col-span-2"><span className={fieldLabel}>Lugar de retiro</span><input className={editInput} value={service.pickup} onChange={(e) => set("pickup", e.target.value)} placeholder="Depósito, puerto San Antonio..." /></label>
             <label className="md:col-span-2"><span className={fieldLabel}>Contacto de retiro</span><input className={editInput} value={service.pickupContact} onChange={(e) => set("pickupContact", e.target.value)} /></label>
+            {[0, 1].map((index) => (
+              <label key={index} className="md:col-span-2"><span className={fieldLabel}>Parada {index + 1} (opcional)</span><input className={editInput} value={service.stops[index] ?? ""} onChange={(e) => { const stops = [service.stops[0] ?? "", service.stops[1] ?? ""]; stops[index] = e.target.value; set("stops", stops[1] ? stops : stops[0] ? [stops[0]] : []) }} placeholder={index === 0 ? "Ruta de 3 puntos: retiro → parada → entrega" : "Ruta de 4 puntos: retiro → parada 1 → parada 2 → entrega"} /></label>
+            ))}
             <label className="md:col-span-2"><span className={fieldLabel}>Dirección exacta de entrega</span><input className={editInput} value={service.delivery} onChange={(e) => set("delivery", e.target.value)} placeholder="Calle, número, comuna" /></label>
             <label><span className={fieldLabel}>Entregar a más tardar · fecha</span><input type="date" className={editInput} value={service.deliveryDate} onChange={(e) => set("deliveryDate", e.target.value)} /></label>
             <label><span className={fieldLabel}>Entregar a más tardar · hora</span><input type="time" className={editInput} value={service.deliveryTime} onChange={(e) => set("deliveryTime", e.target.value)} /></label>
@@ -1147,7 +1248,7 @@ export default function CoordinationBoard() {
 
   // ---------- Vistas ----------
   const query = search.trim().toLowerCase()
-  const matches = (service: Service) => !query || [service.reference, service.forwarder, service.finalClient, service.containerNumber, service.shippingLine, service.pickup, service.delivery, service.driver, service.cargo, service.zone].join(" ").toLowerCase().includes(query)
+  const matches = (service: Service) => !query || [service.reference, service.forwarder, service.finalClient, service.containerNumber, service.shippingLine, service.pickup, ...service.stops, service.delivery, service.driver, service.cargo, service.zone].join(" ").toLowerCase().includes(query)
   const fclServices = useMemo(() => services.filter((service) => service.mode === "fcl"), [services])
   const lclServices = useMemo(() => services.filter((service) => service.mode === "lcl"), [services])
   const counts = useMemo(() => {

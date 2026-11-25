@@ -6,7 +6,14 @@ import { getDieselPrice, formatReportDate, type DieselSummary } from '../lib/die
 /* ─── Config ─────────────────────────────────────────────────────────────────── */
 
 // ✅ RUTAS ACTUALIZADAS CON DISTANCIAS REALES
-const ROUTES = [
+type Route = {
+  label: string; origin: string; destination: string; dist: number; toll: number; litres: number; tiempo: string
+  combinada?: boolean; parada?: string
+  paradas?: string[] // puntos intermedios (1 en rutas de 3 ciudades, 2 en rutas cuádruples)
+  cuadruple?: boolean
+}
+
+const BASE_ROUTES: Route[] = [
   // Rutas simples (2 ciudades)
   { label: 'Valparaíso → Santiago', origin: 'Valparaíso', destination: 'Santiago', dist: 117, toll: 4200, litres: 28, tiempo: '1h 30min' },
   { label: 'Valparaíso → San Antonio', origin: 'Valparaíso', destination: 'San Antonio', dist: 90, toll: 1800, litres: 16, tiempo: '1h 10min' },
@@ -22,6 +29,33 @@ const ROUTES = [
   { label: 'San Antonio → Valparaíso → Santiago', origin: 'San Antonio', destination: 'Santiago', dist: 207, toll: 6000, litres: 44, tiempo: '2h 40min', combinada: true, parada: 'Valparaíso' },
   { label: 'San Antonio → Santiago → Valparaíso', origin: 'San Antonio', destination: 'Valparaíso', dist: 217, toll: 7000, litres: 50, tiempo: '2h 45min', combinada: true, parada: 'Santiago' },
 ];
+
+// Rutas cuádruples (4 puntos: origen → parada 1 → parada 2 → destino).
+// Se arman sumando tramos simples, igual que las combinadas (ej. V→S→SA = V→S + S→SA = 217 km).
+const toMinutes = (tiempo: string) => { const h = /(\d+)h/.exec(tiempo); const m = /(\d+)min/.exec(tiempo); return (h ? +h[1] * 60 : 0) + (m ? +m[1] : 0); };
+const fromMinutes = (total: number) => `${Math.floor(total / 60)}h ${String(total % 60).padStart(2, '0')}min`;
+const LEG = (from: string, to: string) => BASE_ROUTES.find(r => !r.combinada && r.origin === from && r.destination === to);
+const QUAD_CITIES = ['Valparaíso', 'Santiago', 'San Antonio'];
+const QUAD_ROUTES: Route[] = QUAD_CITIES.flatMap(a => QUAD_CITIES.flatMap(b => QUAD_CITIES.flatMap(c => QUAD_CITIES.map(d => [a, b, c, d]))))
+  .filter(([a, b, c, d]) => a !== b && b !== c && c !== d)
+  .map((points) => {
+    const legs = points.slice(1).map((to, i) => LEG(points[i], to)!);
+    return {
+      label: points.join(' → '),
+      origin: points[0],
+      destination: points[3],
+      dist: legs.reduce((sum, leg) => sum + leg.dist, 0),
+      toll: legs.reduce((sum, leg) => sum + leg.toll, 0),
+      litres: legs.reduce((sum, leg) => sum + leg.litres, 0),
+      tiempo: fromMinutes(legs.reduce((sum, leg) => sum + toMinutes(leg.tiempo), 0)),
+      combinada: true,
+      parada: `${points[1]} y ${points[2]}`,
+      paradas: [points[1], points[2]],
+      cuadruple: true,
+    };
+  });
+
+const ROUTES: Route[] = [...BASE_ROUTES.map(r => (r.parada && !r.paradas ? { ...r, paradas: [r.parada] } : r)), ...QUAD_ROUTES];
 
 const TRUCKS = [
   // Tarifa referencial de la Boxer: ajustar al valor real acordado
@@ -360,6 +394,8 @@ export default function CargoRegistration() {
       container_size: f.cargoMode === 'fcl' ? (f.containerSize || null) : null,
       pickup: [f.pickupPlace.trim(), f.origin].filter(Boolean).join(', '),
       pickup_contact: f.contact || '',
+      // Paradas intermedias de la ruta elegida (solo si origen y destino coinciden con la ruta)
+      ...(route.paradas?.length && route.origin === f.origin && route.destination === f.destination ? { stops: route.paradas } : {}),
       delivery: [f.deliveryPlace.trim(), f.destination].filter(Boolean).join(', '),
       delivery_date: f.deliveryDate || null,
       ...(f.deliveryTime ? { delivery_time: f.deliveryTime } : {}),
@@ -755,7 +791,7 @@ export default function CargoRegistration() {
                     >
                       {ROUTES.map((r, i) => (
                         <option key={i} value={i}>
-                          {r.label} — {r.dist} km {r.combinada ? '🔄 (3 ciudades)' : ''}
+                          {r.label} — {r.dist} km {r.cuadruple ? '🔁 (4 puntos)' : r.combinada ? '🔄 (3 ciudades)' : ''}
                         </option>
                       ))}
                     </select>
@@ -780,7 +816,7 @@ export default function CargoRegistration() {
                 {route.combinada && (
                   <div className="mt-2 text-[10px] text-blue-600 bg-blue-50 border border-blue-200 rounded-lg px-3 py-1.5 flex items-center gap-2">
                     <span>🔄</span>
-                    <span>Ruta combinada: {route.label} (Total: {route.dist} km) - Parada en {route.parada}</span>
+                    <span>{route.cuadruple ? 'Ruta cuádruple' : 'Ruta combinada'}: {route.label} (Total: {route.dist} km) - {route.cuadruple ? 'Paradas en' : 'Parada en'} {route.parada}</span>
                   </div>
                 )}
               </Card>
