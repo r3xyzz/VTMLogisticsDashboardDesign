@@ -6,6 +6,8 @@ import {
 } from 'recharts'
 import type { ActiveView } from '../App'
 import { getDieselPrice, formatReportDate, type DieselSummary } from '../lib/dieselPrice'
+import { fetchTrips, localDay, type TodayTrip } from '../lib/todayTrips'
+import { supabase } from '../lib/supabase'
 
 interface Props { onNavigate: (v: ActiveView) => void }
 
@@ -70,13 +72,7 @@ function buildKpis(diesel: DieselSummary | null, dieselError: string | null) {
 
 /* ─── DATOS ESTÁTICOS ──────────────────────────────────────────────────────── */
 
-const drivers = [
-    { name: 'Carlos Vega', plate: 'BFLK-92', client: 'Walmart Chile', route: 'VAL → SCL', dep: '06:30', arr: '09:15', load: '09:15–10:00', ret: '13:30', status: 'en-ruta', pct: 65 },
-    { name: 'Pedro Rojas', plate: 'CGMN-14', client: 'Puerto Central S.A.', route: 'SCL → SAN', dep: '07:00', arr: '09:45', load: '09:45–10:30', ret: '14:00', status: 'cargando', pct: 48 },
-    { name: 'Marcelo Fuentes', plate: 'DHPR-67', client: 'Cosco Shipping', route: 'VAL → SAN', dep: '08:15', arr: '10:00', load: '10:00–10:45', ret: '15:20', status: 'retrasado', pct: 30 },
-    { name: 'Andrés Morales', plate: 'EJQS-33', client: 'Lider Express', route: 'SCL → VAL', dep: '05:45', arr: '08:30', load: '08:30–09:15', ret: '12:00', status: 'entregado', pct: 100 },
-    { name: 'Roberto Silva', plate: 'FKRT-81', client: 'DHL Chile', route: 'SAN → SCL', dep: '09:00', arr: '11:30', load: '11:30–12:15', ret: '16:45', status: 'en-espera', pct: 0 },
-]
+// Los choferes del "Sensor de Horarios" salen de las OT reales de hoy (lib/todayTrips.ts)
 
 const statusCfg: Record<string, { label: string; color: string; bg: string; barColor: string }> = {
     'en-ruta': { label: 'En Ruta', color: '#15803d', bg: '#dcfce7', barColor: '#22c55e' },
@@ -84,6 +80,7 @@ const statusCfg: Record<string, { label: string; color: string; bg: string; barC
     'retrasado': { label: 'Retrasado', color: '#c2410c', bg: '#fed7aa', barColor: '#f97316' },
     'entregado': { label: 'Entregado', color: '#374151', bg: '#e5e7eb', barColor: '#9ca3af' },
     'en-espera': { label: 'En Espera', color: '#64748b', bg: '#f1f5f9', barColor: '#cbd5e1' },
+    'programado': { label: 'Programado', color: '#6d28d9', bg: '#ede9fe', barColor: '#a78bfa' },
 }
 
 const alerts = [
@@ -120,6 +117,37 @@ export default function Dashboard({ onNavigate }: Props) {
     // ✅ PRECIO DEL DIÉSEL (Bencina en Línea, mediana RM)
     const [diesel, setDiesel] = useState<DieselSummary | null>(null);
     const [dieselError, setDieselError] = useState<string | null>(null);
+
+    // ✅ VIAJES REALES DE HOY (chofer, camión, patente y avance del camionero)
+    const [trips, setTrips] = useState<TodayTrip[]>([]);
+    const [tripsLoading, setTripsLoading] = useState(true);
+    const [tripsError, setTripsError] = useState<string | null>(null);
+    useEffect(() => {
+        let timer: number | undefined;
+        const load = () => fetchTrips()
+            .then((list) => { setTrips(list); setTripsError(null); })
+            .catch((error) => { console.error('Error cargando viajes de hoy:', error); setTripsError(error?.message || 'No se pudieron cargar los viajes'); })
+            .finally(() => setTripsLoading(false));
+        load();
+        // Se actualiza cuando el camionero sube documentos o cambia el estado de la OT
+        const reload = () => { window.clearTimeout(timer); timer = window.setTimeout(load, 400); };
+        // Nombre único por montaje: con el mismo nombre Supabase devuelve el canal ya suscrito y .on() lanza error
+        const channel = supabase.channel(`dashboard-trips-${Date.now()}-${Math.random().toString(36).slice(2)}`)
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'orders' }, reload)
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'documents' }, reload)
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'coordination_services' }, reload)
+            .subscribe();
+        const interval = window.setInterval(load, 5 * 60 * 1000); // y cada 5 min para recalcular "Retrasado"
+        return () => { window.clearTimeout(timer); window.clearInterval(interval); supabase.removeChannel(channel); };
+    }, []);
+
+    // Hoy = viajes del día + los que siguen en ruta; Próximos = asignados a días siguientes (Nueva OT o Coordinación)
+    const [tripsView, setTripsView] = useState<'hoy' | 'proximos' | 'todos'>('hoy');
+    const todayKey = localDay();
+    const todayTrips = trips.filter(t => t.date <= todayKey || t.status === 'en-ruta');
+    const futureTrips = trips.filter(t => t.date > todayKey && t.status !== 'en-ruta');
+    const shownTrips = tripsView === 'hoy' ? todayTrips : tripsView === 'proximos' ? futureTrips : trips;
+    const dayLabel = (day: string) => day === todayKey ? 'Hoy' : day ? new Date(`${day}T12:00:00`).toLocaleDateString('es-CL', { weekday: 'short', day: '2-digit', month: '2-digit' }).replace(',', '') : 'Sin fecha';
 
     // ✅ ESTADO PARA ALERTAS
     const [dismissed, setDismiss] = useState<Set<number>>(new Set())
@@ -221,10 +249,17 @@ export default function Dashboard({ onNavigate }: Props) {
 
                     {/* Driver timeline — 2 cols */}
                     <div className="xl:col-span-2 bg-white rounded-xl border border-slate-200/80 overflow-hidden">
-                        <div className="flex items-center justify-between px-5 py-3.5" style={{ borderBottom: '1px solid #f1f5f9' }}>
+                        <div className="flex flex-wrap items-center justify-between gap-3 px-5 py-3.5" style={{ borderBottom: '1px solid #f1f5f9' }}>
                             <div>
                                 <h2 className="text-[13px] font-bold text-slate-800">Sensor de Horarios · Choferes</h2>
-                                <p className="text-[11px] text-slate-400 mt-0.5">{drivers.length} conductores activos hoy</p>
+                                <p className="text-[11px] text-slate-400 mt-0.5">{tripsLoading ? 'Cargando viajes…' : `${shownTrips.length} ${shownTrips.length === 1 ? 'viaje' : 'viajes'} · ${new Set(shownTrips.map(t => t.driver)).size} choferes`}</p>
+                            </div>
+                            <div className="flex rounded-lg bg-slate-100 p-0.5">
+                                {([['hoy', 'Hoy', todayTrips.length], ['proximos', 'Próximos', futureTrips.length], ['todos', 'Todos', trips.length]] as const).map(([id, label, count]) => (
+                                    <button key={id} onClick={() => setTripsView(id)} className={`rounded-md px-2.5 py-1 text-[11px] font-semibold transition-colors ${tripsView === id ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
+                                        {label} <span className="text-[10px] text-slate-400">{count}</span>
+                                    </button>
+                                ))}
                             </div>
                             <button
                                 onClick={() => onNavigate('tracking')}
@@ -247,7 +282,11 @@ export default function Dashboard({ onNavigate }: Props) {
                         </div>
 
                         <div className="px-5 pb-4 space-y-2.5 mt-0.5">
-                            {drivers.map(d => {
+                            {tripsError && <p className="py-4 text-[11px] text-red-600">No se pudieron cargar los viajes: {tripsError}</p>}
+                            {!tripsLoading && !tripsError && shownTrips.length === 0 && (
+                                <p className="py-6 text-center text-[12px] text-slate-400">{tripsView === 'proximos' ? 'Sin viajes futuros asignados.' : 'Sin viajes programados para hoy.'} Aparecen aquí las OT de Nueva OT y los servicios con chofer asignado en Coordinación.</p>
+                            )}
+                            {shownTrips.map(d => {
                                 const s = statusCfg[d.status]
                                 const gradient = d.status === 'retrasado'
                                     ? 'linear-gradient(90deg,#fb923c,#ea580c)'
@@ -255,12 +294,15 @@ export default function Dashboard({ onNavigate }: Props) {
                                     ? 'linear-gradient(90deg,#d1d5db,#9ca3af)'
                                     : d.status === 'en-espera'
                                     ? '#e2e8f0'
+                                    : d.status === 'programado'
+                                    ? 'linear-gradient(90deg,#c4b5fd,#8b5cf6)'
                                     : 'linear-gradient(90deg,#3b82f6,#1d4ed8)'
                                 return (
-                                    <div key={d.name} className="flex items-center gap-0">
+                                    <div key={d.id} className="flex items-center gap-0">
                                         {/* Driver info */}
                                         <div className="w-44 flex-shrink-0 pr-4">
-                                            <div className="text-[12px] font-semibold text-slate-800 leading-tight">{d.name}</div>
+                                            <div className="text-[12px] font-semibold text-slate-800 leading-tight truncate" title={d.driver}>{d.driver}</div>
+                                            {d.date !== todayKey && <div className={`text-[9px] font-bold capitalize ${d.date > todayKey ? 'text-violet-600' : 'text-orange-600'}`}>{dayLabel(d.date)}{d.source === 'coordinacion' ? ' · Coordinación' : ''}</div>}
                                             <div className="flex items-center gap-1.5 mt-0.5">
                                                 <span className="font-mono text-[9px] text-slate-400">{d.plate}</span>
                                                 <span
@@ -270,7 +312,7 @@ export default function Dashboard({ onNavigate }: Props) {
                                                     {s.label}
                                                 </span>
                                             </div>
-                                            <div className="text-[9px] text-slate-400 truncate">{d.client}</div>
+                                            <div className="text-[9px] text-slate-400 truncate" title={`${d.truck} · ${d.client} · ${d.orderNumber}`}>{[d.truck, d.client].filter(Boolean).join(' · ')}</div>
                                         </div>
                                         {/* Bar */}
                                         <div className="flex-1">
@@ -285,27 +327,27 @@ export default function Dashboard({ onNavigate }: Props) {
                                                     ))}
                                                 </div>
                                                 {/* Progress */}
-                                                {d.pct > 0 && (
+                                                {(d.pct > 0 || d.status === 'programado') && (
                                                     <div
                                                         className="absolute inset-y-0 left-0 rounded-md transition-all duration-700"
-                                                        style={{ width: `${d.pct}%`, background: gradient }}
+                                                        style={{ width: d.status === 'programado' ? '100%' : `${d.pct}%`, background: gradient, opacity: d.status === 'programado' ? 0.35 : 1 }}
                                                     />
                                                 )}
                                                 {/* Label */}
                                                 <div className="absolute inset-0 flex items-center px-2.5">
                                                     <span
                                                         className="text-[9px] font-semibold truncate"
-                                                        style={{ fontFamily: "'JetBrains Mono'", color: d.pct > 25 ? 'rgba(255,255,255,0.9)' : '#64748b' }}
+                                                        style={{ fontFamily: "'JetBrains Mono'", color: d.pct > 25 && d.status !== 'programado' ? 'rgba(255,255,255,0.9)' : '#64748b' }}
                                                     >
-                                                        {d.dep} → {d.ret} · {d.route}
+                                                        {d.pickupTime || '—'} → {d.deliveryBy || '—'} · {d.route}
                                                     </span>
                                                 </div>
                                             </div>
                                             {/* Milestones */}
                                             <div className="flex gap-4 mt-0.5 px-0.5">
-                                                <span className="text-[9px] text-slate-400">↑ {d.dep}</span>
-                                                <span className="text-[9px] text-slate-400">⊙ {d.load}</span>
-                                                <span className="text-[9px] text-slate-400">↓ {d.ret}</span>
+                                                <span className="text-[9px] text-slate-400" title="Hora de retiro">↑ {d.pickupTime || 'sin hora'}</span>
+                                                <span className="text-[9px] text-slate-400" title={d.source === 'ot' ? 'Documentos subidos por el camionero' : 'Servicio asignado en Coordinación'}>⊙ {d.source === 'ot' ? `${d.docs}/4 docs · ` : ''}{d.orderNumber}</span>
+                                                <span className={`text-[9px] ${d.status === 'retrasado' ? 'font-bold text-red-600' : 'text-slate-400'}`} title="Entregar a más tardar">↓ {d.deliveryBy || 'sin plazo'}</span>
                                             </div>
                                         </div>
                                     </div>
@@ -465,13 +507,16 @@ export default function Dashboard({ onNavigate }: Props) {
                                         </tr>
                                     </thead>
                                     <tbody>
-                                        {drivers.map(d => {
+                                        {todayTrips.length === 0 && (
+                                            <tr><td colSpan={3} className="px-3 py-4 text-center text-[10px] text-slate-400">Sin viajes hoy</td></tr>
+                                        )}
+                                        {todayTrips.map(d => {
                                             const s = statusCfg[d.status]
                                             return (
-                                                <tr key={d.name} className="hover:bg-slate-50/60 transition-colors" style={{ borderBottom: '1px solid #f8fafc' }}>
+                                                <tr key={d.id} className="hover:bg-slate-50/60 transition-colors" style={{ borderBottom: '1px solid #f8fafc' }}>
                                                     <td className="px-3 py-2.5">
                                                         <div className="font-mono text-[11px] font-bold text-slate-800">{d.plate}</div>
-                                                        <div className="text-[9px] text-slate-400 truncate">{d.name}</div>
+                                                        <div className="text-[9px] text-slate-400 truncate">{d.driver}</div>
                                                     </td>
                                                     <td className="px-3 py-2.5 text-[10px] text-slate-500">{d.route}</td>
                                                     <td className="px-3 py-2.5">
