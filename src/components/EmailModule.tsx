@@ -4,7 +4,7 @@ import { useMsal } from '@azure/msal-react';
 import { currentAccount, loginRequest, msalInstance } from '../lib/msal';
 import { supabase } from '../lib/supabase';
 import OutlookLogin from './OutlookLogin';
-import EmailList from './EmailList';
+import EmailList, { type MailFolder } from './EmailList';
 
 interface ClientWithEmail {
     id: string;
@@ -23,6 +23,8 @@ export default function EmailModule() {
     const { instance, accounts } = useMsal();
     const [accessToken, setAccessToken] = useState<string | null>(null);
     const [filter, setFilter] = useState('todos');
+    // Recibidos o Enviados: cada correo por separado, sin juntar la conversación
+    const [folder, setFolder] = useState<MailFolder>('inbox');
     const [isInitializing, setIsInitializing] = useState(true);
     const [clients, setClients] = useState<ClientWithEmail[]>([]);
     const [selectedClientId, setSelectedClientId] = useState('');
@@ -121,7 +123,7 @@ export default function EmailModule() {
     }
 
     return (
-        <div className="p-6">
+        <div className="p-4 sm:p-6">
             <div className="max-w-5xl mx-auto">
                 <div className="flex items-center justify-between mb-6">
                     <div>
@@ -136,6 +138,20 @@ export default function EmailModule() {
                     >
                         Cerrar sesión
                     </button>
+                </div>
+
+                <div className="mb-4 inline-flex rounded-xl border border-slate-200 bg-slate-100 p-1">
+                    {([['inbox', 'Recibidos'], ['sentitems', 'Enviados']] as const).map(([id, label]) => (
+                        <button
+                            key={id}
+                            onClick={() => setFolder(id)}
+                            className={`rounded-lg px-5 py-2 text-sm font-bold transition-colors ${
+                                folder === id ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'
+                            }`}
+                        >
+                            {label}
+                        </button>
+                    ))}
                 </div>
 
                 <div className="flex gap-2 mb-4 flex-wrap">
@@ -187,7 +203,7 @@ export default function EmailModule() {
 
                 {clientEmails.length > 0 && (
                     <p className="text-xs text-slate-500 mb-3 break-all">
-                        Mostrando correos de: {clientEmails.join(', ')}
+                        {folder === 'sentitems' ? 'Mostrando correos enviados a' : 'Mostrando correos de'}: {clientEmails.join(', ')}
                     </p>
                 )}
 
@@ -195,6 +211,7 @@ export default function EmailModule() {
                     <EmailList
                         accessToken={accessToken}
                         filter={filter}
+                        folder={folder}
                         clientEmails={clientEmails}
                         onConvertToOT={handleConvertToOT}
                     />
