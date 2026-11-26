@@ -1,5 +1,5 @@
 // src/components/ImportExportModule.tsx
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { supabase } from "../lib/supabase"
 import { useOutlookForImportExport } from "../hooks/useOutlookForImportExport"
 import { parseTableFromEmail, groupByConversation, mapConversationToOperation, loadingSchedule, dayKey, cargoModeOf, type CargoMode, type Operation, type ThreadMessage } from "../lib/outlookParser"
@@ -73,17 +73,32 @@ function OperationEditor({ operation, onUpdate }: { operation: Operation; onUpda
 }
 
 // Estado de guardado de una ficha en la BD (tabla container_records)
-export type SaveState = { dirty: boolean; savedAt?: string; savedBy?: string | null; saving: boolean; onSave: () => void; onDiscard: () => void }
+// Cada ficha se respalda sola en la BD al cargar el correo; las correcciones manuales se guardan solas (sin botón).
+export type SaveState = {
+  dirty: boolean // hay cambios esperando el autoguardado
+  saving: boolean
+  editedAt?: string // última corrección manual
+  editedBy?: string | null
+  syncedAt?: string // último respaldo automático desde Outlook
+  hasOverrides: boolean // tiene correcciones manuales guardadas
+  canRestore: boolean // el correo sigue en el buzón: se puede volver a lo que dice el correo
+  onRestore: () => void
+}
+
+const shortStamp = (iso?: string) => iso ? new Date(iso).toLocaleString("es-CL", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" }) : ""
 
 function SaveBar({ state }: { state: SaveState }) {
-  const savedLabel = state.savedAt ? `Guardada ${new Date(state.savedAt).toLocaleString("es-CL", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })}${state.savedBy ? ` · ${state.savedBy}` : ""}` : "Sin guardar en la BD"
+  const label = state.saving || state.dirty ? "Guardando cambios…"
+    : state.hasOverrides && state.editedAt ? `Corregida a mano · ${shortStamp(state.editedAt)}${state.editedBy ? ` · ${state.editedBy}` : ""}`
+    : state.syncedAt ? `Respaldada en BD · ${shortStamp(state.syncedAt)}`
+    : "Respaldando en BD…"
+  const tone = state.saving || state.dirty ? "border-amber-200 bg-amber-50 text-amber-700" : state.hasOverrides ? "border-blue-200 bg-blue-50 text-blue-700" : "border-emerald-200 bg-emerald-50 text-emerald-700"
   return (
-    <div className={`mb-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border px-3 py-2 ${state.dirty ? "border-amber-200 bg-amber-50" : "border-slate-200 bg-slate-50"}`}>
-      <p className={`text-[9px] font-bold ${state.dirty ? "text-amber-700" : state.savedAt ? "text-emerald-700" : "text-slate-500"}`}>{state.dirty ? "Cambios sin guardar" : savedLabel}</p>
-      <div className="flex gap-1.5">
-        {state.dirty && <button onClick={state.onDiscard} disabled={state.saving} className="rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-[9px] font-bold text-slate-600 disabled:opacity-50">Descartar</button>}
-        <button onClick={state.onSave} disabled={state.saving || (!state.dirty && !!state.savedAt)} className="rounded-md bg-navy-600 px-3 py-1.5 text-[9px] font-bold text-white disabled:opacity-40">{state.saving ? "Guardando…" : "Guardar ficha"}</button>
-      </div>
+    <div className={`mb-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border px-3 py-2 ${tone}`}>
+      <p className="text-[9px] font-bold">{label}</p>
+      {state.hasOverrides && state.canRestore && (
+        <button onClick={state.onRestore} disabled={state.saving} className="rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-[9px] font-bold text-slate-600 hover:bg-slate-50 disabled:opacity-50" title="Quita las correcciones manuales y vuelve a lo que dice el correo">Volver a lo del correo</button>
+      )}
     </div>
   )
 }
@@ -301,7 +316,15 @@ function ExportBoard({
 // --- COMPONENTE PRINCIPAL ---
 const EDITS_KEY = "vtm-import-export-edits-v2" // borradores sin guardar (solo campos cambiados)
 
-type ContainerRecord = { operation_id: string; overrides: Partial<Operation>; snapshot: Operation; updated_by: string | null; updated_at: string }
+type ContainerRecord = { operation_id: string; overrides: Partial<Operation>; snapshot: Operation; updated_by: string | null; updated_at: string; synced_at?: string | null }
+
+// JSON con las claves ordenadas: jsonb de Postgres reordena las claves y JSON.stringify daría "distinto" siempre
+const stableJson = (value: unknown): string => {
+  if (Array.isArray(value)) return `[${value.map(stableJson).join(",")}]`
+  if (value && typeof value === "object") return `{${Object.keys(value as object).sort().filter((key) => (value as Record<string, unknown>)[key] !== undefined).map((key) => `${JSON.stringify(key)}:${stableJson((value as Record<string, unknown>)[key])}`).join(",")}}`
+  return JSON.stringify(value ?? null)
+}
+const AUTOSAVE_MS = 1200
 
 // Días desde hoy hasta la fecha de carguío (expo) o retiro (impo); sin fecha queda undefined
 const withCountdown = (operation: Operation): Operation => {
@@ -362,17 +385,23 @@ export default function ImportExportModule() {
   }, [edits])
 
   const [records, setRecords] = useState<Record<string, ContainerRecord>>({})
+  const [recordsLoaded, setRecordsLoaded] = useState(false)
+  // Dueño de las fichas = usuario de la app (login con Google). La BD (RLS) solo deja leer y escribir las propias:
+  // cada usuario ve las operaciones de su buzón, nunca las de otro.
+  const [appEmail, setAppEmail] = useState<string | null>(null)
+  useEffect(() => { supabase.auth.getSession().then(({ data }) => setAppEmail(data.session?.user.email?.toLowerCase() ?? null)) }, [])
   const [savingId, setSavingId] = useState<string | null>(null)
   const [saveError, setSaveError] = useState<string | null>(null)
   const fetchRecords = useCallback(async () => {
-    const { data, error } = await supabase.from("container_records").select("operation_id, overrides, snapshot, updated_by, updated_at")
+    const { data, error } = await supabase.from("container_records").select("*")
     if (error) { setSaveError(`No se pudieron leer las fichas guardadas: ${error.message}`); return }
     setRecords(Object.fromEntries(((data || []) as ContainerRecord[]).map((record) => [record.operation_id, record])))
+    setRecordsLoaded(true)
   }, [])
   useEffect(() => {
     fetchRecords()
     // Lo que guarda otro usuario aparece al instante
-    const channel = supabase.channel("container-records-sync")
+    const channel = supabase.channel(`container-records-sync-${Date.now()}-${Math.random().toString(36).slice(2)}`)
       .on("postgres_changes", { event: "*", schema: "public", table: "container_records" }, () => fetchRecords())
       .subscribe()
     return () => { supabase.removeChannel(channel) }
@@ -419,6 +448,63 @@ export default function ImportExportModule() {
     () => baseOperations.map((operation) => withCountdown(normalizeOperation({ ...operation, ...records[operation.id]?.overrides, ...edits[operation.id] }))),
     [baseOperations, records, edits],
   )
+  // Respaldo automático: cada operación leída del correo se guarda en la BD (snapshot) sin tocar las correcciones manuales.
+  // Así sigue disponible aunque se cierre la sesión, cambie la cuenta o el correo salga de los 500 más recientes.
+  const syncingRef = useRef(false)
+  useEffect(() => {
+    if (!recordsLoaded || !appEmail || !parsedOperations.length || syncingRef.current) return
+    const now = new Date().toISOString()
+    const rows = parsedOperations.flatMap((operation) => {
+      const { countdown: _countdown, ...snapshot } = operation
+      const record = records[operation.id]
+      if (record && stableJson(record.snapshot) === stableJson(snapshot)) return []
+      const merged = { ...snapshot, ...record?.overrides } as Operation
+      return [{
+        operation_id: operation.id, type: merged.type, cargo_mode: cargoModeOf(merged), container: merged.container || null, reference: merged.reference || null, client: merged.client || null,
+        snapshot, synced_at: now, source_mailbox: userEmail, owner_email: appEmail,
+      }]
+    })
+    if (!rows.length) return
+    syncingRef.current = true
+    ;(async () => {
+      for (let i = 0; i < rows.length; i += 100) {
+        const { error } = await supabase.from("container_records").upsert(rows.slice(i, i + 100), { onConflict: "owner_email,operation_id" })
+        if (error) { setSaveError(`No se pudo respaldar los correos en la BD: ${error.message}. ¿Corriste la migración 20261126_container_records_autosync.sql?`); break }
+      }
+      await fetchRecords()
+      syncingRef.current = false
+    })()
+  }, [recordsLoaded, appEmail, parsedOperations, records, userEmail, fetchRecords])
+
+  // Correcciones manuales: se guardan solas ~1 s después de editar (overrides = solo los campos que difieren del correo)
+  // El autoguardado corre ~1 s después: lee siempre lo último (no lo que había al momento de editar)
+  const latestOps = useRef<Operation[]>([])
+  latestOps.current = allOperations
+  const latestRecords = useRef(records)
+  latestRecords.current = records
+  const latestParsed = useRef(parsedOperations)
+  latestParsed.current = parsedOperations
+  const saveTimers = useRef<Record<string, number>>({})
+  const saveOperation = async (id: string) => {
+    const operation = latestOps.current.find((item) => item.id === id)
+    if (!operation) return
+    const record = latestRecords.current[id]
+    const parsed = latestParsed.current.find((item) => item.id === id)
+    const { countdown: _countdown, ...toSave } = operation // calculada: no se guarda
+    // Base = lo que dice el correo (o la copia guardada si el correo ya no está en el buzón); overrides = lo que difiere
+    const base = parsed ? (({ countdown: _c, ...rest }) => rest)(parsed) : record?.snapshot
+    const overrides = base ? diffOperation(toSave as Operation, base as Operation) : {}
+    setSavingId(id)
+    setSaveError(null)
+    const { error } = await supabase.from("container_records").upsert({
+      operation_id: id, owner_email: appEmail, type: operation.type, cargo_mode: cargoModeOf(operation), container: operation.container || null, reference: operation.reference || null, client: operation.client || null,
+      overrides, ...(record ? {} : { snapshot: base ?? toSave }),
+      updated_by: userEmail, updated_at: new Date().toISOString(),
+    }, { onConflict: "owner_email,operation_id" })
+    if (error) setSaveError(`No se pudo guardar la ficha: ${error.message}`)
+    else { await fetchRecords(); setEdits((current) => { const next = { ...current }; delete next[id]; return next }) }
+    setSavingId(null)
+  }
   const updateOperation = (operation: Operation) => {
     const base = baseOperations.find((item) => item.id === operation.id)
     const diff = diffOperation(operation, base && savedBase(base))
@@ -428,31 +514,34 @@ export default function ImportExportModule() {
       else delete next[operation.id]
       return next
     })
+    window.clearTimeout(saveTimers.current[operation.id])
+    saveTimers.current[operation.id] = window.setTimeout(() => saveOperation(operation.id), AUTOSAVE_MS)
   }
-  const discardOperation = (id: string) => setEdits((current) => { const next = { ...current }; delete next[id]; return next })
-  const saveOperation = async (operation: Operation) => {
-    const parsed = parsedOperations.find((item) => item.id === operation.id)
-    // Con correo: se guardan los campos que difieren del correo. Sin correo: se acumulan sobre lo ya guardado.
-    const { countdown: _countdown, ...toSave } = operation // calculada: no se guarda
-    const overrides = parsed ? diffOperation(toSave as Operation, parsed) : { ...records[operation.id]?.overrides, ...edits[operation.id] }
-    setSavingId(operation.id)
-    setSaveError(null)
-    const { error } = await supabase.from("container_records").upsert({
-      operation_id: operation.id, type: operation.type, container: operation.container || null, reference: operation.reference || null, client: operation.client || null,
-      overrides, snapshot: toSave, updated_by: userEmail, updated_at: new Date().toISOString(),
-    })
-    if (error) setSaveError(`No se pudo guardar la ficha: ${error.message}`)
-    else { discardOperation(operation.id); await fetchRecords() }
+  // Volver a lo que dice el correo: borra las correcciones manuales
+  const restoreOperation = async (id: string) => {
+    if (!window.confirm("¿Quitar las correcciones manuales de esta ficha y volver a lo que dice el correo?")) return
+    window.clearTimeout(saveTimers.current[id])
+    setEdits((current) => { const next = { ...current }; delete next[id]; return next })
+    setSavingId(id)
+    const { error } = await supabase.from("container_records").update({ overrides: {}, updated_by: null, updated_at: new Date().toISOString() }).eq("operation_id", id)
+    if (error) setSaveError(`No se pudo restaurar la ficha: ${error.message}`)
+    await fetchRecords()
     setSavingId(null)
   }
-  const saveStateFor = (operation: Operation): SaveState => ({
-    dirty: !!edits[operation.id],
-    savedAt: records[operation.id]?.updated_at,
-    savedBy: records[operation.id]?.updated_by,
-    saving: savingId === operation.id,
-    onSave: () => saveOperation(operation),
-    onDiscard: () => discardOperation(operation.id),
-  })
+  const saveStateFor = (operation: Operation): SaveState => {
+    const record = records[operation.id]
+    const overrides = record?.overrides || {}
+    return {
+      dirty: !!edits[operation.id],
+      saving: savingId === operation.id,
+      editedAt: record?.updated_by ? record.updated_at : undefined,
+      editedBy: record?.updated_by,
+      syncedAt: record?.synced_at || record?.updated_at,
+      hasOverrides: Object.keys(overrides).length > 0,
+      canRestore: parsedOperations.some((item) => item.id === operation.id),
+      onRestore: () => restoreOperation(operation.id),
+    }
+  }
 
   // Filtro FCL/LCL: cada cuenta de Outlook recuerda el suyo (ej. Cristóbal ve contenedores, Marcial carga suelta)
   const cargoModeKey = `vtm-ie-cargo-mode:${(userEmail || "sin-cuenta").toLowerCase()}`
@@ -636,7 +725,15 @@ export default function ImportExportModule() {
               </div>
               
               <div className="divide-y divide-slate-100">
-                {outlookLoading && <div className="p-10 text-center animate-pulse text-sm text-slate-500">Buscando correos en Outlook...</div>}
+                {outlookLoading && (
+                  <div className="flex flex-col items-center gap-3 p-10 sm:flex-row sm:justify-center">
+                    <span className="text-sm text-slate-500">Buscando correos en Outlook...</span>
+                    {/* Barra de carga sin porcentaje (indeterminada) */}
+                    <div className="relative h-1.5 w-48 overflow-hidden rounded-full bg-slate-200" role="progressbar" aria-label="Cargando correos">
+                      <div className="vtm-progress-bar absolute inset-y-0 w-1/3 rounded-full bg-navy-500" />
+                    </div>
+                  </div>
+                )}
                 {outlookError && <div className="p-5 text-sm text-red-600">❌ Error: {outlookError}</div>}
                 
                 {!isConnected && !outlookLoading && (

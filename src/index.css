@@ -45,3 +45,13 @@ body {
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: transparent; border-radius: 3px; }
 *:hover::-webkit-scrollbar-thumb { background: #cbd5e1; }
+
+/* Barra de carga indeterminada (Import/Export: "Buscando correos en Outlook...") */
+@keyframes vtm-progress-slide {
+  0% { left: -35%; }
+  100% { left: 100%; }
+}
+.vtm-progress-bar { animation: vtm-progress-slide 1.2s ease-in-out infinite; }
+@media (prefers-reduced-motion: reduce) {
+  .vtm-progress-bar { animation-duration: 3s; }
+}

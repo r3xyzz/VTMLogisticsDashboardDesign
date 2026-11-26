@@ -21,11 +21,43 @@ export interface OutlookEmailForIE {
 }
 
 const MAX_PAGES = 5;
-const SELECT = 'id,subject,from,receivedDateTime,body,uniqueBody,conversationId,hasAttachments';
+// Lista inicial sin uniqueBody (era descargar cada correo dos veces); los hilos de carga sí lo traen
+const LIST_SELECT = 'id,subject,from,receivedDateTime,body,conversationId,hasAttachments';
+const THREAD_SELECT = 'id,subject,from,receivedDateTime,body,uniqueBody,conversationId,hasAttachments';
 const GRAPH = 'https://graph.microsoft.com/v1.0';
 // Correos adjuntos: se revisan los más recientes que traen adjuntos y no tienen tabla propia
 const MAX_ATTACHMENT_PARENTS = 60;
-const ATTACHMENT_CONCURRENCY = 5;
+
+// ---------- Límite de Outlook ----------
+// Outlook (Exchange) acepta ~4 consultas simultáneas por buzón; con más responde 429 "Too Many Requests"
+// y la carga se alarga o queda incompleta. Todas las consultas pasan por esta cola y los 429/503 se reintentan
+// esperando lo que pide Outlook (Retry-After).
+const MAX_CONCURRENT = 4;
+const MAX_RETRIES = 4;
+let running = 0;
+const waiting: (() => void)[] = [];
+const acquire = () => new Promise<void>((resolve) => {
+  if (running < MAX_CONCURRENT) { running++; resolve(); } else waiting.push(() => { running++; resolve(); });
+});
+const release = () => { running--; waiting.shift()?.(); };
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+export async function graphFetch(url: string, headers: Record<string, string>): Promise<Response> {
+  for (let attempt = 0; ; attempt++) {
+    await acquire();
+    let response: Response;
+    try { response = await fetch(url, { headers }); } finally { release(); }
+    if ((response.status !== 429 && response.status !== 503) || attempt >= MAX_RETRIES) return response;
+    const retryAfter = Number(response.headers.get('Retry-After'));
+    await sleep((Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter : 2 ** attempt) * 1000);
+  }
+}
+
+// Correos con adjuntos ya revisados en este buzón (sus operaciones quedan respaldadas en la BD):
+// no se vuelven a abrir en cada carga. Los "Elemento de Outlook" adjuntos no cambian.
+const checkedKey = (mailbox: string) => `vtm-ie-attachments-checked:${mailbox.toLowerCase()}`;
+const readChecked = (mailbox: string): string[] => { try { return JSON.parse(localStorage.getItem(checkedKey(mailbox)) || '[]'); } catch { return []; } };
+const saveChecked = (mailbox: string, ids: string[]) => { try { localStorage.setItem(checkedKey(mailbox), JSON.stringify(ids.slice(-600))); } catch { /* sin storage */ } };
 
 // "IMPOS" / "EXPOS" en el correo que reenvía los adjuntos indica el tipo de todos ellos
 function typeHintOf(email: OutlookEmailForIE): 'impo' | 'expo' | undefined {
@@ -40,17 +72,19 @@ type GraphAttachment = { id: string; name?: string; '@odata.type'?: string };
 type GraphItem = { subject?: string; from?: OutlookEmailForIE['from']; receivedDateTime?: string; sentDateTime?: string; body?: OutlookEmailForIE['body'] };
 
 // Abre los "Elemento de Outlook" adjuntos de un correo y devuelve los que traen datos de carga
-async function attachedEmailsOf(parent: OutlookEmailForIE, headers: Record<string, string>): Promise<OutlookEmailForIE[]> {
+// null = no se pudo leer (no se marca como revisado)
+async function attachedEmailsOf(parent: OutlookEmailForIE, headers: Record<string, string>): Promise<OutlookEmailForIE[] | null> {
   try {
     const base = `${GRAPH}/me/messages/${encodeURIComponent(parent.id)}/attachments`;
     // $select evita descargar el contenido de imágenes/PDF adjuntos
-    const list = await fetch(`${base}?$select=id,name,size`, { headers });
-    if (!list.ok) return [];
+    const list = await graphFetch(`${base}?$select=id,name,size`, headers);
+    if (!list.ok) return null;
     const attachments = ((await list.json()).value || []) as GraphAttachment[];
     const items = attachments.filter((attachment) => attachment['@odata.type']?.toLowerCase().includes('itemattachment'));
     const hint = typeHintOf(parent);
-    const found = await Promise.all(items.map(async (attachment) => {
-      const response = await fetch(`${base}/${encodeURIComponent(attachment.id)}?$expand=microsoft.graph.itemattachment/item`, { headers });
+    const found: (OutlookEmailForIE | null)[] = [];
+    for (const attachment of items) found.push(await (async () => {
+      const response = await graphFetch(`${base}/${encodeURIComponent(attachment.id)}?$expand=microsoft.graph.itemattachment/item`, headers);
       if (!response.ok) return null;
       const item = ((await response.json()).item || {}) as GraphItem;
       if (!item.body?.content || !parseTableFromEmail(item.body.content)) return null;
@@ -67,25 +101,25 @@ async function attachedEmailsOf(parent: OutlookEmailForIE, headers: Record<strin
         typeHint: hint,
       };
       return email;
-    }));
+    })());
     return found.filter((email): email is OutlookEmailForIE => email !== null);
   } catch (err) {
     console.warn('⚠️ [ImportExport] No se pudieron leer los correos adjuntos:', err);
-    return [];
+    return null;
   }
 }
 
-async function fetchAttachedEmails(emails: OutlookEmailForIE[], headers: Record<string, string>): Promise<OutlookEmailForIE[]> {
+async function fetchAttachedEmails(emails: OutlookEmailForIE[], headers: Record<string, string>, mailbox: string): Promise<OutlookEmailForIE[]> {
+  const checked = new Set(readChecked(mailbox));
   const parents = emails
-    .filter((email) => email.hasAttachments && !email.parentId && !parseTableFromEmail(email.body?.content || ''))
+    .filter((email) => email.hasAttachments && !email.parentId && !checked.has(email.id) && !parseTableFromEmail(email.body?.content || ''))
     .sort((a, b) => b.receivedDateTime.localeCompare(a.receivedDateTime))
     .slice(0, MAX_ATTACHMENT_PARENTS);
-  const result: OutlookEmailForIE[] = [];
-  for (let i = 0; i < parents.length; i += ATTACHMENT_CONCURRENCY) {
-    const batch = await Promise.all(parents.slice(i, i + ATTACHMENT_CONCURRENCY).map((parent) => attachedEmailsOf(parent, headers)));
-    result.push(...batch.flat());
-  }
-  return result;
+  // La cola de graphFetch limita la concurrencia; aquí se lanzan todos y Outlook recibe de a 4
+  const results = await Promise.all(parents.map(async (parent) => ({ parent, found: await attachedEmailsOf(parent, headers) })));
+  // Solo se recuerdan los que NO traían carga (fotos, PDF...): los que sí, se releen (por si se limpió la BD)
+  saveChecked(mailbox, [...checked, ...results.filter((result) => result.found && result.found.length === 0).map((result) => result.parent.id)]);
+  return results.flatMap((result) => result.found ?? []);
 }
 
 export function useOutlookForImportExport() {
@@ -135,7 +169,7 @@ export function useOutlookForImportExport() {
       };
       const params = new URLSearchParams({
         $top: '100',
-        $select: SELECT,
+        $select: LIST_SELECT,
         $orderby: 'receivedDateTime desc',
       });
 
@@ -144,7 +178,7 @@ export function useOutlookForImportExport() {
       const all: OutlookEmailForIE[] = [];
       let url: string | undefined = `https://graph.microsoft.com/v1.0/me/messages?${params.toString()}`;
       for (let i = 0; url && i < MAX_PAGES; i++) {
-        const response: Response = await fetch(url, { headers });
+        const response: Response = await graphFetch(url, headers);
         if (!response.ok) {
           const errorData = await response.text();
           throw new Error(`Error de Microsoft Graph (${response.status}): ${errorData}`);
@@ -161,8 +195,8 @@ export function useOutlookForImportExport() {
         .map((thread) => thread[0].conversationId as string);
       const threads = await Promise.all(cargoConversations.map(async (conversationId) => {
         // Sin $orderby: Graph rechaza ordenar por fecha al filtrar por conversationId (se ordena en el parser)
-        const query = new URLSearchParams({ $filter: `conversationId eq '${conversationId}'`, $select: SELECT, $top: '50' });
-        const response = await fetch(`https://graph.microsoft.com/v1.0/me/messages?${query.toString()}`, { headers });
+        const query = new URLSearchParams({ $filter: `conversationId eq '${conversationId}'`, $select: THREAD_SELECT, $top: '50' });
+        const response = await graphFetch(`https://graph.microsoft.com/v1.0/me/messages?${query.toString()}`, headers);
         if (!response.ok) {
           console.warn('⚠️ [ImportExport] No se pudo leer la conversación completa:', await response.text());
           return [];
@@ -175,7 +209,7 @@ export function useOutlookForImportExport() {
       for (const email of [...all, ...threads.flat()]) byId.set(email.id, email);
       const merged = Array.from(byId.values());
       // + correos que vienen adjuntos ("Elemento de Outlook") dentro de otros correos
-      const attached = await fetchAttachedEmails(merged, headers);
+      const attached = await fetchAttachedEmails(merged, headers, userEmail || 'sin-cuenta');
       setEmails([...merged, ...attached]);
       
     } catch (err) {
@@ -184,7 +218,7 @@ export function useOutlookForImportExport() {
     } finally {
       setLoading(false);
     }
-  }, [accessToken]);
+  }, [accessToken, userEmail]);
 
   useEffect(() => {
     if (accessToken) {
