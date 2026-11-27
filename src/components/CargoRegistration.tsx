@@ -473,7 +473,6 @@ export default function CargoRegistration() {
         provider_id: f.mode === 'sub' ? (f.providerId || null) : null,
       };
 
-      console.log(`📝 Guardando orden como ${status}:`, orderData);
 
       const { data, error } = await supabase
         .from('orders')
@@ -495,7 +494,6 @@ export default function CargoRegistration() {
         await fetchVehicles();
       }
 
-      console.log('✅ Orden creada:', data);
       setSuccess(true);
       
       // Limpiar formulario (se mantiene el tipo de solicitud elegido)

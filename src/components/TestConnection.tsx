@@ -38,7 +38,6 @@ export function TestConnection() {
             setConnectionStatus('✅ Conexión exitosa!');
             setClients(data || []);
             
-            console.log('✅ Clientes obtenidos:', data);
         } catch (err) {
             console.error('❌ Error de conexión:', err);
             setError(err instanceof Error ? err.message : 'Error desconocido');

@@ -4,30 +4,12 @@ import { supabase } from '../lib/supabase';
 import type { ActiveView } from '../App';
 import type { Session } from '@supabase/supabase-js';
 
-interface UserPermissions {
-  can_view_dashboard: boolean;
-  can_view_cargo: boolean;
-  can_view_tracking: boolean;
-  can_view_documents: boolean;
-  can_view_fleet: boolean;
-  can_view_drivers: boolean;
-  can_view_providers: boolean;
-  can_view_clients: boolean;
-  can_view_calculations: boolean;
-  can_view_email: boolean;
-  can_view_facturacion: boolean;
-  can_view_camioneros: boolean;
-  can_view_coordination: boolean;
-  can_view_importexport: boolean;
-  can_view_patio: boolean;
-}
-
 interface Props {
   collapsed: boolean;
   onToggle: () => void;
   activeView: ActiveView;
   onNavigate: (v: ActiveView) => void;
-  permissions: UserPermissions;
+  allowedViews: ActiveView[]; // vistas con permiso (las calcula Supabase)
   userRole: string;
   // Celular / tablet: el menú es un panel que se abre con ☰ y se cierra al elegir un módulo
   mobileOpen?: boolean;
@@ -38,25 +20,24 @@ interface NavItem {
   id: ActiveView;
   label: string;
   badge?: number;
-  requiredPermission: keyof UserPermissions;
 }
 
 const navItems: NavItem[] = [
-  { id: 'dashboard', label: 'Dashboard', requiredPermission: 'can_view_dashboard' },
-  { id: 'email', label: 'Correo Empresarial', badge: 2, requiredPermission: 'can_view_email' },
-  { id: 'facturacion', label: 'Facturación', badge: 3, requiredPermission: 'can_view_facturacion' },
-  { id: 'cargo', label: 'Nueva OT / Cotizar', requiredPermission: 'can_view_cargo' },
-  { id: 'tracking', label: 'Monitoreo · Tracking', requiredPermission: 'can_view_tracking' },
-  { id: 'documents', label: 'POD · Documentos', requiredPermission: 'can_view_documents' },
-  { id: 'fleet', label: 'Flota · Vehículos', requiredPermission: 'can_view_fleet' },
-  { id: 'drivers', label: 'Conductores', requiredPermission: 'can_view_drivers' },
-  { id: 'patio', label: 'Jefatura de Patio', requiredPermission: 'can_view_patio' },
-  { id: 'clients', label: 'Clientes', requiredPermission: 'can_view_clients' },
-  { id: 'providers', label: 'Proveedores', badge: 3, requiredPermission: 'can_view_providers' },
-  { id: 'calculations', label: 'Cálculo', requiredPermission: 'can_view_calculations' },
-  { id: 'camioneros', label: 'Camioneros', requiredPermission: 'can_view_camioneros' },
-  { id: 'coordination', label: 'Coordinación', requiredPermission: 'can_view_coordination' },
-  { id: 'importexport', label: 'Import / Export', requiredPermission: 'can_view_importexport' }, 
+  { id: 'dashboard', label: 'Dashboard' },
+  { id: 'email', label: 'Correo Empresarial', badge: 2 },
+  { id: 'facturacion', label: 'Facturación', badge: 3 },
+  { id: 'cargo', label: 'Nueva OT / Cotizar' },
+  { id: 'tracking', label: 'Monitoreo · Tracking' },
+  { id: 'documents', label: 'POD · Documentos' },
+  { id: 'fleet', label: 'Flota · Vehículos' },
+  { id: 'drivers', label: 'Conductores' },
+  { id: 'patio', label: 'Jefatura de Patio' },
+  { id: 'clients', label: 'Clientes' },
+  { id: 'providers', label: 'Proveedores', badge: 3 },
+  { id: 'calculations', label: 'Cálculo' },
+  { id: 'camioneros', label: 'Camioneros' },
+  { id: 'coordination', label: 'Coordinación' },
+  { id: 'importexport', label: 'Import / Export' },
 ];
 
 function NavIcon({ id }: { id: ActiveView }) {
@@ -92,7 +73,7 @@ export default function Sidebar({
   onToggle, 
   activeView, 
   onNavigate, 
-  permissions,
+  allowedViews,
   userRole,
   mobileOpen = false,
   onCloseMobile,
@@ -136,9 +117,7 @@ export default function Sidebar({
     window.location.reload();
   };
 
-  const visibleNavItems = navItems.filter(item => {
-    return permissions[item.requiredPermission] === true;
-  });
+  const visibleNavItems = navItems.filter(item => allowedViews.includes(item.id));
 
   return (
     <aside

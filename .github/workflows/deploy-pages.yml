@@ -28,14 +28,18 @@ jobs:
         with:
           lfs: true
 
+      # Usa la versión de pnpm fijada en package.json ("packageManager")
+      - uses: pnpm/action-setup@v4
+
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+          cache: pnpm
 
-      # Los lockfiles están en .gitignore, por eso npm install (no npm ci)
-      - run: npm install --no-audit --no-fund
+      # --frozen-lockfile: instala exactamente lo de pnpm-lock.yaml; falla si package.json y el lockfile no coinciden
+      - run: pnpm install --frozen-lockfile
 
-      - run: npm run build
+      - run: pnpm run build
         env:
           BASE_PATH: /${{ github.event.repository.name }}/
           VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}

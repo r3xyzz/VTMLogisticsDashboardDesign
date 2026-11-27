@@ -17,7 +17,7 @@ export const msalConfig = {
         loggerOptions: {
             loggerCallback: (level: LogLevel, message: string, containsPii: boolean) => {
                 if (containsPii) return;
-                console.log(`[MSAL] ${message}`);
+                console.warn(`[MSAL] ${message}`);
             },
             logLevel: LogLevel.Warning,
             piiLoggingEnabled: false,

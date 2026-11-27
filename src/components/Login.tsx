@@ -2,7 +2,8 @@
 import { useState } from 'react';
 import { supabase } from '../lib/supabase';
 
-export default function Login() {
+// notice: por qué no pudo entrar (cuenta no autorizada, sin vistas, error al leer permisos)
+export default function Login({ notice }: { notice?: string }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loginAttempts, setLoginAttempts] = useState(0);
@@ -13,35 +14,17 @@ export default function Login() {
       setError(null);
       setLoginAttempts(prev => prev + 1);
       const redirectUrl = new URL(import.meta.env.BASE_URL, window.location.origin).toString();
-      
-      console.log(`🔄 ====== INTENTO DE LOGIN #${loginAttempts + 1} ======`);
-      console.log('📍 URL actual:', window.location.href);
-      console.log('↩️ URL de retorno:', redirectUrl);
-      
-      const { data, error } = await supabase.auth.signInWithOAuth({
+
+      const { error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
         options: {
           redirectTo: redirectUrl,
         },
       });
 
-      if (error) {
-        console.error('❌ Error en signInWithOAuth:', error);
-        console.error('📄 Código de error:', error.code);
-        console.error('📄 Mensaje:', error.message);
-        throw error;
-      }
-      
-      console.log('✅ Login iniciado correctamente');
-      console.log('📊 Data:', data);
-      console.log('🔄 Redirigiendo a Google...');
-      
+      if (error) throw error;
     } catch (err: any) {
-      console.error('❌ ====== ERROR EN LOGIN ======');
-      console.error('📄 Mensaje:', err.message);
-      console.error('📄 Código:', err.code);
-      console.error('📄 Stack:', err.stack);
-      
+      console.error('Error al iniciar sesión con Google:', err);
       setError(err.message || 'Error al iniciar sesión');
       setLoading(false);
     }
@@ -106,6 +89,12 @@ export default function Login() {
               <p className="font-semibold">❌ Error:</p>
               <p>{error}</p>
               <p className="mt-1 text-xs text-red-500">Revisa la consola (F12) para más detalles</p>
+            </div>
+          )}
+
+          {notice && (
+            <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg text-sm text-amber-800">
+              {notice}
             </div>
           )}
 

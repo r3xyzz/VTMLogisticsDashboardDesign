@@ -1,7 +1,7 @@
 // src/lib/supabase.ts
 import { createClient } from '@supabase/supabase-js';
 
-// ✅ CONFIGURACIÓN: Sesión NO persistente (expira al cerrar la pestaña/navegador)
+// ✅ CONFIGURACIÓN: Sesión persistente (queda guardada en localStorage y sigue activa al cerrar y volver a abrir el navegador, hasta cerrar sesión)
 export const supabase = createClient(
   import.meta.env.VITE_SUPABASE_URL,
   import.meta.env.VITE_SUPABASE_ANON_KEY,

@@ -133,21 +133,18 @@ Antes de comenzar, asegúrate de tener instalado:
 ## Levantar el proyecto
 
 ```bash
-# Verificar Node.js (v18 o superior)
+# Verificar Node.js (v22 o superior)
 node --version
 
-# Instalar pnpm (si no está)
-npm install -g pnpm
+# Instalar pnpm (si no está). La versión exacta está en package.json ("packageManager")
+corepack enable
+# o: npm install -g pnpm@11.22.0
 
-# Instalar dependencias
+# Instalar dependencias (exactamente las de pnpm-lock.yaml)
 pnpm install
-# o
-npm install
 
 # Levantar servidor de desarrollo
 pnpm run dev
-# o
-npm run dev
 
 # Construir para producción
 pnpm run build

@@ -4,7 +4,6 @@
 //   LCL (carga suelta · César): una pizarra libre única para el trabajo diario.
 // Datos: coordination_services y coordination_boards (migración 20261119_coordination_fcl_lcl.sql).
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
-import * as XLSX from "xlsx"
 import { supabase } from "../lib/supabase"
 import { selectAll, selectIn } from "../lib/fetchAll"
 
@@ -256,7 +255,9 @@ const newService = (mode: CargoMode, serviceDate: string): Service => ({
 const sortServices = (list: Service[]) => [...list].sort((a, b) => `${a.serviceDate || "9999"} ${a.time || "99:99"}`.localeCompare(`${b.serviceDate || "9999"} ${b.time || "99:99"}`))
 
 // ---------- Exportaciones ----------
-function exportExcel(services: Service[], fileName: string) {
+// SheetJS se descarga recién al exportar (no pesa en la carga del módulo)
+async function exportExcel(services: Service[], fileName: string) {
+  const XLSX = await import("xlsx")
   const rows = services.map((s) => ({
     Tipo: s.type === "expo" ? "Exportación" : "Importación",
     Carga: s.mode.toUpperCase(),

@@ -1,8 +1,9 @@
 # Dependencias
 node_modules/
 .pnpm-store/
+# El proyecto usa pnpm: pnpm-lock.yaml SÍ se sube (fija las versiones exactas)
 package-lock.json
-pnpm-lock.yaml
+yarn.lock
 
 # Variables de entorno (¡IMPORTANTE!)
 .env

@@ -1,2 +1,5 @@
+# core-js (dependencia de jspdf) trae un script postinstall que solo muestra un aviso: no hace falta correrlo
 allowBuilds:
-  core-js: set this to true or false
+  core-js: false
+ignoredBuiltDependencies:
+  - core-js

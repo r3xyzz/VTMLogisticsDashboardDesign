@@ -62,7 +62,6 @@ export default function EmailModule() {
                 const response = await msalInstance.handleRedirectPromise();
                 
                 if (response) {
-                    console.log('✅ Login exitoso desde redirect:', response.account?.username);
                     msalInstance.setActiveAccount(response.account);
                     setAccessToken(response.accessToken);
                 } else if (accounts.length > 0) {
@@ -95,7 +94,6 @@ export default function EmailModule() {
     };
 
     const handleConvertToOT = (email: any) => {
-        console.log('Convertir a OT:', email);
         // Aquí puedes agregar la lógica para convertir el correo en una OT
     };
 

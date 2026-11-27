@@ -243,7 +243,6 @@ export default function CalculationsModule() {
     // ============================================
     const handleDuplicate = async (calc: Calculation) => {
         try {
-            console.log('📋 Duplicando cálculo:', calc.name);
 
             const originalFull = await fetchCalculationFull(calc.id);
             if (!originalFull) {
@@ -329,7 +328,6 @@ export default function CalculationsModule() {
                 if (valError) throw valError;
             }
 
-            console.log('✅ Cálculo duplicado correctamente');
             addToast('Cálculo duplicado correctamente', 'success');
             fetchCalculations();
         } catch (error) {
@@ -343,10 +341,6 @@ export default function CalculationsModule() {
     // ============================================
     const handleSave = async (updatedCalc: CalculationFull) => {
         try {
-            console.log('💾 Guardando cálculo...');
-            console.log('📊 Items:', updatedCalc.items.length);
-            console.log('📊 Columnas:', updatedCalc.columns.length);
-            console.log('📊 Valores:', updatedCalc.values.length);
             
             setLoading(true);
 
@@ -377,7 +371,6 @@ export default function CalculationsModule() {
                     }]);
 
                 if (calcError) throw calcError;
-                console.log('✅ Cálculo creado:', calculationId);
             } else {
                 const { error: calcError } = await supabase
                     .from('calculations')
@@ -398,7 +391,6 @@ export default function CalculationsModule() {
                     .eq('id', calculationId);
 
                 if (calcError) throw calcError;
-                console.log('✅ Cálculo actualizado:', calculationId);
             }
 
             // Eliminar datos antiguos (solo si es edición)
@@ -432,7 +424,6 @@ export default function CalculationsModule() {
                     .from('calculation_columns')
                     .insert(columnsToInsert);
                 if (colError) throw colError;
-                console.log(`✅ ${columnsToInsert.length} columnas insertadas`);
             }
 
             // Insertar items
@@ -448,7 +439,6 @@ export default function CalculationsModule() {
                     .from('calculation_items')
                     .insert(itemsToInsert);
                 if (itemError) throw itemError;
-                console.log(`✅ ${itemsToInsert.length} items insertados`);
             }
 
             // Insertar valores
@@ -468,7 +458,6 @@ export default function CalculationsModule() {
                         .from('calculation_values')
                         .insert(valuesToInsert);
                     if (valError) throw valError;
-                    console.log(`✅ ${valuesToInsert.length} valores insertados`);
                 }
             }
 
