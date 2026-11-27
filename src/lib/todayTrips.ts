@@ -23,13 +23,15 @@ export interface TodayTrip {
   docs: number // documentos subidos por el camionero (de 4); 0 en servicios solo de Coordinación
   pct: number // avance 0-100
   status: TripStatus
+  inTransit: boolean // OT "in_progress" o servicio "En tránsito" (aunque vaya retrasado)
 }
 
 export { localDay }
 const one = <T,>(value: T | T[] | null | undefined): T | undefined => (Array.isArray(value) ? value[0] : value ?? undefined)
 const shortDate = (day: string) => day ? `${day.slice(8, 10)}/${day.slice(5, 7)}` : ''
 
-function deadlineOf(deliveryDate: string, deliveryTime: string, tripDate: string): Date | null {
+/** Plazo de entrega: fecha y hora de Coordinación ("entregar a más tardar"). */
+export function deadlineOf(deliveryDate: string, deliveryTime: string, tripDate: string): Date | null {
   if (deliveryDate) return new Date(`${deliveryDate}T${deliveryTime || '23:59'}:00`)
   if (deliveryTime && tripDate) return new Date(`${tripDate}T${deliveryTime}:00`)
   return null
@@ -102,6 +104,7 @@ export async function fetchTrips(): Promise<TodayTrip[]> {
       docs,
       pct: completed ? 100 : Math.round((docs / 4) * 100),
       status,
+      inTransit: order.status === 'in_progress',
     }
   })
 
@@ -131,6 +134,7 @@ export async function fetchTrips(): Promise<TodayTrip[]> {
         docs: 0,
         pct: done ? 100 : row.status === 'En tránsito' ? 50 : 0,
         status,
+        inTransit: !done && row.status === 'En tránsito',
       }
     })
 

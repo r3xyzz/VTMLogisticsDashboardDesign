@@ -1,21 +1,22 @@
 // src/components/Dashboard.tsx
-import { useState, useEffect } from 'react';
+// Todo lo que muestra sale de los demás módulos (Supabase) y se actualiza en vivo:
+// viajes (Nueva OT, Camioneros, Coordinación), flota (Flota, Patio), facturas (Facturación),
+// alertas (todos los módulos) y tendencias de 6 meses. Lógica de datos en lib/dashboardData.ts.
+import { useState, useEffect, useMemo } from 'react';
 import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip,
-  ResponsiveContainer, BarChart, Bar, Legend
+  ResponsiveContainer, BarChart, Bar
 } from 'recharts'
 import type { ActiveView } from '../App'
 import { getDieselPrice, formatReportDate, type DieselSummary } from '../lib/dieselPrice'
 import { fetchTrips, localDay, type TodayTrip } from '../lib/todayTrips'
-import { selectAll } from '../lib/fetchAll'
+import { fetchDashboardData, monthlyStats, buildAlerts, citiesOfRoute, type DashboardData, type MonthStat, type CityId } from '../lib/dashboardData'
 import { supabase } from '../lib/supabase'
 
 interface Props { onNavigate: (v: ActiveView) => void }
 
 /* ─── FUNCIÓN PARA CONSTRUIR KPIS ────────────────────────────────────────── */
 
-// Total de facturas = suma de la columna "Total" de Facturación (tabla invoices)
-type InvoiceSummary = { total: number; count: number } | null
 const formatClpShort = (value: number) => Math.abs(value) >= 1_000_000
     ? `$${(value / 1_000_000).toLocaleString('es-CL', { maximumFractionDigits: 2 })}M`
     : `$${Math.round(value).toLocaleString('es-CL')}`
@@ -23,7 +24,15 @@ const formatClpShort = (value: number) => Math.abs(value) >= 1_000_000
 // Flota real (tabla fleet, la misma de Flota · Vehículos y Jefatura de Patio)
 type FleetSummary = { inRoute: number; available: number; maintenance: number; inactive: number; total: number } | null
 
-function buildKpis(diesel: DieselSummary | null, dieselError: string | null, invoices: InvoiceSummary, fleet: FleetSummary) {
+function buildKpis(
+    diesel: DieselSummary | null,
+    dieselError: string | null,
+    data: DashboardData | null,
+    fleet: FleetSummary,
+    trips: { loading: boolean; inTransit: number; today: number; delayed: number },
+    month: MonthStat | undefined,
+    previousMonth: MonthStat | undefined,
+) {
     let priceDisplay = 'Cargando...';
     let priceDelta = 'Actualizando...';
     const priceUp = null;
@@ -36,12 +45,18 @@ function buildKpis(diesel: DieselSummary | null, dieselError: string | null, inv
         priceDisplay = '⚠️ Error';
         priceDelta = 'Bencina en Línea no disponible';
     }
+
+    // Total de facturas = suma de la columna "Total" de Facturación (tabla invoices)
+    const invoiceTotal = data ? data.invoices.reduce((sum, invoice) => sum + invoice.total, 0) : 0;
+    // OTD del mes: entregas a tiempo / entregas con plazo (comparado con el mes anterior)
+    const otdDiff = month?.otd != null && previousMonth?.otd != null ? Math.round((month.otd - previousMonth.otd) * 10) / 10 : null;
+
     return [
         {
             label: 'Cargas en Tránsito',
-            value: '23',
-            delta: '+3 vs. ayer',
-            up: true,
+            value: trips.loading ? 'Cargando...' : String(trips.inTransit),
+            delta: trips.loading ? 'Nueva OT · Camioneros · Coordinación' : `${trips.today} viajes hoy${trips.delayed ? ` · ${trips.delayed} retrasados` : ''}`,
+            up: null,
             icon: 'M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4',
             accent: '#2558a0', accentBg: '#eff6ff',
         },
@@ -55,17 +70,19 @@ function buildKpis(diesel: DieselSummary | null, dieselError: string | null, inv
         },
         {
             label: 'Entregas a Tiempo (OTD)',
-            value: '87.3%',
-            delta: '−2.1% vs. mes anterior',
-            up: false,
+            value: !data ? 'Cargando...' : month?.otd != null ? `${month.otd.toLocaleString('es-CL')}%` : '—',
+            delta: !data ? 'Camioneros · Coordinación'
+                : month?.otd == null ? 'Sin entregas con plazo este mes'
+                : `${month.aTiempo}/${month.entregas} a tiempo${otdDiff != null ? ` · ${otdDiff >= 0 ? '+' : '−'}${Math.abs(otdDiff).toLocaleString('es-CL')}% vs. mes anterior` : ''}`,
+            up: otdDiff == null ? null : otdDiff >= 0,
             icon: 'M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z',
             accent: '#ea580c', accentBg: '#fff7ed',
         },
         {
             label: 'Margen Operativo',
-            value: invoices ? formatClpShort(invoices.total) : 'Cargando...',
-            delta: invoices ? `Total de ${invoices.count} facturas · $${Math.round(invoices.total).toLocaleString('es-CL')}` : 'Facturación',
-            up: true,
+            value: data ? formatClpShort(invoiceTotal) : 'Cargando...',
+            delta: data ? `Total de ${data.invoices.length} facturas · $${Math.round(invoiceTotal).toLocaleString('es-CL')}` : 'Facturación',
+            up: null,
             icon: 'M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z',
             accent: '#2558a0', accentBg: '#eff6ff',
         },
@@ -80,7 +97,7 @@ function buildKpis(diesel: DieselSummary | null, dieselError: string | null, inv
     ];
 }
 
-/* ─── DATOS ESTÁTICOS ──────────────────────────────────────────────────────── */
+/* ─── CONFIGURACIÓN VISUAL ─────────────────────────────────────────────────── */
 
 // Los choferes del "Sensor de Horarios" salen de las OT reales de hoy (lib/todayTrips.ts)
 
@@ -93,32 +110,22 @@ const statusCfg: Record<string, { label: string; color: string; bg: string; barC
     'programado': { label: 'Programado', color: '#6d28d9', bg: '#ede9fe', barColor: '#a78bfa' },
 }
 
-const alerts = [
-    { lvl: 'red', time: '10:42', msg: 'DHPR-67 — Desvío no autorizado en Ruta 68. Chofer sin respuesta 18 min.', cta: 'Ver incidencia' },
-    { lvl: 'orange', time: '10:15', msg: 'OT-2408 retrasada 45 min. Cliente Puerto Central S.A. notificado.', cta: 'Ver OT' },
-    { lvl: 'orange', time: '09:58', msg: 'CGMN-14 — Tiempo de carga excedido 30 min. Posible cobro estadía.', cta: 'Registrar costo' },
-    { lvl: 'blue', time: '09:30', msg: 'Nueva solicitud de cotización — ACME Importaciones, Valparaíso.', cta: 'Ver correo' },
-]
-
 const alertStyle: Record<string, { border: string; bg: string; icon: string; iconColor: string }> = {
     red: { border: '#dc2626', bg: '#fef2f2', icon: '!', iconColor: '#dc2626' },
     orange: { border: '#ea580c', bg: '#fff7ed', icon: '⚠', iconColor: '#ea580c' },
     blue: { border: '#2558a0', bg: '#eff6ff', icon: 'i', iconColor: '#2558a0' },
 }
 
-const otdData = [
-    { mes: 'Mar', otd: 91, margen: 5.1 },
-    { mes: 'Abr', otd: 89, margen: 4.8 },
-    { mes: 'May', otd: 94, margen: 5.5 },
-    { mes: 'Jun', otd: 88, margen: 4.6 },
-    { mes: 'Jul', otd: 92, margen: 5.2 },
-    { mes: 'Ago', otd: 87, margen: 4.82 },
+// Triángulo logístico: posición fija de cada ciudad en el mapa (los números salen de los viajes de hoy)
+const cityNodes: { id: CityId; name: string; x: number; y: number }[] = [
+    { id: 'VAL', name: 'Valparaíso', x: 12, y: 50 },
+    { id: 'SCL', name: 'Santiago', x: 52, y: 38 },
+    { id: 'SAN', name: 'San Antonio', x: 28, y: 68 },
 ]
-
-const fleetNodes = [
-    { id: 'VAL', name: 'Valparaíso', x: 12, y: 50, units: 4, online: 3 },
-    { id: 'SCL', name: 'Santiago', x: 52, y: 38, units: 8, online: 7 },
-    { id: 'SAN', name: 'San Antonio', x: 28, y: 68, units: 3, online: 2 },
+const cityEdges: { a: CityId; b: CityId; bubble: { x: number; y: number } }[] = [
+    { a: 'VAL', b: 'SCL', bubble: { x: 32, y: 44 } },
+    { a: 'SCL', b: 'SAN', bubble: { x: 40, y: 53 } },
+    { a: 'VAL', b: 'SAN', bubble: { x: 20, y: 59 } },
 ]
 
 /* ─── COMPONENTE PRINCIPAL ────────────────────────────────────────────────── */
@@ -128,27 +135,46 @@ export default function Dashboard({ onNavigate }: Props) {
     const [diesel, setDiesel] = useState<DieselSummary | null>(null);
     const [dieselError, setDieselError] = useState<string | null>(null);
 
-    // ✅ VIAJES REALES DE HOY (chofer, camión, patente y avance del camionero)
+    // ✅ VIAJES REALES (chofer, camión, patente y avance del camionero) y DATOS DE LOS DEMÁS MÓDULOS
     const [trips, setTrips] = useState<TodayTrip[]>([]);
     const [tripsLoading, setTripsLoading] = useState(true);
     const [tripsError, setTripsError] = useState<string | null>(null);
+    const [data, setData] = useState<DashboardData | null>(null);
+    const [updatedAt, setUpdatedAt] = useState<Date | null>(null);
     useEffect(() => {
-        let timer: number | undefined;
-        const load = () => fetchTrips()
-            .then((list) => { setTrips(list); setTripsError(null); })
+        let tripsTimer: number | undefined;
+        let dataTimer: number | undefined;
+        const loadTrips = () => fetchTrips()
+            .then((list) => { setTrips(list); setTripsError(null); setUpdatedAt(new Date()); })
             .catch((error) => { console.error('Error cargando viajes de hoy:', error); setTripsError(error?.message || 'No se pudieron cargar los viajes'); })
             .finally(() => setTripsLoading(false));
-        load();
-        // Se actualiza cuando el camionero sube documentos o cambia el estado de la OT
-        const reload = () => { window.clearTimeout(timer); timer = window.setTimeout(load, 400); };
+        const loadData = () => fetchDashboardData()
+            .then((result) => { setData(result); setUpdatedAt(new Date()); })
+            .catch((error) => console.error('Error cargando datos del Dashboard:', error));
+        loadTrips();
+        loadData();
+        // Cualquier cambio en otro módulo (de este u otro usuario) se refleja acá en ~1 s
+        const reloadTrips = () => { window.clearTimeout(tripsTimer); tripsTimer = window.setTimeout(loadTrips, 400); };
+        const reloadData = () => { window.clearTimeout(dataTimer); dataTimer = window.setTimeout(loadData, 800); };
+        const reloadAll = () => { reloadTrips(); reloadData(); };
         // Nombre único por montaje: con el mismo nombre Supabase devuelve el canal ya suscrito y .on() lanza error
-        const channel = supabase.channel(`dashboard-trips-${Date.now()}-${Math.random().toString(36).slice(2)}`)
-            .on('postgres_changes', { event: '*', schema: 'public', table: 'orders' }, reload)
-            .on('postgres_changes', { event: '*', schema: 'public', table: 'documents' }, reload)
-            .on('postgres_changes', { event: '*', schema: 'public', table: 'coordination_services' }, reload)
-            .subscribe();
-        const interval = window.setInterval(load, 5 * 60 * 1000); // y cada 5 min para recalcular "Retrasado"
-        return () => { window.clearTimeout(timer); window.clearInterval(interval); supabase.removeChannel(channel); };
+        const channel = supabase.channel(`dashboard-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+        for (const table of ['orders', 'documents', 'coordination_services', 'fleet']) {
+            channel.on('postgres_changes', { event: '*', schema: 'public', table }, reloadAll);
+        }
+        for (const table of ['invoices', 'drivers', 'incidents', 'crane_requests', 'client_notifications']) {
+            channel.on('postgres_changes', { event: '*', schema: 'public', table }, reloadData);
+        }
+        channel.subscribe();
+        // Cada 5 min (recalcula "Retrasado" con la hora) y al volver a la pestaña
+        const interval = window.setInterval(reloadAll, 5 * 60 * 1000);
+        const onVisible = () => { if (document.visibilityState === 'visible') reloadAll(); };
+        document.addEventListener('visibilitychange', onVisible);
+        return () => {
+            window.clearTimeout(tripsTimer); window.clearTimeout(dataTimer); window.clearInterval(interval);
+            document.removeEventListener('visibilitychange', onVisible);
+            supabase.removeChannel(channel);
+        };
     }, []);
 
     // Hoy = viajes del día + los que siguen en ruta; Próximos = asignados a días siguientes (Nueva OT o Coordinación)
@@ -159,43 +185,32 @@ export default function Dashboard({ onNavigate }: Props) {
     const shownTrips = tripsView === 'hoy' ? todayTrips : tripsView === 'proximos' ? futureTrips : trips;
     const dayLabel = (day: string) => day === todayKey ? 'Hoy' : day ? new Date(`${day}T12:00:00`).toLocaleDateString('es-CL', { weekday: 'short', day: '2-digit', month: '2-digit' }).replace(',', '') : 'Sin fecha';
 
-    // ✅ TOTAL DE FACTURAS (mismo cálculo que la columna Total de Facturación: total, o neto + IVA)
-    const [invoiceSummary, setInvoiceSummary] = useState<InvoiceSummary>(null);
-    useEffect(() => {
-        const load = async () => {
-            const { data, error } = await selectAll((from, to) => supabase.from('invoices').select('total, monto, iva').order('id').range(from, to));
-            if (error) { console.error('Error cargando facturas:', error); return; }
-            const rows = (data || []) as { total: number | null; monto: number | null; iva: number | null }[];
-            const total = rows.reduce((sum, row) => sum + Number(row.total ?? (Number(row.monto || 0) + Number(row.iva || 0))), 0);
-            setInvoiceSummary({ total, count: rows.length });
-        };
-        load();
-        const channel = supabase.channel(`dashboard-invoices-${Date.now()}-${Math.random().toString(36).slice(2)}`)
-            .on('postgres_changes', { event: '*', schema: 'public', table: 'invoices' }, () => load())
-            .subscribe();
-        return () => { supabase.removeChannel(channel); };
-    }, []);
-
     // ✅ FLOTA REAL: en ruta lo marca la OT; disponible / mantención / fuera de servicio se gestionan en Flota y Jefatura de Patio
-    const [fleetSummary, setFleetSummary] = useState<FleetSummary>(null);
-    useEffect(() => {
-        const load = async () => {
-            const { data, error } = await supabase.from('fleet').select('status');
-            if (error) { console.error('Error cargando flota:', error); return; }
-            const statuses = ((data || []) as { status: string | null }[]).map(row => row.status || 'available');
-            const count = (status: string) => statuses.filter(s => s === status).length;
-            setFleetSummary({ inRoute: count('in_route'), available: count('available'), maintenance: count('maintenance'), inactive: count('inactive'), total: statuses.length });
-        };
-        load();
-        const channel = supabase.channel(`dashboard-fleet-${Date.now()}-${Math.random().toString(36).slice(2)}`)
-            .on('postgres_changes', { event: '*', schema: 'public', table: 'fleet' }, () => load())
-            .subscribe();
-        return () => { supabase.removeChannel(channel); };
-    }, []);
+    const fleetSummary: FleetSummary = useMemo(() => {
+        if (!data) return null;
+        const statuses = data.fleet.map(row => row.status || 'available');
+        const count = (status: string) => statuses.filter(s => s === status).length;
+        return { inRoute: count('in_route'), available: count('available'), maintenance: count('maintenance'), inactive: count('inactive'), total: statuses.length };
+    }, [data]);
 
-    // ✅ ESTADO PARA ALERTAS
-    const [dismissed, setDismiss] = useState<Set<number>>(new Set())
-    const [activeAlerts] = useState(alerts.length)
+    // ✅ TENDENCIAS DE 6 MESES (OTD desde Camioneros/Coordinación, facturado desde Facturación)
+    const months = useMemo(() => (data ? monthlyStats(data) : []), [data]);
+    const thisMonth = months[months.length - 1];
+    const lastMonth = months[months.length - 2];
+
+    // ✅ ALERTAS REALES (viajes retrasados, documentos por vencer, facturas vencidas, Patio, POD)
+    const alerts = useMemo(() => buildAlerts(data, trips), [data, trips]);
+    const [dismissed, setDismiss] = useState<Set<string>>(new Set())
+    const visibleAlerts = alerts.filter(a => !dismissed.has(a.id));
+
+    // ✅ MAPA: viajes de hoy por ciudad (Santiago incluye las comunas de la RM)
+    const map = useMemo(() => {
+        const routes = todayTrips.map(t => ({ cities: citiesOfRoute(t.route), inTransit: t.inTransit }));
+        return {
+            nodes: cityNodes.map(n => ({ ...n, units: routes.filter(r => r.cities.has(n.id)).length, online: routes.filter(r => r.inTransit && r.cities.has(n.id)).length })),
+            edges: cityEdges.map(e => ({ ...e, count: routes.filter(r => r.inTransit && r.cities.has(e.a) && r.cities.has(e.b)).length })),
+        };
+    }, [todayTrips]);
 
     // ✅ PRECIO DEL DIÉSEL: caché de 6 h en lib/dieselPrice; se revisa cada hora
     useEffect(() => {
@@ -208,8 +223,13 @@ export default function Dashboard({ onNavigate }: Props) {
         return () => clearInterval(interval);
     }, []);
 
-    // ✅ CONSTRUIR KPIS CON EL PRECIO
-    const kpis = buildKpis(diesel, dieselError, invoiceSummary, fleetSummary);
+    // ✅ CONSTRUIR KPIS
+    const kpis = buildKpis(diesel, dieselError, data, fleetSummary, {
+        loading: tripsLoading,
+        inTransit: trips.filter(t => t.inTransit).length,
+        today: todayTrips.length,
+        delayed: trips.filter(t => t.status === 'retrasado').length,
+    }, thisMonth, lastMonth);
 
     // ✅ RENDERIZADO
     return (
@@ -230,18 +250,20 @@ export default function Dashboard({ onNavigate }: Props) {
                         })} · <span style={{ fontFamily: "'JetBrains Mono'" }}>
                             {new Date().toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' })}
                         </span>
+                        {updatedAt && <> · <span className="text-green-600">● En vivo</span> · actualizado {updatedAt.toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</>}
                     </p>
                 </div>
                 <div className="flex items-center gap-2">
                     <button
+                        title={`${visibleAlerts.length} alertas activas`}
                         className="relative flex items-center justify-center w-9 h-9 rounded-lg border border-slate-200 bg-white text-slate-500 hover:text-slate-700 hover:border-slate-300 transition-colors"
                     >
                         <svg className="w-4.5 h-4.5" style={{ width: 17, height: 17 }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
                         </svg>
-                        {activeAlerts - dismissed.size > 0 && (
-                            <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full text-[9px] font-bold flex items-center justify-center text-white" style={{ background: '#dc2626' }}>
-                                {activeAlerts - dismissed.size}
+                        {visibleAlerts.length > 0 && (
+                            <span className="absolute -top-1 -right-1 min-w-4 h-4 px-0.5 rounded-full text-[9px] font-bold flex items-center justify-center text-white" style={{ background: '#dc2626' }}>
+                                {visibleAlerts.length > 99 ? '99+' : visibleAlerts.length}
                             </span>
                         )}
                     </button>
@@ -409,17 +431,16 @@ export default function Dashboard({ onNavigate }: Props) {
                         >
                             <div>
                                 <h2 className="text-[13px] font-bold text-slate-800">Alertas Críticas</h2>
-                                <p className="text-[11px] text-slate-400 mt-0.5">{alerts.length - dismissed.size} activas</p>
+                                <p className="text-[11px] text-slate-400 mt-0.5">{data ? `${visibleAlerts.length} activas` : 'Revisando módulos…'}</p>
                             </div>
-                            <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
+                            {visibleAlerts.some(a => a.level === 'red') && <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />}
                         </div>
-                        <div className="flex-1 overflow-y-auto divide-y divide-slate-50">
-                            {alerts.map((a, i) => {
-                                if (dismissed.has(i)) return null
-                                const s = alertStyle[a.lvl]
+                        <div className="flex-1 overflow-y-auto divide-y divide-slate-50" style={{ maxHeight: 420 }}>
+                            {visibleAlerts.map((a) => {
+                                const s = alertStyle[a.level]
                                 return (
                                     <div
-                                        key={i}
+                                        key={a.id}
                                         className="flex gap-3 px-4 py-3.5"
                                         style={{ background: s.bg, borderLeft: `3px solid ${s.border}` }}
                                     >
@@ -430,14 +451,15 @@ export default function Dashboard({ onNavigate }: Props) {
                                             {s.icon}
                                         </div>
                                         <div className="flex-1 min-w-0">
-                                            <div className="text-[9px] font-mono text-slate-400 mb-0.5">{a.time} hrs</div>
+                                            <div className="text-[9px] font-bold uppercase tracking-wide text-slate-400 mb-0.5">{a.area}</div>
                                             <p className="text-[11px] text-slate-700 leading-relaxed">{a.msg}</p>
                                             <div className="flex items-center justify-between mt-2">
-                                                <button className="text-[10px] font-bold" style={{ color: s.border }}>
+                                                <button onClick={() => onNavigate(a.view)} className="text-[10px] font-bold" style={{ color: s.border }}>
                                                     {a.cta} →
                                                 </button>
                                                 <button
-                                                    onClick={() => setDismiss(s => new Set([...s, i]))}
+                                                    title="Ocultar hasta recargar"
+                                                    onClick={() => setDismiss(s => new Set([...s, a.id]))}
                                                     className="text-[10px] text-slate-300 hover:text-slate-500 transition-colors"
                                                 >
                                                     ×
@@ -447,7 +469,7 @@ export default function Dashboard({ onNavigate }: Props) {
                                     </div>
                                 )
                             })}
-                            {dismissed.size === alerts.length && (
+                            {data && visibleAlerts.length === 0 && (
                                 <div className="p-6 text-center text-[11px] text-slate-400">
                                     No hay alertas activas
                                 </div>
@@ -464,11 +486,11 @@ export default function Dashboard({ onNavigate }: Props) {
                         <div className="flex items-center justify-between px-5 py-3.5" style={{ borderBottom: '1px solid #f1f5f9' }}>
                             <div>
                                 <h2 className="text-[13px] font-bold text-slate-800">Monitor de Flota · Triángulo Logístico</h2>
-                                <p className="text-[11px] text-slate-400 mt-0.5">Valparaíso · Santiago · San Antonio · GPS live</p>
+                                <p className="text-[11px] text-slate-400 mt-0.5">Viajes de hoy por ciudad (en ruta / total) · Santiago incluye la RM</p>
                             </div>
                             <div className="flex items-center gap-1.5">
                                 <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />
-                                <span className="text-[10px] font-semibold text-green-600">Live</span>
+                                <span className="text-[10px] font-semibold text-green-600">En vivo</span>
                             </div>
                         </div>
 
@@ -498,16 +520,17 @@ export default function Dashboard({ onNavigate }: Props) {
                                         <line x1="52%" y1="38%" x2="28%" y2="68%" stroke="#3b82f6" strokeWidth="2" opacity="0.6" />
                                         <line x1="12%" y1="50%" x2="28%" y2="68%" stroke="#94a3b8" strokeWidth="1.5" strokeDasharray="4 4" opacity="0.4" />
 
-                                        {/* Truck count bubbles on routes */}
-                                        <circle cx="32%" cy="44%" r="10" fill="#1d4ed8" opacity="0.9" />
-                                        <text x="32%" y="44%" textAnchor="middle" dominantBaseline="middle" fill="white" fontSize="9" fontWeight="bold">3</text>
-
-                                        <circle cx="40%" cy="53%" r="10" fill="#1d4ed8" opacity="0.9" />
-                                        <text x="40%" y="53%" textAnchor="middle" dominantBaseline="middle" fill="white" fontSize="9" fontWeight="bold">2</text>
+                                        {/* Camiones en ruta entre cada par de ciudades */}
+                                        {map.edges.filter(e => e.count > 0).map(e => (
+                                            <g key={`${e.a}-${e.b}`}>
+                                                <circle cx={`${e.bubble.x}%`} cy={`${e.bubble.y}%`} r="10" fill="#1d4ed8" opacity="0.9" />
+                                                <text x={`${e.bubble.x}%`} y={`${e.bubble.y}%`} textAnchor="middle" dominantBaseline="middle" fill="white" fontSize="9" fontWeight="bold">{e.count}</text>
+                                            </g>
+                                        ))}
                                     </svg>
 
                                     {/* City nodes */}
-                                    {fleetNodes.map(n => (
+                                    {map.nodes.map(n => (
                                         <div
                                             key={n.id}
                                             className="absolute"
@@ -588,13 +611,13 @@ export default function Dashboard({ onNavigate }: Props) {
                             <div className="flex items-center justify-between mb-3">
                                 <div>
                                     <h3 className="text-[12px] font-bold text-slate-800">Tendencia OTD · 6 meses</h3>
-                                    <p className="text-[10px] text-slate-400">Entregas a tiempo (%)</p>
+                                    <p className="text-[10px] text-slate-400">Entregas a tiempo (%) · OT completadas vs. plazo</p>
                                 </div>
-                                <div className="text-[11px] font-mono font-bold" style={{ color: '#ea580c' }}>87.3%</div>
+                                <div className="text-[11px] font-mono font-bold" style={{ color: '#ea580c' }}>{thisMonth?.otd != null ? `${thisMonth.otd.toLocaleString('es-CL')}%` : '—'}</div>
                             </div>
                             <div style={{ height: 90 }}>
                                 <ResponsiveContainer width="100%" height="100%">
-                                    <AreaChart data={otdData} margin={{ top: 0, right: 0, left: -20, bottom: 0 }}>
+                                    <AreaChart data={months} margin={{ top: 0, right: 0, left: -20, bottom: 0 }}>
                                         <defs>
                                             <linearGradient id="otd" x1="0" y1="0" x2="0" y2="1">
                                                 <stop offset="0%" stopColor="#3b82f6" stopOpacity={0.2} />
@@ -603,12 +626,12 @@ export default function Dashboard({ onNavigate }: Props) {
                                         </defs>
                                         <CartesianGrid strokeDasharray="2 4" stroke="#f1f5f9" vertical={false} />
                                         <XAxis dataKey="mes" tick={{ fontSize: 9, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
-                                        <YAxis domain={[82, 96]} tick={{ fontSize: 9, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
+                                        <YAxis domain={[0, 100]} tick={{ fontSize: 9, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
                                         <Tooltip
                                             contentStyle={{ fontSize: 11, border: '1px solid #e2e8f0', borderRadius: 8, boxShadow: '0 2px 8px rgba(0,0,0,0.08)' }}
-                                            formatter={(v) => [`${v}%`, 'OTD']}
+                                            formatter={(v, _name, item) => [`${v}% (${item.payload.aTiempo}/${item.payload.entregas})`, 'OTD']}
                                         />
-                                        <Area type="monotone" dataKey="otd" stroke="#3b82f6" strokeWidth={2} fill="url(#otd)" dot={{ r: 3, fill: '#3b82f6', stroke: 'white', strokeWidth: 1.5 }} activeDot={{ r: 4 }} />
+                                        <Area type="monotone" connectNulls dataKey="otd" stroke="#3b82f6" strokeWidth={2} fill="url(#otd)" dot={{ r: 3, fill: '#3b82f6', stroke: 'white', strokeWidth: 1.5 }} activeDot={{ r: 4 }} />
                                     </AreaChart>
                                 </ResponsiveContainer>
                             </div>
@@ -619,21 +642,21 @@ export default function Dashboard({ onNavigate }: Props) {
                             <div className="flex items-center justify-between mb-3">
                                 <div>
                                     <h3 className="text-[12px] font-bold text-slate-800">Margen Operativo · 6 meses</h3>
-                                    <p className="text-[10px] text-slate-400">Millones CLP</p>
+                                    <p className="text-[10px] text-slate-400">Total facturado por mes · millones CLP</p>
                                 </div>
-                                <div className="text-[11px] font-mono font-bold text-slate-700">$4.82M</div>
+                                <div className="text-[11px] font-mono font-bold text-slate-700">{thisMonth ? `$${thisMonth.facturado.toLocaleString('es-CL')}M` : '—'}</div>
                             </div>
                             <div style={{ height: 90 }}>
                                 <ResponsiveContainer width="100%" height="100%">
-                                    <BarChart data={otdData} margin={{ top: 0, right: 0, left: -20, bottom: 0 }} barSize={16}>
+                                    <BarChart data={months} margin={{ top: 0, right: 0, left: -20, bottom: 0 }} barSize={16}>
                                         <CartesianGrid strokeDasharray="2 4" stroke="#f1f5f9" vertical={false} />
                                         <XAxis dataKey="mes" tick={{ fontSize: 9, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
-                                        <YAxis domain={[3.5, 6]} tick={{ fontSize: 9, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
+                                        <YAxis tick={{ fontSize: 9, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
                                         <Tooltip
                                             contentStyle={{ fontSize: 11, border: '1px solid #e2e8f0', borderRadius: 8, boxShadow: '0 2px 8px rgba(0,0,0,0.08)' }}
                                             formatter={(v) => [`$${v}M`, 'Margen']}
                                         />
-                                        <Bar dataKey="margen" fill="#1e4278" radius={[3, 3, 0, 0]} />
+                                        <Bar dataKey="facturado" fill="#1e4278" radius={[3, 3, 0, 0]} />
                                     </BarChart>
                                 </ResponsiveContainer>
                             </div>
