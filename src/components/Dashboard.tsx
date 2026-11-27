@@ -7,6 +7,7 @@ import {
 import type { ActiveView } from '../App'
 import { getDieselPrice, formatReportDate, type DieselSummary } from '../lib/dieselPrice'
 import { fetchTrips, localDay, type TodayTrip } from '../lib/todayTrips'
+import { selectAll } from '../lib/fetchAll'
 import { supabase } from '../lib/supabase'
 
 interface Props { onNavigate: (v: ActiveView) => void }
@@ -162,7 +163,7 @@ export default function Dashboard({ onNavigate }: Props) {
     const [invoiceSummary, setInvoiceSummary] = useState<InvoiceSummary>(null);
     useEffect(() => {
         const load = async () => {
-            const { data, error } = await supabase.from('invoices').select('total, monto, iva');
+            const { data, error } = await selectAll((from, to) => supabase.from('invoices').select('total, monto, iva').order('id').range(from, to));
             if (error) { console.error('Error cargando facturas:', error); return; }
             const rows = (data || []) as { total: number | null; monto: number | null; iva: number | null }[];
             const total = rows.reduce((sum, row) => sum + Number(row.total ?? (Number(row.monto || 0) + Number(row.iva || 0))), 0);

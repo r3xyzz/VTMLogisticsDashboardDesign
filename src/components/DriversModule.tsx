@@ -1,6 +1,7 @@
 // src/components/DriversModule.tsx
 import { useEffect, useState } from 'react';
 import { supabase } from '../lib/supabase';
+import { daysUntil, parseDate } from '../lib/dates';
 import { Modal } from './ui/Modal';
 import { Toast, addToast, useToasts } from './ui/Toast';
 import type { Driver } from '../types/database';
@@ -422,16 +423,13 @@ export default function DriversModule() {
 
     function isDocumentValid(dateStr: string | null): boolean {
         if (!dateStr) return false;
-        const date = new Date(dateStr);
-        const today = new Date();
-        today.setHours(0, 0, 0, 0);
-        return date >= today;
+        return daysUntil(dateStr) >= 0;
     }
 
     function getDocumentStatus(dateStr: string | null): { label: string; color: string; bg: string } {
         if (!dateStr) return { label: 'No registrado', color: 'text-gray-400', bg: 'bg-gray-100' };
         const valid = isDocumentValid(dateStr);
-        const daysDiff = Math.ceil((new Date(dateStr).getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24));
+        const daysDiff = daysUntil(dateStr);
         
         if (valid && daysDiff <= 30) {
             return { label: `⏳ Próximo a vencer (${daysDiff} días)`, color: 'text-yellow-600', bg: 'bg-yellow-100' };
@@ -574,7 +572,7 @@ export default function DriversModule() {
                                         <div className="flex justify-between text-sm">
                                             <span className="text-slate-500">Contratado:</span>
                                             <span className="font-medium">
-                                                {new Date(driver.hire_date).toLocaleDateString('es-CL')}
+                                                {parseDate(driver.hire_date).toLocaleDateString('es-CL')}
                                             </span>
                                         </div>
                                     )}

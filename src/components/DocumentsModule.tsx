@@ -1,6 +1,8 @@
 // src/components/DocumentsModule.tsx
 import { useEffect, useState } from 'react';
 import { supabase } from '../lib/supabase';
+import { selectAll, selectIn } from '../lib/fetchAll';
+import { parseDate } from '../lib/dates';
 import { Modal } from './ui/Modal';
 import { Toast, addToast, useToasts } from './ui/Toast';
 import jsPDF from 'jspdf';
@@ -654,37 +656,41 @@ export default function DocumentsModule() {
         try {
             setLoading(true);
             
-            let query = supabase
-                .from('orders')
-                .select(`
-                    *,
-                    client:clients (
-                        name,
-                        code,
-                        contact_name,
-                        contact_email,
-                        contact_phone
-                    ),
-                    documents (
-                        pod_empty_url,
-                        pod_final_url,
-                        load_evidence_url,
-                        delivery_evidence_url
-                    ),
-                    provider:providers (
-                        name,
-                        rut,
-                        vehicle_plate,
-                        contact_phone
-                    )
-                `)
-                .order('created_at', { ascending: false });
+            const buildQuery = () => {
+                let query = supabase
+                    .from('orders')
+                    .select(`
+                        *,
+                        client:clients (
+                            name,
+                            code,
+                            contact_name,
+                            contact_email,
+                            contact_phone
+                        ),
+                        documents (
+                            pod_empty_url,
+                            pod_final_url,
+                            load_evidence_url,
+                            delivery_evidence_url
+                        ),
+                        provider:providers (
+                            name,
+                            rut,
+                            vehicle_plate,
+                            contact_phone
+                        )
+                    `)
+                    .order('created_at', { ascending: false })
+                    .order('id');
 
-            if (filterStatus === 'pending') query = query.eq('status', 'pending');
-            else if (filterStatus === 'completed') query = query.eq('status', 'completed');
-            else if (filterStatus === 'in_progress') query = query.eq('status', 'in_progress');
+                if (filterStatus === 'pending') query = query.eq('status', 'pending');
+                else if (filterStatus === 'completed') query = query.eq('status', 'completed');
+                else if (filterStatus === 'in_progress') query = query.eq('status', 'in_progress');
+                return query;
+            };
 
-            const { data, error } = await query;
+            const { data, error } = await selectAll((from, to) => buildQuery().range(from, to));
 
             if (error) throw error;
             
@@ -693,10 +699,10 @@ export default function DocumentsModule() {
                 const creatorIds = data.map(order => order.created_by).filter(id => id !== null);
                 
                 if (creatorIds.length > 0) {
-                    const { data: userData, error: userError } = await supabase
+                    const { data: userData, error: userError } = await selectIn(creatorIds, (ids) => supabase
                         .from('user_profiles')
                         .select('id, full_name, email')
-                        .in('id', creatorIds);
+                        .in('id', ids));
                     
                     if (!userError && userData) {
                         data.forEach(order => {
@@ -728,7 +734,7 @@ export default function DocumentsModule() {
     }
 
     function formatDate(dateStr: string) {
-        return new Date(dateStr).toLocaleDateString('es-CL', {
+        return parseDate(dateStr).toLocaleDateString('es-CL', {
             day: '2-digit',
             month: '2-digit',
             year: 'numeric'

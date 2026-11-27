@@ -1,6 +1,7 @@
 // src/components/ImportExportModule.tsx
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { supabase } from "../lib/supabase"
+import { selectAll } from "../lib/fetchAll"
 import { useOutlookForImportExport } from "../hooks/useOutlookForImportExport"
 import { parseTableFromEmail, groupByConversation, mapConversationToOperation, loadingSchedule, dayKey, cargoModeOf, type CargoMode, type Operation, type ThreadMessage } from "../lib/outlookParser"
 
@@ -393,7 +394,7 @@ export default function ImportExportModule() {
   const [savingId, setSavingId] = useState<string | null>(null)
   const [saveError, setSaveError] = useState<string | null>(null)
   const fetchRecords = useCallback(async () => {
-    const { data, error } = await supabase.from("container_records").select("*")
+    const { data, error } = await selectAll((from, to) => supabase.from("container_records").select("*").order("id").range(from, to))
     if (error) { setSaveError(`No se pudieron leer las fichas guardadas: ${error.message}`); return }
     setRecords(Object.fromEntries(((data || []) as ContainerRecord[]).map((record) => [record.operation_id, record])))
     setRecordsLoaded(true)

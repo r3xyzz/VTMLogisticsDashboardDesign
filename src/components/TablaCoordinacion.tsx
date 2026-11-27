@@ -6,6 +6,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import * as XLSX from "xlsx"
 import { supabase } from "../lib/supabase"
+import { selectAll, selectIn } from "../lib/fetchAll"
 
 type CargoMode = "fcl" | "lcl"
 type ServiceType = "expo" | "impo"
@@ -1059,7 +1060,7 @@ export default function CoordinationBoard() {
 
   const fetchAll = useCallback(async () => {
     const [servicesResult, boardsResult] = await Promise.all([
-      supabase.from("coordination_services").select("*"),
+      selectAll((from, to) => supabase.from("coordination_services").select("*").order("id").range(from, to)),
       supabase.from("coordination_boards").select("*").order("created_at"),
     ])
     const failure = servicesResult.error || boardsResult.error
@@ -1068,7 +1069,7 @@ export default function CoordinationBoard() {
       const list = (servicesResult.data || []).map(rowToService)
       // Servicios creados desde Nueva OT: el viaje del camionero manda el estado y el "finalizado"
       const orderIds = list.map((service) => service.orderId).filter(Boolean)
-      const ordersResult = orderIds.length ? await supabase.from("orders").select("id, status").in("id", orderIds) : { data: [] as { id: string; status: string }[], error: null }
+      const ordersResult = await selectIn(orderIds, (ids) => supabase.from("orders").select("id, status").in("id", ids))
       const tripById = new Map(((ordersResult.data || []) as { id: string; status: string }[]).map((order) => [order.id, order.status]))
       setServices(list.map((service) => {
         const tripStatus = tripById.get(service.orderId) || ""

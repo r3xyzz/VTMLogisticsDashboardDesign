@@ -1,6 +1,7 @@
 // src/components/CalculationsModule.tsx
 import { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
+import { selectAll } from '../lib/fetchAll';
 import { Modal } from './ui/Modal';
 import { addToast, useToasts, Toast } from './ui/Toast';
 import type { 
@@ -82,11 +83,13 @@ export default function CalculationsModule() {
     async function fetchCalculations() {
         try {
             setLoading(true);
-            const { data, error } = await supabase
+            const { data, error } = await selectAll((from, to) => supabase
                 .from('calculations')
                 .select('*')
                 .eq('is_active', true)
-                .order('created_at', { ascending: false });
+                .order('created_at', { ascending: false })
+                .order('id')
+                .range(from, to));
 
             if (error) throw error;
             setCalculations(data || []);
@@ -127,10 +130,12 @@ export default function CalculationsModule() {
 
             if (itemError) throw itemError;
 
-            const { data: values, error: valError } = await supabase
+            const { data: values, error: valError } = await selectAll((from, to) => supabase
                 .from('calculation_values')
                 .select('*')
-                .eq('calculation_id', calculationId);
+                .eq('calculation_id', calculationId)
+                .order('id')
+                .range(from, to));
 
             if (valError) throw valError;
 
@@ -690,10 +695,12 @@ function PreviewTable({ calculationId, margin }: PreviewTableProps) {
                 .eq('calculation_id', calculationId)
                 .order('item_order', { ascending: true });
 
-            const { data: valuesData } = await supabase
+            const { data: valuesData } = await selectAll((from, to) => supabase
                 .from('calculation_values')
                 .select('*')
-                .eq('calculation_id', calculationId);
+                .eq('calculation_id', calculationId)
+                .order('id')
+                .range(from, to));
 
             setColumns(colsData || []);
             setItems(itemsData || []);

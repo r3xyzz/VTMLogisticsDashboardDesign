@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import type { FormEvent } from "react"
 import { supabase } from "../lib/supabase"
+import { selectAll } from "../lib/fetchAll"
 import type { Driver as DriverRow, Fleet as FleetRow } from "../types/database"
 
 // Jefatura de Patio: todo vive en Supabase.
@@ -176,8 +177,8 @@ export default function YardManagerModule() {
       supabase.from("drivers").select("*").order("full_name"),
       supabase.from("yard_movements").select("*").order("moved_at", { ascending: false }).limit(200),
       supabase.from("crane_requests").select("*").order("created_at", { ascending: false }).limit(50),
-      supabase.from("fleet_maintenance").select("*").order("performed_at", { ascending: false }),
-      supabase.from("incidents").select("id, fleet_id, incident_type, description, resolution_notes, reported_at, claim_number").not("fleet_id", "is", null).order("reported_at", { ascending: false }),
+      selectAll((from, to) => supabase.from("fleet_maintenance").select("*").order("performed_at", { ascending: false }).order("id").range(from, to)),
+      selectAll((from, to) => supabase.from("incidents").select("id, fleet_id, incident_type, description, resolution_notes, reported_at, claim_number").not("fleet_id", "is", null).order("reported_at", { ascending: false }).order("id").range(from, to)),
       supabase.from("driver_daily_hours").select("*").eq("work_date", localDay()),
       supabase.from("providers").select("id, name").or("is_active.is.null,is_active.eq.true").order("name"),
     ])

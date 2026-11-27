@@ -1,6 +1,7 @@
 // src/components/Camioneros.tsx
 import { useMemo, useRef, useState, useEffect } from "react"
 import { supabase } from "../lib/supabase"
+import { selectAll, selectIn } from "../lib/fetchAll"
 
 type IconName = "arrow" | "camera" | "check" | "clock" | "document" | "download" | "map" | "search" | "truck" | "upload" | "user"
 
@@ -224,21 +225,25 @@ export default function CamionerosModule() {
       }
 
       // 4. Traer las órdenes (* para no fallar si aún no existe la columna fleet_id)
-      let query = supabase
-        .from('orders')
-        .select(`
-          *,
-          client:clients (name),
-          documents (pod_empty_url, pod_final_url, load_evidence_url, delivery_evidence_url)
-        `)
-        .order('created_at', { ascending: false });
+      const buildQuery = () => {
+        let query = supabase
+          .from('orders')
+          .select(`
+            *,
+            client:clients (name),
+            documents (pod_empty_url, pod_final_url, load_evidence_url, delivery_evidence_url)
+          `)
+          .order('created_at', { ascending: false })
+          .order('id');
 
-      // ✅ FILTRO: Si es un chofer, solo traemos sus viajes. Si es admin, todos.
-      if (isDriver && driverId) {
-        query = query.eq('driver_id', driverId).neq('status', 'draft');
-      }
+        // ✅ FILTRO: Si es un chofer, solo traemos sus viajes. Si es admin, todos.
+        if (isDriver && driverId) {
+          query = query.eq('driver_id', driverId).neq('status', 'draft');
+        }
+        return query;
+      };
 
-      const { data, error } = await query;
+      const { data, error } = await selectAll((from, to) => buildQuery().range(from, to));
       if (error) throw error;
 
       // Nombres reales de chofer y vehículo
@@ -247,16 +252,14 @@ export default function CamionerosModule() {
       const fleetIds = [...new Set(rows.map((o: any) => o.fleet_id).filter(Boolean))];
       const providerIds = [...new Set(rows.map((o: any) => o.provider_id).filter(Boolean))];
       const [{ data: driverRows }, { data: fleetRows }, { data: providerRows }] = await Promise.all([
-        driverIds.length ? supabase.from('drivers').select('id, full_name').in('id', driverIds) : Promise.resolve({ data: [] as any[] }),
-        fleetIds.length ? supabase.from('fleet').select('id, plate, brand, model').in('id', fleetIds) : Promise.resolve({ data: [] as any[] }),
-        providerIds.length ? supabase.from('providers').select('id, name, vehicle_plate').in('id', providerIds) : Promise.resolve({ data: [] as any[] }),
+        selectIn(driverIds, (ids) => supabase.from('drivers').select('id, full_name').in('id', ids)),
+        selectIn(fleetIds, (ids) => supabase.from('fleet').select('id, plate, brand, model').in('id', ids)),
+        selectIn(providerIds, (ids) => supabase.from('providers').select('id, name, vehicle_plate').in('id', ids)),
       ]);
       const providerById = new Map((providerRows || []).map((p: any) => [p.id, p]));
       // Datos que agrega Coordinación (César) sobre la OT asignada
       const orderIds = rows.map((o: any) => o.id);
-      const { data: coordRows } = orderIds.length
-        ? await supabase.from('coordination_services').select('*').in('order_id', orderIds)
-        : { data: [] as any[] };
+      const { data: coordRows } = await selectIn(orderIds, (ids) => supabase.from('coordination_services').select('*').in('order_id', ids));
       const coordByOrder = new Map((coordRows || []).map((c: any) => [c.order_id, c]));
       const driverName = new Map((driverRows || []).map((d: any) => [d.id, d.full_name as string]));
       const truckName = new Map((fleetRows || []).map((v: any) => [v.id, [v.plate, v.brand, v.model].filter(Boolean).join(' · ')]));

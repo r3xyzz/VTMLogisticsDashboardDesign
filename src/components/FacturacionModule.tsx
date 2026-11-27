@@ -2,6 +2,8 @@
 import { useMemo, useRef, useState, useEffect } from "react"
 import { supabase } from "../lib/supabase"
 import { fetchInvoicesByPeriod, type NuboxInvoice } from "../lib/nubox"
+import { daysUntil, localDay, parseDate } from "../lib/dates"
+import { selectAll } from "../lib/fetchAll"
 import jsPDF from "jspdf"
 import autoTable from "jspdf-autotable"
 import * as XLSX from "xlsx"
@@ -346,12 +348,7 @@ function getShipmentDocStatus(
 
 function calcDaysToDue(dueDate: string): number | null {
   if (!dueDate) return null
-  const now = new Date()
-  now.setHours(0, 0, 0, 0)
-  const due = new Date(dueDate)
-  due.setHours(0, 0, 0, 0)
-  const diff = due.getTime() - now.getTime()
-  return Math.round(diff / (1000 * 60 * 60 * 24))
+  return daysUntil(dueDate)
 }
 
 function getDiasLabel(days: number | null): string {
@@ -512,7 +509,7 @@ function exportVencimientosToPDF(data: VencimientosData, searchQuery: string) {
     doc.text("No hay facturas que coincidan con el filtro aplicado.", 14, 45)
   }
 
-  const fileName = `Vencimientos_${now.toISOString().slice(0, 10)}${searchQuery ? "_filtrado" : ""}.pdf`
+  const fileName = `Vencimientos_${localDay(now)}${searchQuery ? "_filtrado" : ""}.pdf`
   doc.save(fileName)
 }
 
@@ -623,7 +620,7 @@ function exportVencimientosToExcel(data: VencimientosData, searchQuery: string) 
     XLSX.utils.book_append_sheet(wb, ws, sheetName)
   })
 
-  const fileName = `Vencimientos_${now.toISOString().slice(0, 10)}${searchQuery ? "_filtrado" : ""}.xlsx`
+  const fileName = `Vencimientos_${localDay(now)}${searchQuery ? "_filtrado" : ""}.xlsx`
   XLSX.writeFile(wb, fileName)
 }
 
@@ -644,7 +641,7 @@ const money = (value: number) =>
 function formatDate(dateStr: string) {
   if (!dateStr) return '—'
   try {
-    return new Date(dateStr).toLocaleDateString('es-CL', { day: '2-digit', month: 'short', year: 'numeric' })
+    return parseDate(dateStr).toLocaleDateString('es-CL', { day: '2-digit', month: 'short', year: 'numeric' })
   } catch {
     return dateStr
   }
@@ -770,9 +767,9 @@ export default function FacturacionModule() {
     try {
       setError(null)
       const [invRes, shipRes, docRes] = await Promise.all([
-        supabase.from('invoices').select('*').order('created_at', { ascending: false }),
-        supabase.from('shipments').select('*').order('created_at', { ascending: false }),
-        supabase.from('document_repository').select('*').order('created_at', { ascending: false }),
+        selectAll((from, to) => supabase.from('invoices').select('*').order('created_at', { ascending: false }).order('id').range(from, to)),
+        selectAll((from, to) => supabase.from('shipments').select('*').order('created_at', { ascending: false }).order('id').range(from, to)),
+        selectAll((from, to) => supabase.from('document_repository').select('*').order('created_at', { ascending: false }).order('id').range(from, to)),
       ])
 
       if (invRes.error) throw invRes.error
@@ -805,9 +802,11 @@ export default function FacturacionModule() {
         return
       }
 
-      const { data: existingInvoices, error: fetchErr } = await supabase
+      const { data: existingInvoices, error: fetchErr } = await selectAll((from, to) => supabase
         .from('invoices')
         .select('id, numero, bl, booking, containers, provider_invoices, pdf, direction')
+        .order('id')
+        .range(from, to))
 
       if (fetchErr) throw fetchErr
 
@@ -1019,17 +1018,10 @@ export default function FacturacionModule() {
   }, [invoices, invoiceFilter, search])
 
   const urgentCount = useMemo(() => {
-    const now = new Date()
-    now.setHours(0, 0, 0, 0)
-    const in7Days = new Date(now)
-    in7Days.setDate(in7Days.getDate() + 7)
-
     return invoices.filter(inv => {
       if (inv.status === "Pagada") return false
       if (!inv.dueDate) return false
-      const due = new Date(inv.dueDate)
-      due.setHours(0, 0, 0, 0)
-      return due <= in7Days
+      return daysUntil(inv.dueDate) <= 7
     }).length
   }, [invoices])
 
@@ -1292,7 +1284,7 @@ function InvoicesTab({
             )}
             {invoices.map((inv) => {
               const displayStatus = inv.emissionStatusName || inv.status
-              const isOverdue = inv.status === "Vencida" || (inv.dueDate && new Date(inv.dueDate) < new Date() && inv.status !== "Pagada")
+              const isOverdue = inv.status === "Vencida" || (inv.dueDate && daysUntil(inv.dueDate) < 0 && inv.status !== "Pagada")
               const isRejected = inv.emissionStatusName === "Rechazado por SII"
               
               return (
@@ -1928,13 +1920,6 @@ function VencimientosView({ invoices }: { invoices: Invoice[] }) {
   }, [invoices, searchQuery])
 
   // Clasificar facturas por vencimiento
-  const now = new Date()
-  now.setHours(0, 0, 0, 0)
-
-  const today = new Date(now)
-  const in7Days = new Date(now)
-  in7Days.setDate(in7Days.getDate() + 7)
-
   const vencidas: Invoice[] = []
   const vencenHoy: Invoice[] = []
   const proximas: Invoice[] = []
@@ -1944,21 +1929,20 @@ function VencimientosView({ invoices }: { invoices: Invoice[] }) {
     if (inv.status === "Pagada") return
     if (!inv.dueDate) return
 
-    const due = new Date(inv.dueDate)
-    due.setHours(0, 0, 0, 0)
+    const days = daysUntil(inv.dueDate)
 
-    if (due < today) {
+    if (days < 0) {
       vencidas.push(inv)
-    } else if (due.getTime() === today.getTime()) {
+    } else if (days === 0) {
       vencenHoy.push(inv)
-    } else if (due <= in7Days) {
+    } else if (days <= 7) {
       proximas.push(inv)
     } else {
       vigentes.push(inv)
     }
   })
 
-  const sortByDue = (a: Invoice, b: Invoice) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime()
+  const sortByDue = (a: Invoice, b: Invoice) => parseDate(a.dueDate).getTime() - parseDate(b.dueDate).getTime()
   vencidas.sort(sortByDue)
   vencenHoy.sort(sortByDue)
   proximas.sort(sortByDue)
@@ -2559,7 +2543,7 @@ function ConciliacionTab({ invoices }: { invoices: Invoice[] }) {
       const invConcept = inv.typeName || "Transporte" 
       const matchesConcept = conceptFilter === "Todos" || invConcept.includes(conceptFilter)
 
-      const invPeriod = inv.issueDate ? new Date(inv.issueDate).toISOString().slice(0, 7) : ""
+      const invPeriod = inv.issueDate ? localDay(parseDate(inv.issueDate)).slice(0, 7) : ""
       const matchesPeriod = periodFilter === "Todos" || invPeriod === periodFilter
 
       const needsAnnull = inv.annulled === true || inv.status === "Anulado" || inv.status === "Vencida"

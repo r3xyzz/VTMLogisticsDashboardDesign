@@ -1,6 +1,8 @@
 // src/components/ProvidersModule.tsx
 import { useEffect, useState } from 'react';
 import { supabase } from '../lib/supabase';
+import { selectAll } from '../lib/fetchAll';
+import { daysUntil } from '../lib/dates';
 import { Modal } from './ui/Modal';
 import { Toast, addToast, useToasts } from './ui/Toast';
 import type { Provider } from '../types/database';
@@ -106,11 +108,13 @@ export default function ProvidersModule() {
             // OT asignadas a estos proveedores (desde Nueva OT en modo subcontrato)
             const ids = (data || []).map(p => p.id);
             if (ids.length > 0) {
-                const { data: orders, error: ordersError } = await supabase
+                const { data: orders, error: ordersError } = await selectAll((from, to) => supabase
                     .from('orders')
                     .select('id, order_number, status, origin, destination, purchased_value, service_date, provider_id, documents (pod_final_url)')
                     .in('provider_id', ids)
-                    .order('created_at', { ascending: false });
+                    .order('created_at', { ascending: false })
+                    .order('id')
+                    .range(from, to));
                 if (ordersError) {
                     console.error('Error fetching provider orders:', ordersError);
                 } else {
@@ -282,9 +286,7 @@ export default function ProvidersModule() {
 
     function isDocumentValid(dateStr: string | null): boolean {
         if (!dateStr) return false;
-        const date = new Date(dateStr);
-        const today = new Date();
-        return date >= today;
+        return daysUntil(dateStr) >= 0;
     }
 
     function getDocumentStatus(dateStr: string | null): { label: string; color: string } {

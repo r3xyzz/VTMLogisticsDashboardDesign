@@ -67,6 +67,15 @@ async function nuboxFetch<T>(endpoint: string): Promise<T> {
     },
   })
 
+  // /api/nubox es un proxy de Vite: solo existe con `npm run dev` o `npm run preview`.
+  // En GitHub Pages (sitio estático) la ruta no existe y responde una página HTML.
+  if ((res.headers.get('content-type') || '').includes('text/html')) {
+    throw new NuboxError(
+      'La sincronización con Nubox solo funciona desde el servidor local (npm run dev). Las facturas ya guardadas se siguen viendo desde la base de datos.',
+      res.status
+    )
+  }
+
   if (!res.ok) {
     let errorDetail = ''
     try {

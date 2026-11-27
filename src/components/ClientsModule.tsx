@@ -1,6 +1,7 @@
 // src/components/ClientsModule.tsx
 import { useEffect, useState } from 'react';
 import { supabase } from '../lib/supabase';
+import { selectAll } from '../lib/fetchAll';
 import { Modal } from './ui/Modal';
 import { Toast, addToast, useToasts } from './ui/Toast';
 
@@ -62,15 +63,18 @@ export default function ClientsModule() {
     async function fetchClients() {
         try {
             setLoading(true);
-            let query = supabase.from('clients').select('*').order('name');
+            const buildQuery = () => {
+                let query = supabase.from('clients').select('*').order('name').order('id');
 
-            if (filterActive === 'active') {
-                query = query.eq('is_active', true);
-            } else if (filterActive === 'inactive') {
-                query = query.eq('is_active', false);
-            }
+                if (filterActive === 'active') {
+                    query = query.eq('is_active', true);
+                } else if (filterActive === 'inactive') {
+                    query = query.eq('is_active', false);
+                }
+                return query;
+            };
 
-            const { data, error } = await query;
+            const { data, error } = await selectAll((from, to) => buildQuery().range(from, to));
             if (error) throw error;
             setClients(data || []);
         } catch (error) {

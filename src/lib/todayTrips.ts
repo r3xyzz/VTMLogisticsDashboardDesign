@@ -3,6 +3,8 @@
 //   - OT reales (Nueva OT) con su chofer, camión y avance (4 documentos que sube el camionero)
 //   - Servicios de Coordinación asignados a un chofer que no vienen de una OT (programación FCL/LCL, viajes futuros)
 import { supabase } from './supabase'
+import { localDay } from './dates'
+import { selectAll, selectIn } from './fetchAll'
 
 export type TripStatus = 'programado' | 'en-espera' | 'cargando' | 'en-ruta' | 'retrasado' | 'entregado'
 
@@ -23,7 +25,7 @@ export interface TodayTrip {
   status: TripStatus
 }
 
-export const localDay = (date = new Date()) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
+export { localDay }
 const one = <T,>(value: T | T[] | null | undefined): T | undefined => (Array.isArray(value) ? value[0] : value ?? undefined)
 const shortDate = (day: string) => day ? `${day.slice(8, 10)}/${day.slice(5, 7)}` : ''
 
@@ -39,13 +41,15 @@ export async function fetchTrips(): Promise<TodayTrip[]> {
 
   const [ordersResult, coordinationResult] = await Promise.all([
     // OT de hoy y futuras (sin borradores) + las que siguen en tránsito de días anteriores
-    supabase
+    selectAll((from, to) => supabase
       .from('orders')
       .select('id, order_number, status, origin, destination, service_date, driver_id, fleet_id, provider_id, client:clients(name), documents(pod_empty_url, load_evidence_url, pod_final_url, delivery_evidence_url)')
       .or(`service_date.gte.${today},status.eq.in_progress`)
-      .neq('status', 'draft'),
+      .neq('status', 'draft')
+      .order('id')
+      .range(from, to)),
     // Servicios de Coordinación de hoy en adelante (los enlazados a una OT se usan para hora, plazo y paradas)
-    supabase.from('coordination_services').select('*').or(`service_date.gte.${today},order_id.not.is.null`),
+    selectAll((from, to) => supabase.from('coordination_services').select('*').or(`service_date.gte.${today},order_id.not.is.null`).order('id').range(from, to)),
   ])
   if (ordersResult.error) throw ordersResult.error
   if (coordinationResult.error) throw coordinationResult.error
@@ -54,9 +58,9 @@ export async function fetchTrips(): Promise<TodayTrip[]> {
 
   const ids = (key: string) => Array.from(new Set(orders.map((order) => order[key]).filter(Boolean)))
   const [driversResult, fleetResult, providersResult] = await Promise.all([
-    ids('driver_id').length ? supabase.from('drivers').select('id, full_name').in('id', ids('driver_id')) : Promise.resolve({ data: [] }),
-    ids('fleet_id').length ? supabase.from('fleet').select('id, plate, vehicle_type, brand').in('id', ids('fleet_id')) : Promise.resolve({ data: [] }),
-    ids('provider_id').length ? supabase.from('providers').select('id, name, vehicle_plate').in('id', ids('provider_id')) : Promise.resolve({ data: [] }),
+    selectIn(ids('driver_id'), (chunk) => supabase.from('drivers').select('id, full_name').in('id', chunk)),
+    selectIn(ids('fleet_id'), (chunk) => supabase.from('fleet').select('id, plate, vehicle_type, brand').in('id', chunk)),
+    selectIn(ids('provider_id'), (chunk) => supabase.from('providers').select('id, name, vehicle_plate').in('id', chunk)),
   ])
   const byId = <T extends { id: string }>(rows: T[] | null | undefined) => new Map((rows || []).map((row) => [row.id, row]))
   const drivers = byId((driversResult.data || []) as { id: string; full_name: string }[])
