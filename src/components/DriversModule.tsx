@@ -345,9 +345,11 @@ export default function DriversModule() {
         }
     }
 
-    async function handleDelete(id: string) {
-        if (!confirm('¿Estás seguro de eliminar este conductor?')) return;
+    // Confirmación con modal propio (window.confirm lo bloquean algunos navegadores embebidos)
+    const [pendingDelete, setPendingDelete] = useState<{ id: string; name: string } | null>(null);
 
+    async function handleDelete(id: string) {
+        setPendingDelete(null);
         try {
             // Obtener el vehículo asignado antes de eliminar
             const { data: driverData } = await supabase
@@ -378,9 +380,12 @@ export default function DriversModule() {
             addToast('Conductor eliminado correctamente', 'success');
             fetchDrivers();
             fetchFleets();
-        } catch (error) {
-            console.error('Error deleting driver:', error);
-            addToast('Error al eliminar el conductor', 'error');
+        } catch (error: any) {
+            console.error('Error al eliminar conductor:', error);
+            // 23503 = otra tabla tiene registros de este conductor (OT, movimientos de patio, etc.)
+            addToast(error?.code === '23503'
+                ? `No se puede eliminar: tiene registros asociados (${error.details || error.message}). Desactívalo en su lugar.`
+                : `Error al eliminar el conductor: ${error?.message || 'error desconocido'}`, 'error');
         }
     }
 
@@ -640,7 +645,7 @@ export default function DriversModule() {
                                             {driver.is_active ? '⏸️ Desactivar' : '▶️ Activar'}
                                         </button>
                                         <button
-                                            onClick={() => handleDelete(driver.id)}
+                                            onClick={() => setPendingDelete({ id: driver.id, name: driver.full_name })}
                                             className="px-3 py-1 text-red-600 hover:bg-red-50 rounded text-xs flex-1"
                                         >
                                             🗑️ Eliminar
@@ -652,6 +657,15 @@ export default function DriversModule() {
                     })}
                 </div>
             )}
+
+            {/* Confirmar eliminación */}
+            <Modal isOpen={!!pendingDelete} onClose={() => setPendingDelete(null)} title="Eliminar conductor" size="sm">
+                <p className="text-sm text-gray-700">¿Seguro que quieres eliminar a <b>{pendingDelete?.name}</b>? No se puede deshacer.</p>
+                <div className="mt-6 flex justify-end gap-2">
+                    <button onClick={() => setPendingDelete(null)} className="px-4 py-2 text-sm rounded-lg border border-gray-300 hover:bg-gray-50">Cancelar</button>
+                    <button onClick={() => pendingDelete && handleDelete(pendingDelete.id)} className="px-4 py-2 text-sm rounded-lg bg-red-600 text-white hover:bg-red-700">Eliminar</button>
+                </div>
+            </Modal>
 
             {/* Modal */}
             <Modal

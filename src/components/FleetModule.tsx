@@ -308,9 +308,11 @@ export default function FleetModule() {
         }
     }
 
-    async function handleDelete(id: string) {
-        if (!confirm('¿Estás seguro de eliminar este vehículo?')) return;
+    // Confirmación con modal propio (window.confirm lo bloquean algunos navegadores embebidos)
+    const [pendingDelete, setPendingDelete] = useState<{ id: string; plate: string } | null>(null);
 
+    async function handleDelete(id: string) {
+        setPendingDelete(null);
         try {
             // Obtener el conductor asignado antes de eliminar
             const { data: fleetData } = await supabase
@@ -337,9 +339,12 @@ export default function FleetModule() {
             addToast('Vehículo eliminado correctamente', 'success');
             fetchFleet();
             fetchDrivers();
-        } catch (error) {
-            console.error('Error deleting fleet:', error);
-            addToast('Error al eliminar el vehículo', 'error');
+        } catch (error: any) {
+            console.error('Error al eliminar vehículo:', error);
+            // 23503 = otra tabla tiene registros de este vehículo
+            addToast(error?.code === '23503'
+                ? `No se puede eliminar: tiene registros asociados (${error.details || error.message}). Márcalo "Fuera de servicio" en su lugar.`
+                : `Error al eliminar el vehículo: ${error?.message || 'error desconocido'}`, 'error');
         }
     }
 
@@ -550,7 +555,7 @@ export default function FleetModule() {
                                     Editar
                                 </button>
                                 <button
-                                    onClick={() => handleDelete(vehicle.id)}
+                                    onClick={() => setPendingDelete({ id: vehicle.id, plate: vehicle.plate })}
                                     className="px-2 py-1 text-red-600 hover:bg-red-50 rounded text-xs"
                                 >
                                     Eliminar
@@ -561,6 +566,15 @@ export default function FleetModule() {
                     })}
                 </div>
             )}
+
+            {/* Confirmar eliminación */}
+            <Modal isOpen={!!pendingDelete} onClose={() => setPendingDelete(null)} title="Eliminar vehículo" size="sm">
+                <p className="text-sm text-gray-700">¿Seguro que quieres eliminar el vehículo <b>{pendingDelete?.plate}</b>? No se puede deshacer.</p>
+                <div className="mt-6 flex justify-end gap-2">
+                    <button onClick={() => setPendingDelete(null)} className="px-4 py-2 text-sm rounded-lg border border-gray-300 hover:bg-gray-50">Cancelar</button>
+                    <button onClick={() => pendingDelete && handleDelete(pendingDelete.id)} className="px-4 py-2 text-sm rounded-lg bg-red-600 text-white hover:bg-red-700">Eliminar</button>
+                </div>
+            </Modal>
 
             <Modal
                 isOpen={isModalOpen}
